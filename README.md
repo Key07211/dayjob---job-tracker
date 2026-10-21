@@ -6,7 +6,13 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 
 ![今日岗位：AI 匹配分、发布日期、岗位详情](docs/media/feed.webp)
 
-> 截图里的公司、岗位和简历都是 `scripts/seed-demo.mjs` 生成的虚构数据。
+> 截图里的公司、岗位和简历都是 `scripts/seed-demo.mjs` 生成的虚构数据。界面跟随系统切换浅色 / 深色，也可以在设置里固定。
+
+<details><summary>深色模式</summary>
+
+![深色模式](docs/media/feed-dark.webp)
+
+</details>
 
 ## 功能
 
