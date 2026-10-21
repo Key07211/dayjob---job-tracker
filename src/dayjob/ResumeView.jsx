@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { formatTime } from './format.js';
 
 const MAX_BYTES = 8 * 1024 * 1024;
+const UNAVAILABLE = { 'claude-cli': '没有找到 Claude Code。请安装并登录，或在下面填写路径。', 'anthropic-api': '还没有设置 API key。' };
 
 function toBase64(file) {
   return new Promise((resolve, reject) => {
@@ -112,7 +113,7 @@ function AiSettings({ boot, reload, status }) {
     <form className="card-section" onSubmit={save}>
       <h2><Sparkles size={18} />AI 打分</h2>
       <p className={`status-line ${scoring.available ? 'ok' : 'off'}`}>
-        {scoring.available ? <CheckCircle2 size={15} /> : null}{scoring.detail}
+        {scoring.available ? <CheckCircle2 size={15} /> : null}{scoring.available ? scoring.detail : UNAVAILABLE[scoring.provider] || scoring.detail}
         <button type="button" className="icon-button" title="重新检测" onClick={refresh} disabled={checking}>{checking ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
       </p>
       <div className="choice-row">

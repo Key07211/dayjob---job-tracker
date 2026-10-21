@@ -10,3 +10,4 @@ data/
 *.log
 .vite/
 test-results/
+live-check-report.json

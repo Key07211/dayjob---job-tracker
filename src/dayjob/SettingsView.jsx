@@ -110,8 +110,8 @@ export function SettingsView({ boot, reload }) {
         <p className="hint">Glassdoor、ZipRecruiter、Google Jobs 需要 Python 版 JobSpy：安装 Python 后运行 <code>pip install python-jobspy</code>。LinkedIn、Indeed 和公司招聘页不需要。</p>
         <div className="form-grid">
           <label>Python 命令<input value={form.pythonCommand} onChange={event => set('pythonCommand', event.target.value)} maxLength={1024} placeholder="python" /></label>
-          <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.detail}</p>
         </div>
+        <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available ? jobspy.detail : '未检测到 JobSpy。装好后点“保存设置”会重新检测。'}</p>
         {error ? <p className="notice error">{error}</p> : null}
         {message ? <p className="notice">{message}</p> : null}
         <div className="form-actions"><button className="button primary" type="submit">保存设置</button></div>

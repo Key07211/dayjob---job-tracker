@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
+import { Bookmark, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { api, query } from '../api.js';
 import { SITE_LABELS, relativeDay, salaryText } from './format.js';
 import { ScoreBadge } from './ScoreBadge.jsx';
@@ -134,6 +134,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
                   {item.isRemote ? <span>远程</span> : null}
                   {item.closedAt ? <span className="tag-closed">已关闭</span> : null}
                   {item.status === 'new' && mode === 'active' ? <span className="tag-new">新</span> : null}
+                  {item.status === 'saved' && mode === 'active' ? <span className="tag-saved"><Bookmark size={11} />已收藏</span> : null}
                 </span>
               </div>
               <ScoreBadge score={item.score} compact />

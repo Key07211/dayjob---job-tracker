@@ -53,6 +53,7 @@
       "server/**/*.mjs",
       "server/**/*.ps1",
       "integrations/mcp-server.mjs",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "win": {
