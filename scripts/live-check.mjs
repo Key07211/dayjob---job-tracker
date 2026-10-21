@@ -128,10 +128,11 @@ if (values.pipeline) {
     const result = await app.scheduler.runNow({ track: true });
     const stored = app.repo.listPostings({ status: 'all', limit: 200 });
     const failed = result.run.detail.filter(entry => entry.error);
+    const warned = result.run.detail.filter(entry => entry.warning);
     const problem = !stored.total ? '没有保存任何岗位' : result.scoring.failed ? `打分失败：${result.scoring.reason}` : undefined;
     return { ok: !problem && failed.length < result.run.detail.length, problem,
       searchId: search.id, run: result.run, scoring: result.scoring, tracking: result.tracking, stored: stored.total,
-      summary: `保存 ${stored.total} 个岗位，${failed.length} 个来源出错，打分 ${result.scoring.scored}` };
+      summary: `状态 ${result.run.status}，保存 ${stored.total} 个岗位，${failed.length} 个来源出错${warned.length ? `，${warned.length} 条提示（${warned.map(entry => entry.source).join('、')}）` : ''}，打分 ${result.scoring.scored}` };
   });
 }
 

@@ -164,8 +164,9 @@ async function runSmoke() {
   let english = false;
   for (let attempt = 0; attempt < 50 && !english; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 100));
-    english = await window.webContents.executeJavaScript("['Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en'");
+    english = await window.webContents.executeJavaScript("['Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en' && document.title === 'Dayjob · Job tracker'");
   }
+  const englishTitle = window.getTitle();
   let languageSaved = false;
   for (let attempt = 0; attempt < 30 && !languageSaved; attempt += 1) {
     languageSaved = service.repo.getSettings().language === 'en' && language === 'en';
@@ -176,7 +177,7 @@ async function runSmoke() {
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath);
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, languageSaved, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath }, null, 2));
   if (!ok) throw new Error('Desktop smoke assertions failed.');
   app.quit();

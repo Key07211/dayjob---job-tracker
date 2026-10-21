@@ -1,5 +1,6 @@
+/* English: a Latin font first, so quotes, dots and dashes are not drawn full-width by a CJK font. */
 :root {
-  font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-family: Inter, "Segoe UI", -apple-system, "Helvetica Neue", Arial, "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-size: 15px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -24,6 +25,7 @@
   color: var(--text);
   background: var(--surface);
 }
+:root:lang(zh-CN) { font-family: Inter, "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif; }
 :root[data-theme="night"] {
   --green: #7dbba8;
   --green-soft: #1f3a33;
