@@ -9,6 +9,7 @@ import { openDatabase } from './jobs/db.mjs';
 import { APPLICATION_STATUSES, createRepository } from './jobs/repository.mjs';
 import { createHttp } from './jobs/scrapers/http-client.mjs';
 import { SITES } from './jobs/scrapers/index.mjs';
+import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
 import { createJobspyBridge, detectJobspy } from './jobs/scrapers/jobspy-bridge.mjs';
 import { fetchCompanyBoard, parseCompanyBoard } from './jobs/scrapers/company-boards.mjs';
 import { createSearchRunner } from './jobs/search-runner.mjs';
@@ -127,7 +128,8 @@ export async function createApp(options = {}) {
     if (pathname === '/api/bootstrap') {
       return { csrfToken, version: VERSION, dataFile: filename, serverTime: now().toISOString(), settings: publicSettings(repo.getSettings()),
         stats: repo.stats(), searches: repo.listSearches(), companies: repo.listCompanies(), sites: await sites(), resumes: repo.listResumes(),
-        scoring: await scorer.status(), scheduler: schedulerState(), runs: repo.listRuns(10), applicationStatuses: APPLICATION_STATUSES };
+        scoring: await scorer.status(), scheduler: schedulerState(), runs: repo.listRuns(10), applicationStatuses: APPLICATION_STATUSES,
+        countries: Object.keys(COUNTRIES) };
     }
     if (pathname === '/api/status') return status();
     if (pathname === '/api/sites') return sites(flag(params.get('refresh')));
@@ -237,6 +239,7 @@ export async function createApp(options = {}) {
           repo.saveScore(posting.id, resume.id, { ...result, provider: source === 'mcp' ? 'claude-mcp' : 'manual', model: null });
           return repo.getPosting(posting.id);
         }
+        if (!repo.activeResume()) throw new HttpError(409, 'Upload a resume before scoring.');
         try { await scorer.score(posting.id, { force: input.force === true }); }
         catch (error) { throw new HttpError(error.status || 502, error.message); }
         return repo.getPosting(posting.id);

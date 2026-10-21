@@ -33,6 +33,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
+    "jszip": "^3.10.2",
     "vite": "^7.1.0"
   },
   "main": "desktop/main.cjs",

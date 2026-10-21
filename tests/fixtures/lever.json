@@ -1,0 +1,20 @@
+[
+  {
+    "id": "3f1c2b8a-1d2e-4f50-9a7b-1234567890ab",
+    "text": "Data Scientist, Growth",
+    "categories": { "commitment": "Full-time", "department": "Data", "location": "New York, NY", "team": "Growth", "allLocations": ["New York, NY"] },
+    "country": "US",
+    "workplaceType": "hybrid",
+    "createdAt": 1760745600000,
+    "description": "<div><b>Who we are</b></div><div>Plaidish builds payments.</div>",
+    "descriptionPlain": "Who we are\nPlaidish builds payments.",
+    "lists": [
+      { "text": "What you'll do", "content": "<li>Own growth metrics</li><li>Run experiments</li>" },
+      { "text": "You might be a fit if", "content": "<li>3+ years of SQL and Python</li>" }
+    ],
+    "additional": "<div>Base pay $160k - $200k.</div>",
+    "hostedUrl": "https://jobs.lever.co/plaidish/3f1c2b8a-1d2e-4f50-9a7b-1234567890ab",
+    "applyUrl": "https://jobs.lever.co/plaidish/3f1c2b8a-1d2e-4f50-9a7b-1234567890ab/apply",
+    "salaryRange": { "currency": "USD", "interval": "per-year-salary", "min": 160000, "max": 200000 }
+  }
+]

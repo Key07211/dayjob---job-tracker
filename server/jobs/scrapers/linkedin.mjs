@@ -44,8 +44,10 @@ export function parseLocation(text) {
 export function parseCards(html) {
   const root = parse(html);
   return root.querySelectorAll('.base-search-card').map(card => {
+    const href = card.querySelector('a.base-card__full-link')?.getAttribute('href') || '';
     const id = (card.getAttribute('data-entity-urn') || '').split(':').pop()
-      || (card.querySelector('[data-entity-urn]')?.getAttribute('data-entity-urn') || '').split(':').pop();
+      || (card.querySelector('[data-entity-urn]')?.getAttribute('data-entity-urn') || '').split(':').pop()
+      || (/-(\d+)(?:\?|$)/.exec(href)?.[1] ?? '');
     const title = card.querySelector('h3.base-search-card__title')?.text.trim();
     const companyTag = card.querySelector('h4.base-search-card__subtitle');
     const locationText = card.querySelector('.job-search-card__location')?.text.trim() || '';

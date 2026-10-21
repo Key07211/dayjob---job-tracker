@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { dedupeKey, postingId } from './normalize.mjs';
 import { transaction } from './db.mjs';
+import { splitCompanyId } from './scrapers/company-boards.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -223,7 +224,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     const at = iso();
     const seen = new Set(seenIds);
     const rows = q("SELECT id, external_id FROM postings WHERE site = ? AND closed_at IS NULL").all(site);
-    const closed = rows.filter(row => row.external_id.startsWith(`${slug}-`) && !seen.has(row.id)).map(row => row.id);
+    const closed = rows.filter(row => splitCompanyId(site, row.external_id)?.slug === slug && !seen.has(row.id)).map(row => row.id);
     for (const id of closed) q('UPDATE postings SET closed_at = ?, last_checked_at = ? WHERE id = ?').run(at, at, id);
     return closed;
   }
@@ -296,7 +297,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       JSON.stringify(result.gaps || []), JSON.stringify(result.missingKeywords || []), result.provider, result.model || null, iso());
     return getScore(postingIdValue, resumeId);
   }
-  function getScore(postingIdValue, resumeId) { return scoreRow(q('SELECT * FROM scores WHERE posting_id = ? AND resume_id = ?').get(postingIdValue, resumeId)); }
+  function getScore(postingIdValue, resumeId) { return scoreRow(q('SELECT * FROM scores WHERE posting_id = ? AND resume_id = ?').get(postingIdValue, resumeId)) ?? null; }
   function unscoredPostingIds(resumeId, limit) {
     return q(`SELECT p.id FROM postings p WHERE p.status IN ('new', 'saved') AND p.duplicate_of IS NULL AND p.closed_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.posting_id = p.id AND s.resume_id = ?) ORDER BY p.first_seen_at DESC LIMIT ?`)
