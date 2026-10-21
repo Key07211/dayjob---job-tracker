@@ -94,7 +94,9 @@ test('Claude Code provider falls back for older CLIs and reports failures', asyn
 
   const failing = fakeSpawn([{ code: 1, stderr: 'Invalid API key · Please run /login' }]);
   const broken = createClaudeCliProvider({ getSettings: settings(), spawn: failing.spawn, detect: async () => ({ available: true, command: 'claude', version: 'x' }) });
-  await assert.rejects(broken.score({ resume: 'r', posting: { title: 'x' } }), /Please run \/login/);
+  await assert.rejects(broken.score({ resume: 'r', posting: { title: 'x' } }), /not signed in/);
+  assert.equal((await broken.status()).available, false);
+  assert.equal((await broken.status(true)).available, true);
   const missing = createClaudeCliProvider({ getSettings: settings(), detect: async () => ({ available: false }) });
   assert.equal((await missing.status()).available, false);
   await assert.rejects(missing.score({ resume: 'r', posting: { title: 'x' } }), /Claude Code was not found/);
@@ -142,4 +144,17 @@ test('the scorer stores results and stops a batch on a provider-wide failure', a
   const again = await scorer.score('li-1');
   assert.equal(again.score, 78);
   assert.equal(calls, 2, 'an existing score is reused unless forced');
+});
+
+test('a batch reports postings that could not be scored', async () => {
+  const { repo } = memoryRepo();
+  for (const id of ['1', '2']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: 'Acme', jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
+  repo.addResume({ name: 'r.txt', mime: 'text/plain', size: 10, text: 'resume' });
+  const provider = { id: 'claude-cli', status: async () => ({ available: true, detail: 'ok' }),
+    score: async ({ posting: item }) => { if (item.title === 'Job 2') throw new Error('The AI reply did not contain JSON.'); return { ...normalizeScore(RESULT), provider: 'claude-cli' }; } };
+  const scorer = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
+  const result = await scorer.scoreBatch(null, { limit: 5 });
+  assert.equal(result.scored, 1);
+  assert.equal(result.failed, 1);
+  assert.match(result.reason, /1 of 2 could not be scored: The AI reply did not contain JSON/);
 });

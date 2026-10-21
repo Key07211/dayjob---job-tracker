@@ -71,8 +71,12 @@ export function parseCliOutput(stdout) {
 
 // Scores through the user's signed-in Claude Code, so no API key is needed.
 // Tools are off and the working folder is an empty temp folder.
+const SIGNED_OUT_REPLY = /not logged in|\/login/i;
+
 export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect = detectClaude, timeoutMs = TIMEOUT_MS }) {
   let cached = null;
+  let signedOut = 0;
+  const SIGNED_OUT = 'Claude Code is not signed in. Run claude in a terminal and type /login, then check again.';
   async function info(refresh = false) {
     const configured = getSettings().ai.claudeCommand || '';
     if (!cached || refresh || cached.configured !== configured) cached = { configured, result: await detect(configured) };
@@ -100,7 +104,9 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
   return {
     id: 'claude-cli',
     async status(refresh = false) {
+      if (refresh) signedOut = 0;
       const found = await info(refresh);
+      if (found.available && signedOut && Date.now() - signedOut < 30 * 60 * 1000) return { available: false, detail: SIGNED_OUT, signedOut: true };
       return { available: found.available, detail: found.available ? `Claude Code ${found.version}` : 'Claude Code was not found. Install it and sign in, or set its path in Settings.' };
     },
     async score({ resume, posting }) {
@@ -116,9 +122,15 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
         result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), withSystem);
       }
       if (result.code !== 0 && !result.stdout.trim()) {
+        if (SIGNED_OUT_REPLY.test(result.stderr)) { signedOut = Date.now(); throw new Error(SIGNED_OUT); }
         throw new Error(`Claude Code exited with ${result.code}: ${result.stderr.trim().split('\n').pop() || 'no output'}`.slice(0, 400));
       }
-      const parsed = parseCliOutput(result.stdout);
+      let parsed;
+      try { parsed = parseCliOutput(result.stdout); } catch (error) {
+        if (SIGNED_OUT_REPLY.test(error.message)) { signedOut = Date.now(); throw new Error(SIGNED_OUT); }
+        throw error;
+      }
+      signedOut = 0;
       return { ...parsed.score, provider: 'claude-cli', model: parsed.model || ai.model || null };
     },
   };

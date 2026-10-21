@@ -3,6 +3,9 @@ import { createClaudeCliProvider } from './claude-cli.mjs';
 
 // Picks the provider from settings and scores postings one at a time, so a
 // daily run never floods Claude. Failures are counted, not thrown, in batches.
+// Failures that would repeat for every posting, so a batch stops at the first.
+const FATAL = /API key|Claude Code was not found|not logged in|\/login|rate limit/i;
+
 export function createScorer({ repo, providers, log = console.warn }) {
   const getSettings = () => repo.getSettings();
   const available = providers || {
@@ -54,6 +57,7 @@ export function createScorer({ repo, providers, log = console.warn }) {
       if (!state.available) return { scored: 0, failed: 0, skipped: targets.length, reason: state.detail };
       let scored = 0;
       let failed = 0;
+      let lastError = '';
       const results = [];
       for (const id of targets) {
         try {
@@ -64,10 +68,11 @@ export function createScorer({ repo, providers, log = console.warn }) {
           failed += 1;
           log(`[dayjob] scoring ${id}: ${error.message}`);
           // A bad key or a missing CLI fails every posting the same way.
-          if (/API key|Claude Code was not found|rate limit/i.test(error.message)) return { scored, failed, skipped: targets.length - scored - failed, reason: error.message, results };
+          if (FATAL.test(error.message)) return { scored, failed, skipped: targets.length - scored - failed, reason: error.message, results };
+          lastError = error.message;
         }
       }
-      return { scored, failed, skipped: 0, results };
+      return { scored, failed, skipped: 0, results, ...(failed ? { reason: `${failed} of ${targets.length} could not be scored: ${lastError}` } : {}) };
     },
   };
 }

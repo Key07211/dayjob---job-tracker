@@ -135,6 +135,8 @@ async function runSmoke() {
   const response = await fetch(`${origin}/api/bootstrap`);
   const state = await response.json();
   const rendererLoaded = ['今日岗位', '投递追踪', '搜索与公司'].every(text => renderer.content.includes(text));
+  // Let the first frame paint; a hidden window can otherwise capture the boot spinner.
+  await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && renderer.nodeUnavailable && Boolean(renderer.info.dataPath);

@@ -37,7 +37,7 @@ test('matching company-board jobs against saved searches', () => {
   assert.equal(companyJobMatches(job({ location: 'Palo Alto, CA' }), search, now), true);
   assert.equal(companyJobMatches(job({ title: 'Senior Data Scientist' }), search, now), false);
   assert.equal(companyJobMatches(job({ location: 'Austin, TX' }), search, now), false);
-  assert.equal(companyJobMatches(job({ datePosted: '2026-10-01' }), search, now), false);
+  assert.equal(companyJobMatches(job({ datePosted: '2026-08-01' }), search, now), true);
   assert.equal(locationMatches({ location: 'New York, NY' }, { location: 'NY' }), true);
   assert.equal(locationMatches({ location: 'Remote - US', isRemote: true }, { isRemote: true }), true);
   assert.equal(locationMatches({ location: 'Seattle, WA' }, { location: 'United States' }), true);

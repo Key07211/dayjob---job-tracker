@@ -1,3 +1,4 @@
+import { LANGUAGES } from './messages.mjs';
 import { createHash } from 'node:crypto';
 import { HttpError } from './http.mjs';
 import { SITE_IDS } from './jobs/scrapers/index.mjs';
@@ -113,6 +114,7 @@ export function settingsPatch(input) {
     minScore: item => integer(item, 'High-match score', 0, 100),
   }));
   section('jobspy', value => pick(value, { pythonCommand: item => text(item, 'Python command', { max: 1024, optional: true }) }));
+  if (has(input, 'language')) patch.language = oneOf(input.language, LANGUAGES, 'Language');
   if (has(input, 'retentionDays')) patch.retentionDays = integer(input.retentionDays, 'Keep postings (days)', 7, 365);
   if (!Object.keys(patch).length) fail('Provide at least one setting.');
   return patch;

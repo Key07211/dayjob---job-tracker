@@ -10,6 +10,7 @@ export const OPEN_APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer']
 export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
 
 export const DEFAULT_SETTINGS = {
+  language: 'zh',
   schedule: { enabled: true, time: '08:30' },
   ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', autoScore: true, language: 'zh', maxPerRun: 40, effort: 'medium' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
@@ -247,7 +248,9 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       .run(iso(), status, found, newCount, scored, JSON.stringify(detail), id);
     return runRow(q('SELECT * FROM runs WHERE id = ?').get(id));
   }
-  function updateRunScored(id, scored) { q('UPDATE runs SET scored = ? WHERE id = ?').run(scored, id); }
+  function updateRunScoring(id, { scored, status, detail }) {
+    q('UPDATE runs SET scored = ?, status = ?, detail = ? WHERE id = ?').run(scored, status, JSON.stringify(detail), id);
+  }
   function listRuns(limit = 20) { return q('SELECT * FROM runs ORDER BY started_at DESC LIMIT ?').all(limit).map(runRow); }
   function abandonRunningRuns() {
     q("UPDATE runs SET status = 'failed', finished_at = ?, detail = ? WHERE status = 'running'")
@@ -422,7 +425,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, postingForScoring, setPostingStatus, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
-    startRun, finishRun, updateRunScored, listRuns, abandonRunningRuns,
+    startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, activeResume, activateResume, deleteResume,
     saveScore, getScore, unscoredPostingIds,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,

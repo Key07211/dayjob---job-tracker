@@ -2,10 +2,11 @@
 // Indeed's mobile app GraphQL API answers a full search, descriptions
 // included, in pages of up to 100 jobs.
 import { extractEmails, htmlToText, posting } from '../normalize.mjs';
-import { ScrapeError } from './http-client.mjs';
+import { ScrapeError, jitter } from './http-client.mjs';
 
 const API = 'https://apis.indeed.com/graphql';
 const PER_PAGE = 100;
+const RETRY_DELAY = [3, 6];
 const HEADERS = {
   'content-type': 'application/json',
   'indeed-api-key': '161092c2017b5bbab13edb12461a62d5a833871e7cad6d9d475304573de67ac8',
@@ -110,7 +111,19 @@ export const indeed = {
     const seen = new Set();
     let cursor = null;
     while (results.length < wanted) {
-      const response = await http.request(API, { method: 'POST', headers, body: JSON.stringify({ query: buildQuery(input, cursor) }), expect: 'json' });
+      const body = JSON.stringify({ query: buildQuery(input, cursor) });
+      let response;
+      try {
+        response = await http.request(API, { method: 'POST', headers, body, expect: 'json' });
+      } catch (error) {
+        // The app API now and then answers 401 to a valid request; a second try usually works.
+        if (error.status !== 401) throw error;
+        await http.sleep(jitter(RETRY_DELAY));
+        try { response = await http.request(API, { method: 'POST', headers, body, expect: 'json' }); } catch (again) {
+          if (again.status === 401) throw new ScrapeError('Indeed refused the request (HTTP 401); it usually works again on the next run.', { status: 401, blocked: true });
+          throw again;
+        }
+      }
       const search = response.body?.data?.jobSearch;
       if (!search) throw new ScrapeError(`Indeed API error: ${JSON.stringify(response.body?.errors || 'no results').slice(0, 300)}`);
       const fresh = (search.results || []).map(result => result.job).filter(job => job?.key && !seen.has(job.key));

@@ -1,3 +1,4 @@
+import { message } from '../messages.mjs';
 import { BOARD_SCRAPERS } from './scrapers/index.mjs';
 import { checkCompanyJob, splitCompanyId } from './scrapers/company-boards.mjs';
 import { jitter } from './scrapers/http-client.mjs';
@@ -13,6 +14,7 @@ const DAY = 864e5;
 // applications that have gone quiet. It never changes a status by itself.
 export function createTracker({ repo, http, now = () => new Date(), notify = () => {}, log = console.warn }) {
   const settings = () => repo.getSettings().tracking;
+  const text = (key, params) => message(repo.getSettings().language, key, params);
 
   async function isOpen(posting, cache) {
     if (BOARD_SCRAPERS[posting.site]?.checkOpen) return BOARD_SCRAPERS[posting.site].checkOpen(posting, { http });
@@ -61,11 +63,11 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
       if (change.closed) {
         report.closed.push(posting.id);
         if (application) {
-          repo.addEvent(application.id, { type: 'posting-closed', note: 'The posting is no longer accepting applications.', source: 'auto' });
-          notify({ kind: 'posting-closed', title: `${posting.company || ''} 岗位已关闭`.trim(), body: `${posting.title}：招聘页面已下线，申请仍在追踪中。`, refId: application.id });
+          repo.addEvent(application.id, { type: 'posting-closed', note: text('noteClosed'), source: 'auto' });
+          notify({ kind: 'posting-closed', ...text('postingClosed', posting), refId: application.id });
         }
       } else if (application) {
-        repo.addEvent(application.id, { type: 'posting-reopened', note: 'The posting is accepting applications again.', source: 'auto' });
+        repo.addEvent(application.id, { type: 'posting-reopened', note: text('noteReopened'), source: 'auto' });
       }
     }
   }
@@ -80,16 +82,16 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
         flags.add('follow-up-due');
         changed = true;
         report.followUps.push(application.id);
-        repo.addEvent(application.id, { type: 'follow-up-due', note: 'Follow-up reminder.', source: 'auto' });
-        notify({ kind: 'follow-up', title: `该跟进了：${application.company}`, body: `${application.title} 已经 ${Math.round((at - Date.parse(application.statusChangedAt)) / DAY)} 天没有进展。`, refId: application.id });
+        repo.addEvent(application.id, { type: 'follow-up-due', note: text('noteFollowUp'), source: 'auto' });
+        notify({ kind: 'follow-up', ...text('followUp', { ...application, days: Math.round((at - Date.parse(application.statusChangedAt)) / DAY) }), refId: application.id });
       }
       const quietDays = (at - Date.parse(application.statusChangedAt)) / DAY;
       if (application.status === 'applied' && ghostDays && quietDays >= ghostDays && !flags.has('ghost-suspected')) {
         flags.add('ghost-suspected');
         changed = true;
         report.ghosted.push(application.id);
-        repo.addEvent(application.id, { type: 'ghost-suspected', note: `No response for ${Math.floor(quietDays)} days.`, source: 'auto' });
-        notify({ kind: 'ghost', title: `可能没有回音：${application.company}`, body: `${application.title} 投递 ${Math.floor(quietDays)} 天无回复，可在 Dayjob 中标记为 ghosted 或继续等待。`, refId: application.id });
+        repo.addEvent(application.id, { type: 'ghost-suspected', note: text('noteGhost', { days: Math.floor(quietDays) }), source: 'auto' });
+        notify({ kind: 'ghost', ...text('ghost', { ...application, days: Math.floor(quietDays) }), refId: application.id });
       }
       if (changed) repo.setApplicationFlags(application.id, [...flags]);
     }

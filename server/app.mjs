@@ -17,6 +17,7 @@ import { createScorer } from './jobs/scoring/index.mjs';
 import { createTracker } from './jobs/tracker.mjs';
 import { createScheduler } from './jobs/scheduler.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
+import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
 import { applicationPatch, applyInput, manualApplication, manualPosting, postingStatus, publicSettings, searchInput, settingsPatch } from './validation.mjs';
 
@@ -73,8 +74,9 @@ export async function createApp(options = {}) {
   function startScoring(ids, limit) {
     if (!scoringBatch) {
       scoringBatch = scorer.scoreBatch(ids, { limit }).then(result => {
-        if (result.scored) notify({ kind: 'scored', title: `AI 打分完成：${result.scored} 个岗位`, body: result.reason ? `部分未完成：${result.reason}` : '打开 Dayjob 查看匹配度。' });
-        else if (result.reason && result.reason !== 'no-resume') notify({ kind: 'error', title: 'AI 打分没有完成', body: result.reason });
+        const language = repo.getSettings().language;
+        if (result.scored) notify({ kind: 'scored', ...message(language, 'scored', result) });
+        else if (result.reason && result.reason !== 'no-resume') notify({ kind: 'error', ...message(language, 'scoringFailed', result) });
         return result;
       }).catch(error => log(`[dayjob] scoring: ${error.message}`)).finally(() => { scoringBatch = null; });
     }
@@ -163,7 +165,9 @@ export async function createApp(options = {}) {
   async function mutate(request, pathname, method, source) {
     const input = await readJson(request, pathname === '/api/resumes' ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
     if (pathname === '/api/settings' && method === 'PATCH') {
-      return publicSettings(repo.updateSettings(settingsPatch(input)));
+      const settings = repo.updateSettings(settingsPatch(input));
+      options.onSettings?.(settings);
+      return publicSettings(settings);
     }
     if (pathname === '/api/searches' && method === 'POST') return [201, repo.saveSearch(searchInput(input))];
     let match = pathname.match(/^\/api\/searches\/([^/]+)$/);

@@ -1,3 +1,4 @@
+import { message } from '../messages.mjs';
 const pad = value => String(value).padStart(2, '0');
 export const localDay = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
@@ -36,8 +37,7 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
       const posting = repo.postingForScoring(item.id);
       return posting ? `${posting.company || ''} ${posting.title} (${item.score})`.trim() : null;
     }).filter(Boolean);
-    notify({ kind: 'daily', title: `Dayjob：${run.newCount} 个新岗位${strong.length ? `，${strong.length} 个高匹配` : ''}`,
-      body: names.length ? names.join('；') : '打开 Dayjob 查看今天的新岗位。', refId: run.id });
+    notify({ kind: 'daily', ...message(repo.getSettings().language, 'daily', { newCount: run.newCount, strong: strong.length, names }), refId: run.id });
   }
 
   async function pipeline({ trigger, searchIds, track }) {
@@ -53,8 +53,11 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
         const backlog = resume ? repo.unscoredPostingIds(resume.id, settings.ai.maxPerRun) : [];
         const ids = [...new Set([...newIds, ...backlog])];
         scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun });
-        repo.updateRunScored(run.id, scoring.scored);
-        if (scoring.reason && scoring.reason !== 'no-resume') run.detail.push({ source: 'AI', warning: scoring.reason });
+        if (scoring.reason && scoring.reason !== 'no-resume') {
+          run.detail.push({ source: 'AI', warning: scoring.reason });
+          if (run.status === 'succeeded') run.status = 'partial';
+        }
+        repo.updateRunScoring(run.id, { scored: scoring.scored, status: run.status, detail: run.detail });
       } catch (error) { log(`[dayjob] scoring: ${error.message}`); }
     }
     let tracking = null;

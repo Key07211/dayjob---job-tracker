@@ -107,6 +107,13 @@ test('Indeed GraphQL query and results', async () => {
 test('Indeed API errors are reported', async () => {
   const { http } = fakeHttp([['apis.indeed.com', { body: { errors: [{ message: 'Bad field' }] } }]]);
   await assert.rejects(indeed.search({ keywords: 'x' }, { http }), /Bad field/);
+
+  // Indeed's app API sometimes answers 401 to a good request: one retry, then a clear error.
+  let attempts = 0;
+  const flaky = fakeHttp([['apis.indeed.com', () => (++attempts === 1 ? { status: 401, body: {} } : { body: JSON.parse(fixture('indeed-search.json')) })]]);
+  assert.ok((await indeed.search({ keywords: 'x', resultsWanted: 1 }, { http: flaky.http })).postings.length);
+  const refused = fakeHttp([['apis.indeed.com', { status: 401, body: {} }]]);
+  await assert.rejects(indeed.search({ keywords: 'x' }, { http: refused.http }), error => error.blocked && /401/.test(error.message));
 });
 
 test('company boards read official Greenhouse, Lever and Ashby JSON', async () => {

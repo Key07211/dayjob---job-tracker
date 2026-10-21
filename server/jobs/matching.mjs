@@ -67,10 +67,11 @@ export function freshEnough(item, search, now = new Date()) {
   return !Number.isFinite(posted) || now.getTime() - posted <= search.hoursOld * 3600e3;
 }
 
-export function companyJobMatches(item, search, now) {
+// A followed company's board lists only open jobs, so its matching jobs are
+// kept whatever their age; the posted-within window applies to job boards.
+export function companyJobMatches(item, search) {
   if (!titleMatches(item.title, search.keywords)) return false;
   if (!passesFilters(item, search)) return false;
   if (!locationMatches(item, search)) return false;
-  if (search.jobType && item.jobType && !item.jobType.replace(/[\s-]/g, '').toLowerCase().includes(search.jobType)) return false;
-  return freshEnough(item, search, now);
+  return !(search.jobType && item.jobType && !item.jobType.replace(/[\s-]/g, '').toLowerCase().includes(search.jobType));
 }
