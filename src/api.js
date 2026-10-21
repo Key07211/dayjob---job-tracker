@@ -1,3 +1,6 @@
+import { tr } from './i18n.jsx';
+import { serverText } from './dayjob/server-text.js';
+
 let token = null;
 
 export function setToken(value) { token = value; }
@@ -17,11 +20,11 @@ export async function api(path, { method = 'GET', body } = {}) {
       body: write ? JSON.stringify(body ?? {}) : undefined,
     });
   } catch {
-    throw new ApiError(0, '无法连接本地 Dayjob 服务。请确认 Dayjob 正在运行。');
+    throw new ApiError(0, tr('无法连接本地 Dayjob 服务。请确认 Dayjob 正在运行。', 'Cannot reach the local Dayjob service. Make sure Dayjob is running.'));
   }
   let value = null;
   try { value = await response.json(); } catch { /* handled below */ }
-  if (!response.ok) throw new ApiError(response.status, value?.error || `请求失败（HTTP ${response.status}）`);
+  if (!response.ok) throw new ApiError(response.status, value?.error ? serverText(value.error) : tr(`请求失败（HTTP ${response.status}）`, `Request failed (HTTP ${response.status})`));
   return value;
 }
 

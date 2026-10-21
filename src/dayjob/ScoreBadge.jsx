@@ -1,12 +1,14 @@
-import { VERDICT_LABELS, scoreTone } from './format.js';
+import { label, scoreTone } from './format.js';
+import { useI18n } from '../i18n.jsx';
 
 export function ScoreBadge({ score, compact = false }) {
+  const { t } = useI18n();
   const value = score?.score ?? null;
   const tone = scoreTone(value);
-  if (value === null) return compact ? <span className="score-badge none" title="还没有打分">—</span> : null;
+  if (value === null) return compact ? <span className="score-badge none" title={t('还没有打分', 'Not scored yet')}>—</span> : null;
   return (
-    <span className={`score-badge ${tone}`} title={VERDICT_LABELS[score.verdict] || ''}>
-      {value}{compact ? null : <small>{VERDICT_LABELS[score.verdict]}</small>}
+    <span className={`score-badge ${tone}`} title={label('verdict', score.verdict)}>
+      {value}{compact ? null : <small>{label('verdict', score.verdict)}</small>}
     </span>
   );
 }

@@ -1,5 +1,7 @@
 # Dayjob · 求职追踪
 
+**简体中文** · [English](README.en.md)
+
 每天自动抓取你想要的岗位，按你的简历用 AI 打分；点“我已投递”之后，Dayjob 会接着追踪这份申请：提醒跟进、发现长时间无回音、检查岗位是否已经关闭。所有数据都保存在本机的 SQLite 数据库里。
 
 Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，先作为独立项目开发，功能全部完成并验证后再合并进 Daylight（一个按键在 Daylight 和 Dayjob 之间切换）。
@@ -27,6 +29,7 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 自动追踪 | 投递或状态变化后 N 天（默认 7）提醒跟进；“已投递”超过 N 天（默认 21）没有变化时提示可能无回音；每天检查已投递和已收藏的岗位是否已关闭。 |
 | 通知 | 每日汇总（新岗位数、高匹配岗位）、跟进提醒、岗位关闭提醒，Windows 桌面通知 + 应用内通知。 |
 | Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态，共 18 个工具。 |
+| 中文 / English | 左上角的 EN / 中 按钮或“设置 → 界面语言”随时切换。通知和托盘菜单跟着切换；AI 分析的语言单独在“简历与 AI”里选。 |
 
 ![投递追踪：漏斗、状态、时间线](docs/media/applications.webp)
 
@@ -61,8 +64,8 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 ## 第一次使用
 
-1. **简历与 AI**：上传简历。用 Claude Code 打分时，先在终端里安装并登录 Claude Code。
-2. **搜索与公司**：添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）。
+1. **简历与 AI**：上传简历。用 Claude Code 打分时，先在终端里安装 Claude Code，运行 `claude` 并输入 `/login` 登录。没登录时“简历与 AI”页会提示，登录后点“重新检测”。
+2. **搜索与公司**：添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）；关注公司里和搜索关键词、地点匹配的开放岗位都会保留，不受发布时间限制。
 3. 点左下角 **立即抓取**。抓取完成后会自动打分。
 4. 在 **今日岗位** 里看岗位、收藏或标记不感兴趣；投递后点 **我已投递**，之后的跟进都在 **投递追踪** 里。
 

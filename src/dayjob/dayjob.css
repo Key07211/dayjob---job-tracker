@@ -339,3 +339,11 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
   .funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .timeline li { grid-template-columns: 96px minmax(0, 1fr) auto; }
 }
+
+/* Language */
+.language-toggle { margin-left: auto; min-width: 30px; height: 26px; padding: 0 7px; border-radius: 7px; border: 1px solid var(--line); background: var(--card);
+  color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.language-toggle:hover { color: var(--green); border-color: var(--green); }
+.option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.option-row > span { min-width: 72px; font-size: 14px; }
+.option-row > small { flex-basis: 100%; font-size: 12px; color: var(--muted); }

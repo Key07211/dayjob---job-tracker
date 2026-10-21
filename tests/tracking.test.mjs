@@ -5,6 +5,7 @@ import { posting } from '../server/jobs/normalize.mjs';
 import { createTracker } from '../server/jobs/tracker.mjs';
 import { createScheduler, localDay, scheduledAt } from '../server/jobs/scheduler.mjs';
 import { createSearchRunner } from '../server/jobs/search-runner.mjs';
+import { settingsPatch } from '../server/validation.mjs';
 
 const DAY = 864e5;
 const li = id => posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: `Co ${id}`, jobUrl: `https://www.linkedin.com/jobs/view/${id}` });
@@ -153,4 +154,18 @@ test('one failing board makes a run partial, not failed', async () => {
   const { run } = await runner.run({ trigger: 'manual' });
   assert.equal(run.status, 'partial');
   assert.ok(run.detail.find(entry => entry.source.endsWith('indeed')).blocked);
+});
+
+test('reminders are written in the interface language', async () => {
+  const now = clock('2026-10-01T16:00:00Z');
+  const { repo } = memoryRepo(now);
+  repo.createApplication({ company: 'Acme', title: 'Analyst', followUpDays: 2 });
+  const notes = [];
+  const tracker = createTracker({ repo, http: fakeHttp([]).http, now, notify: item => notes.push(item), log: () => {} });
+  repo.updateSettings(settingsPatch({ language: 'en' }));
+  now.advance(3 * DAY);
+  await tracker.run();
+  assert.equal(notes.at(-1).title, 'Time to follow up: Acme');
+  assert.equal(repo.listApplications()[0].flags.includes('follow-up-due'), true);
+  assert.throws(() => settingsPatch({ language: 'fr' }), /Language/);
 });
