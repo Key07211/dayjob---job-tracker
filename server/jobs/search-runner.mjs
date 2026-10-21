@@ -1,6 +1,6 @@
 import { BOARD_SCRAPERS, JOBSPY_SITES } from './scrapers/index.mjs';
 import { fetchCompanyBoard } from './scrapers/company-boards.mjs';
-import { companyJobMatches, passesFilters } from './matching.mjs';
+import { boardQuery, companyJobMatches, passesFilters } from './matching.mjs';
 import { postingId } from './normalize.mjs';
 
 const COMPANY_DELAY_MS = 800;
@@ -11,7 +11,7 @@ export function createSearchRunner({ repo, http, bridge, now = () => new Date(),
   let active = null;
 
   async function searchOne(search, detail, totals, newIds) {
-    const input = { keywords: search.keywords, location: search.location, distance: search.distance, hoursOld: search.hoursOld,
+    const input = { keywords: boardQuery(search.keywords), location: search.location, distance: search.distance, hoursOld: search.hoursOld,
       jobType: search.jobType, isRemote: search.isRemote, resultsWanted: search.resultsWanted, country: search.country };
     for (const site of search.sites) {
       const source = `${search.name} · ${site}`;

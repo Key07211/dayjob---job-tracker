@@ -1,0 +1,223 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const id = z.string().min(1).max(200);
+const dateTime = z.string().datetime({ offset: true });
+const SITES = ['linkedin', 'indeed', 'glassdoor', 'zip_recruiter', 'google'];
+const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
+const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
+
+// Shown to the model by Claude Code and Claude Desktop.
+export const INSTRUCTIONS = [
+  'Dayjob is the user\'s local job-search tracker: it fetches postings every day from LinkedIn, Indeed and company career boards, scores each against the user\'s resume, and tracks applications.',
+  'To analyse fit yourself, read the posting (dayjob_get_posting) and the resume (dayjob_get_resume), then store your verdict with dayjob_save_analysis so it shows in the app.',
+  'Only call dayjob_mark_applied when the user says they have actually applied. Never invent application dates.',
+  'When the user asks you to update applications from email (for example Gmail), match each message to an application by company and title, then call dayjob_update_application with a short note naming the email (sender, date, subject). Ask the user when the match is unclear.',
+  'Status values: applied, oa (online assessment), interview, offer, accepted, rejected, withdrawn, ghosted. Dates must be ISO 8601 with a timezone offset; dayjob_status returns the computer\'s time and timezone.',
+  'Searches run on the user\'s computer and can take several minutes; dayjob_run_search only starts one. Check progress with dayjob_status.',
+].join('\n');
+
+export function localBaseUrl(value = process.env.DAYJOB_URL || 'http://127.0.0.1:4318') {
+  const url = new URL(value);
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname)
+      || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+    throw new Error('DAYJOB_URL must be a local HTTP origin, for example http://127.0.0.1:4318.');
+  }
+  return url.origin;
+}
+
+// Descriptions are long; lists return a compact card per posting.
+function card(item) {
+  return { id: item.id, title: item.title, company: item.company, location: item.location, site: item.site, isRemote: item.isRemote,
+    jobType: item.jobType, salary: item.salary, datePosted: item.datePosted, firstSeenAt: item.firstSeenAt, closedAt: item.closedAt,
+    status: item.status, score: item.score?.score ?? null, verdict: item.score?.verdict ?? null, application: item.application, jobUrl: item.jobUrl };
+}
+
+export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
+  const origin = localBaseUrl(baseUrl);
+  const server = new McpServer({ name: 'dayjob', version: '1.0.0' }, { instructions: INSTRUCTIONS });
+  let token = null;
+
+  async function request(path, { method = 'GET', body, retry = true } = {}) {
+    let response;
+    try {
+      response = await fetch(`${origin}${path}`, {
+        method,
+        redirect: 'error',
+        headers: {
+          Accept: 'application/json',
+          'X-Dayjob-Client': 'mcp',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(method !== 'GET' && token ? { 'X-Dayjob-Token': token } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(method === 'GET' ? 20000 : 5 * 60 * 1000),
+      });
+    } catch (error) {
+      throw new Error(`Cannot reach Dayjob at ${origin}. Open the Dayjob app (or run npm start in its folder). ${error.message}`);
+    }
+    let result;
+    try { result = await response.json(); }
+    catch { throw new Error(`Dayjob returned a non-JSON response (HTTP ${response.status}).`); }
+    // The write token changes whenever Dayjob restarts.
+    if (response.status === 403 && method !== 'GET' && retry && /token/i.test(result.error || '')) {
+      token = null;
+      return mutate(path, method, body, false);
+    }
+    if (!response.ok) throw new Error(result.error || `Dayjob request failed (HTTP ${response.status}).`);
+    return result;
+  }
+  async function mutate(path, method, body = {}, retry = true) {
+    if (!token) token = (await request('/api/bootstrap')).csrfToken;
+    return request(path, { method, body, retry });
+  }
+
+  function tool(name, description, inputSchema, action, annotations = {}) {
+    server.registerTool(name, {
+      description,
+      inputSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false, ...annotations },
+    }, async input => {
+      try {
+        const result = await action(input);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { isError: true, content: [{ type: 'text', text: error.message }] };
+      }
+    });
+  }
+  const readOnly = { readOnlyHint: true, idempotentHint: true };
+  const query = values => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(values)) if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    const text = params.toString();
+    return text ? `?${text}` : '';
+  };
+
+  tool('dayjob_status', 'Read Dayjob\'s state: the computer\'s time and timezone, counts of new postings and applications by status, whether a search or scoring is running, the next daily run, and recent run results.',
+    {}, () => request('/api/status'), readOnly);
+
+  tool('dayjob_list_postings', 'List fetched job postings (newest first by default) with their AI fit score. Returns compact cards; use dayjob_get_posting for the full description.', {
+    status: z.enum(['active', 'new', 'saved', 'dismissed', 'applied', 'all']).optional().describe('active (default) = new + saved.'),
+    query: z.string().max(200).optional().describe('Text matched against title, company and location.'),
+    minScore: z.number().int().min(0).max(100).optional(),
+    site: z.enum([...SITES, 'greenhouse', 'lever', 'ashby', 'manual']).optional(),
+    sinceDays: z.number().int().min(1).max(365).optional().describe('Only postings first seen in the last N days.'),
+    unscored: z.boolean().optional(),
+    includeClosed: z.boolean().optional().describe('Default true. Closed postings have closedAt set.'),
+    sort: z.enum(['posted', 'score', 'seen', 'company']).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  }, async input => {
+    const result = await request(`/api/postings${query({ status: input.status, q: input.query, minScore: input.minScore, site: input.site,
+      sinceDays: input.sinceDays, unscored: input.unscored ? 1 : undefined, includeClosed: input.includeClosed === false ? 0 : undefined,
+      sort: input.sort, limit: input.limit ?? 50, offset: input.offset })}`);
+    return { total: result.total, postings: result.items.map(card) };
+  }, readOnly);
+
+  tool('dayjob_get_posting', 'Read one posting in full: description, pay, posted and first-seen dates, whether it has closed, the stored fit analysis, duplicate listings on other boards, and any application.',
+    { id }, ({ id: postingId }) => request(`/api/postings/${encodeURIComponent(postingId)}`), readOnly);
+
+  tool('dayjob_get_resume', 'Read the text of the user\'s active resume, which Dayjob scores postings against.',
+    {}, () => request('/api/resumes/active'), readOnly);
+
+  tool('dayjob_save_analysis', 'Store your own fit analysis of a posting against the active resume. It replaces any earlier score and is shown in the app.', {
+    id,
+    score: z.number().int().min(0).max(100).describe('85-100 strong, 65-84 good, 40-64 stretch, 0-39 weak.'),
+    verdict: z.enum(['strong', 'good', 'stretch', 'weak']),
+    summary: z.string().min(1).max(1200),
+    strengths: z.array(z.string().max(300)).max(5),
+    gaps: z.array(z.string().max(300)).max(5).describe('Put work-authorization or seniority blockers first.'),
+    missingKeywords: z.array(z.string().max(80)).max(8).optional(),
+  }, ({ id: postingId, ...result }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/score`, 'POST', { result: { missingKeywords: [], ...result } }),
+  { idempotentHint: true });
+
+  tool('dayjob_score_posting', 'Ask Dayjob to score a posting with its configured AI scorer (local Claude Code or the Claude API). Uses the user\'s Claude allowance; prefer dayjob_save_analysis when you have already analysed it.', {
+    id, force: z.boolean().optional().describe('Re-score even if a score exists.'),
+  }, ({ id: postingId, force }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/score`, 'POST', { force: force === true }), { openWorldHint: true });
+
+  tool('dayjob_set_posting_status', 'Save a posting for later, dismiss it, or move it back to new.', {
+    id, status: z.enum(['new', 'saved', 'dismissed']),
+  }, ({ id: postingId, status }) => mutate(`/api/postings/${encodeURIComponent(postingId)}`, 'PATCH', { status }), { idempotentHint: true });
+
+  tool('dayjob_add_posting', 'Add a job the user found elsewhere so Dayjob can score and track it.', {
+    title: z.string().min(1).max(240), company: z.string().min(1).max(160), jobUrl: z.string().url().max(2048),
+    location: z.string().max(160).optional(), description: z.string().max(100000).optional(), isRemote: z.boolean().optional(),
+    jobType: z.enum(JOB_TYPES).optional(), datePosted: z.string().max(40).optional().describe('YYYY-MM-DD or ISO timestamp.'),
+    saved: z.boolean().optional(),
+  }, ({ saved, ...input }) => mutate('/api/postings', 'POST', { ...input, ...(saved ? { status: 'saved' } : {}) }));
+
+  tool('dayjob_mark_applied', 'Record that the user applied to a posting. Starts automatic tracking: follow-up reminders, closed-posting checks and no-reply flags. Only when the user confirms they applied.', {
+    id, appliedAt: dateTime.optional().describe('Defaults to now.'), note: z.string().max(2000).optional(),
+  }, ({ id: postingId, ...input }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/apply`, 'POST', input));
+
+  tool('dayjob_add_application', 'Track an application that has no fetched posting (for example a referral or a job applied to elsewhere).', {
+    company: z.string().min(1).max(160), title: z.string().min(1).max(240), jobUrl: z.string().url().max(2048).optional(),
+    appliedAt: dateTime.optional(), note: z.string().max(2000).optional(),
+  }, input => mutate('/api/applications', 'POST', input));
+
+  tool('dayjob_list_applications', 'List tracked applications with status, applied date, last status change, next follow-up date and flags (follow-up-due, ghost-suspected).', {
+    status: z.enum(APPLICATION_STATUSES).optional(), open: z.boolean().optional().describe('Only applied, oa, interview and offer.'),
+  }, input => request(`/api/applications${query({ status: input.status, open: input.open ? 1 : undefined })}`), readOnly);
+
+  tool('dayjob_get_application', 'Read one application with its full timeline.', { id },
+    ({ id: applicationId }) => request(`/api/applications/${encodeURIComponent(applicationId)}`), readOnly);
+
+  tool('dayjob_update_application', 'Change an application\'s status, add a timeline note, or set the next follow-up date. Omitted fields stay unchanged.', {
+    id,
+    status: z.enum(APPLICATION_STATUSES).optional(),
+    statusAt: dateTime.optional().describe('When the change happened, e.g. the email date. Defaults to now.'),
+    note: z.string().max(2000).optional().describe('Timeline note, e.g. "Interview invite from recruiter@acme.com, Oct 21".'),
+    notes: z.string().max(20000).optional().describe('Replaces the free-form notes field.'),
+    contact: z.string().max(500).optional(),
+    nextFollowUpAt: dateTime.nullable().optional(),
+  }, ({ id: applicationId, ...patch }) => {
+    if (!Object.keys(patch).length) throw new Error('Provide at least one field to update.');
+    return mutate(`/api/applications/${encodeURIComponent(applicationId)}`, 'PATCH', patch);
+  });
+
+  tool('dayjob_list_searches', 'List saved daily searches and followed company boards.', {}, async () => {
+    const [searches, companies] = await Promise.all([request('/api/searches'), request('/api/companies')]);
+    return { searches, companies };
+  }, readOnly);
+
+  tool('dayjob_save_search', 'Create a saved search, or update one by id. Comma-separated keywords mean any of those phrases.', {
+    id: id.optional(),
+    name: z.string().max(80).optional(),
+    keywords: z.string().min(1).max(200).optional(),
+    location: z.string().max(120).optional(),
+    sites: z.array(z.enum(SITES)).min(1).optional(),
+    hoursOld: z.number().int().min(1).max(1440).nullable().optional().describe('Only postings from the last N hours.'),
+    jobType: z.enum(JOB_TYPES).nullable().optional(),
+    isRemote: z.boolean().optional(),
+    resultsWanted: z.number().int().min(1).max(200).optional(),
+    titleInclude: z.array(z.string().max(60)).max(30).optional(),
+    excludeKeywords: z.array(z.string().max(60)).max(30).optional(),
+    enabled: z.boolean().optional(),
+  }, ({ id: searchId, ...input }) => (searchId
+    ? mutate(`/api/searches/${encodeURIComponent(searchId)}`, 'PATCH', input)
+    : mutate('/api/searches', 'POST', { sites: ['linkedin', 'indeed'], ...input })));
+
+  tool('dayjob_follow_company', 'Follow a company\'s own careers board (Greenhouse, Lever or Ashby link). Its jobs that match the saved searches appear every day.', {
+    url: z.string().min(3).max(2048).describe('e.g. https://jobs.lever.co/acme or https://job-boards.greenhouse.io/acme'),
+    name: z.string().max(120).optional(),
+  }, input => mutate('/api/companies', 'POST', input), { openWorldHint: true });
+
+  tool('dayjob_run_search', 'Start fetching new postings now (all enabled searches and followed companies, or only the given searches). Returns immediately; the run continues on the user\'s computer.', {
+    searchIds: z.array(id).max(50).optional(),
+  }, input => mutate('/api/runs', 'POST', input), { openWorldHint: true });
+
+  tool('dayjob_list_notifications', 'List recent Dayjob notifications: daily results, follow-up reminders, closed postings and no-reply flags.', {
+    limit: z.number().int().min(1).max(200).optional(),
+  }, input => request(`/api/notifications${query({ limit: input.limit })}`), readOnly);
+
+  return server;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const server = createDayjobServer();
+  await server.connect(new StdioServerTransport());
+}

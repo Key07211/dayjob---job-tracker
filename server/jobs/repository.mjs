@@ -10,7 +10,7 @@ export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
 
 export const DEFAULT_SETTINGS = {
   schedule: { enabled: true, time: '08:30' },
-  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', autoScore: true, language: 'zh', maxPerRun: 40 },
+  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', autoScore: true, language: 'zh', maxPerRun: 40, effort: 'medium' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },

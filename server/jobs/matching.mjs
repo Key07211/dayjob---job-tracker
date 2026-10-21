@@ -22,6 +22,13 @@ export function phrases(keywords) {
   return String(keywords || '').split(/,|\||\bOR\b|，/).map(part => part.trim()).filter(Boolean);
 }
 
+// "a, b" in a saved search means either phrase; boards understand that as OR.
+export function boardQuery(keywords) {
+  const list = phrases(keywords);
+  if (list.length < 2) return String(keywords || '').trim();
+  return list.map(phrase => (/\s/.test(phrase) ? `"${phrase.replace(/"/g, '')}"` : phrase)).join(' OR ');
+}
+
 export function titleMatches(title, keywords) {
   const list = phrases(keywords);
   if (!list.length) return true;
