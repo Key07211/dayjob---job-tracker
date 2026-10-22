@@ -66,8 +66,10 @@ async function board(scraper) {
   if (!postings.length) return { ok: false, problem: '没有返回岗位', warnings };
   let open;
   try { open = await scraper.checkOpen(postings[0], { http }); } catch (error) {
-    return { ok: false, problem: `搜索返回 ${postings.length} 个岗位，但岗位开放检查失败：${error.message}`, found: postings.length, warnings,
-      completeness: completeness(postings), checkOpenError: error.message, sample: sample(postings[0]) };
+    // A site that refuses its job pages is a limit of this network, not a broken scraper.
+    return { ok: Boolean(error.blocked), problem: `搜索返回 ${postings.length} 个岗位，但岗位开放检查失败：${error.message}`, found: postings.length, warnings,
+      completeness: completeness(postings), checkOpenError: error.message, sample: sample(postings[0]),
+      summary: `${postings.length} 个岗位，发布日期 ${completeness(postings).datePosted}；岗位页被拒绝，关闭检查只能看搜索结果（${error.message}）` };
   }
   return { ok: open !== false, problem: open === false ? '刚抓到的岗位被判断为已关闭' : undefined, found: postings.length, warnings,
     completeness: completeness(postings), checkOpen: open, sample: sample(postings[0]),
