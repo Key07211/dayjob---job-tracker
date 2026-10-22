@@ -1,0 +1,32 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/acmeai/jobs/7012345",
+      "data_compliance": [],
+      "internal_job_id": 5012345,
+      "location": { "name": "San Francisco, CA" },
+      "metadata": null,
+      "id": 7012345,
+      "updated_at": "2026-10-18T13:02:11-04:00",
+      "requisition_id": "R-101",
+      "title": "Machine Learning Engineer, New Grad",
+      "company_name": "Acme AI",
+      "first_published": "2026-10-17T09:00:00-04:00",
+      "content": "&lt;h2&gt;About the team&lt;/h2&gt;&lt;p&gt;We train &lt;strong&gt;large models&lt;/strong&gt;.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;PyTorch&lt;/li&gt;&lt;li&gt;Distributed training&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;The annual base salary range is $150,000 - $190,000.&lt;/p&gt;",
+      "departments": [{ "id": 1, "name": "Research", "child_ids": [], "parent_id": null }],
+      "offices": [{ "id": 2, "name": "San Francisco", "location": "San Francisco, CA" }]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/acmeai/jobs/7012999",
+      "location": { "name": "London, UK" },
+      "id": 7012999,
+      "updated_at": "2026-10-10T10:00:00-04:00",
+      "title": "Account Executive",
+      "company_name": "Acme AI",
+      "first_published": "2026-10-01T09:00:00-04:00",
+      "content": "&lt;p&gt;Sales role.&lt;/p&gt;",
+      "departments": [{ "id": 3, "name": "Sales" }]
+    }
+  ],
+  "meta": { "total": 2 }
+}

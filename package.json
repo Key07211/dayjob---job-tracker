@@ -1,0 +1,97 @@
+{
+  "name": "dayjob",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dayjob · 本地岗位抓取、AI 简历匹配与投递追踪",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "node server/index.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "mcp": "node integrations/mcp-server.mjs",
+    "desktop": "electron .",
+    "desktop:preview": "npm run build && electron .",
+    "live-check": "node scripts/live-check.mjs",
+    "package:win": "npm run build && electron-builder --win nsis portable --x64"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "lucide-react": "^0.468.0",
+    "mammoth": "^1.9.1",
+    "node-html-parser": "^7.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "unpdf": "^1.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "jszip": "^3.10.2",
+    "vite": "^7.1.0"
+  },
+  "main": "desktop/main.cjs",
+  "author": "Key07211",
+  "build": {
+    "appId": "com.dayjob.tracker",
+    "productName": "Dayjob",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "desktop/assets"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*.cjs",
+      "desktop/assets/**/*",
+      "server/**/*.mjs",
+      "server/**/*.ps1",
+      "integrations/mcp-server.mjs",
+      "THIRD_PARTY_NOTICES.md",
+      "package.json"
+    ],
+    "win": {
+      "executableName": "Dayjob",
+      "artifactName": "Dayjob-${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "Dayjob",
+      "artifactName": "Dayjob-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Dayjob-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
+    },
+    "npmRebuild": false
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Key07211/dayjob---job-tracker.git"
+  }
+}

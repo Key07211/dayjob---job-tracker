@@ -1,0 +1,259 @@
+import { useEffect, useState } from 'react';
+import { AlertTriangle, Building2, CheckCircle2, LoaderCircle, Pencil, Play, Plus, Trash2, X } from 'lucide-react';
+import { api } from '../api.js';
+import { formatTime, label, labels, relativeDay } from './format.js';
+import { useI18n } from '../i18n.jsx';
+import { serverText } from './server-text.js';
+
+const POSTED = [{ value: 24, label: ['24 小时内', 'Past 24 hours'] }, { value: 72, label: ['3 天内', 'Past 3 days'] }, { value: 168, label: ['7 天内', 'Past week'] },
+  { value: 336, label: ['14 天内', 'Past 2 weeks'] }, { value: '', label: ['不限', 'Any time'] }];
+const COUNTRY_LABELS = { usa: '美国', canada: '加拿大', uk: '英国', australia: '澳大利亚', singapore: '新加坡', 'hong kong': '香港', china: '中国大陆',
+  taiwan: '台湾', japan: '日本', 'south korea': '韩国', india: '印度', germany: '德国', france: '法国', netherlands: '荷兰', ireland: '爱尔兰',
+  switzerland: '瑞士', spain: '西班牙', italy: '意大利', sweden: '瑞典', 'new zealand': '新西兰' };
+const COUNTRY_NAMES = { usa: 'United States', uk: 'United Kingdom' };
+const countryName = (country, lang) => (lang === 'en' ? COUNTRY_NAMES[country] || country.replace(/\b\w/g, letter => letter.toUpperCase()) : COUNTRY_LABELS[country] || country);
+const lastTime = value => { const date = new Date(value); return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`; };
+const RUN_STATUS = { succeeded: ['成功', 'Succeeded'], partial: ['部分成功', 'Partly succeeded'], failed: ['失败', 'Failed'], running: ['进行中', 'Running'] };
+const EMPTY = { name: '', keywords: '', location: '', sites: ['linkedin', 'indeed'], hoursOld: 72, jobType: '', isRemote: false, resultsWanted: 25,
+  country: 'usa', titleInclude: '', excludeKeywords: '', enabled: true };
+
+function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
+  const { t, lang } = useI18n();
+  const [form, setForm] = useState(() => initial ? { ...initial, jobType: initial.jobType || '', hoursOld: initial.hoursOld ?? '',
+    titleInclude: initial.titleInclude.join(', '), excludeKeywords: initial.excludeKeywords.join(', ') } : EMPTY);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const toggleSite = site => set('sites', form.sites.includes(site) ? form.sites.filter(item => item !== site) : [...form.sites, site]);
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    const body = { name: form.name || form.keywords, keywords: form.keywords, location: form.location, sites: form.sites,
+      hoursOld: form.hoursOld === '' ? null : Number(form.hoursOld), jobType: form.jobType || null, isRemote: form.isRemote,
+      resultsWanted: Number(form.resultsWanted), country: form.country, titleInclude: form.titleInclude, excludeKeywords: form.excludeKeywords, enabled: form.enabled };
+    try {
+      const saved = await api(initial ? `/api/searches/${encodeURIComponent(initial.id)}` : '/api/searches', { method: initial ? 'PATCH' : 'POST', body });
+      onSaved(saved);
+    } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+  }
+  return (
+    <form className="panel-form" onSubmit={submit}>
+      <div className="form-head"><h3>{initial ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={onCancel}><X size={16} /></button></div>
+      <div className="form-grid">
+        <label>{t('关键词', 'Keywords')}<input value={form.keywords} onChange={event => set('keywords', event.target.value)} required maxLength={200}
+          placeholder="Data Scientist, Machine Learning Engineer" /><small>{t('用逗号分隔表示“任一”。', 'Separate with commas to match any of them.')}</small></label>
+        <label>{t('地点', 'Location')}<input value={form.location} onChange={event => set('location', event.target.value)} maxLength={120} placeholder="San Francisco Bay Area" /></label>
+        <label>{t('名称（可选）', 'Name (optional)')}<input value={form.name} onChange={event => set('name', event.target.value)} maxLength={80} placeholder={t('默认用关键词', 'Defaults to the keywords')} /></label>
+        <label>{t('发布时间', 'Posted')}
+          <select value={form.hoursOld} onChange={event => set('hoursOld', event.target.value)}>
+            {POSTED.map(option => <option key={option.value} value={option.value}>{t(...option.label)}</option>)}
+          </select>
+        </label>
+        <label>{t('工作类型', 'Job type')}
+          <select value={form.jobType} onChange={event => set('jobType', event.target.value)}>
+            <option value="">{t('不限', 'Any')}</option>
+            {Object.entries(labels('jobType')).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+          </select>
+        </label>
+        <label>{t('每个网站最多', 'Results per site')}
+          <input type="number" min={1} max={200} value={form.resultsWanted} onChange={event => set('resultsWanted', event.target.value)} />
+          <small>{t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</small>
+        </label>
+        <label>{t('Indeed 国家/地区', 'Indeed country')}
+          <select value={form.country} onChange={event => set('country', event.target.value)}>
+            {countries.map(country => <option key={country} value={country}>{countryName(country, lang)}</option>)}
+          </select>
+        </label>
+        <label className="check-line"><input type="checkbox" checked={form.isRemote} onChange={event => set('isRemote', event.target.checked)} />{t('只要远程', 'Remote only')}</label>
+      </div>
+      <fieldset className="site-picker">
+        <legend>{t('网站', 'Sites')}</legend>
+        {sites.map(site => (
+          <label key={site.id} className={site.available ? '' : 'unavailable'} title={serverText(site.detail || '')}>
+            <input type="checkbox" checked={form.sites.includes(site.id)} onChange={() => toggleSite(site.id)} />
+            {site.label}{site.engine === 'jobspy' ? <small>{site.available ? t('通过 JobSpy', 'via JobSpy') : t('需要 JobSpy', 'needs JobSpy')}</small> : null}
+          </label>
+        ))}
+      </fieldset>
+      <div className="form-grid">
+        <label>{t('标题必须包含（可选）', 'Title must include (optional)')}<input value={form.titleInclude} onChange={event => set('titleInclude', event.target.value)} placeholder={t('例如：New Grad, Junior', 'e.g. New Grad, Junior')} /></label>
+        <label>{t('排除词（可选）', 'Exclude words (optional)')}<input value={form.excludeKeywords} onChange={event => set('excludeKeywords', event.target.value)} placeholder={t('例如：Senior, Staff, Principal', 'e.g. Senior, Staff, Principal')} /></label>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="button" onClick={onCancel}>{t('取消', 'Cancel')}</button>
+        <button type="submit" className="button primary" disabled={busy || !form.sites.length}>{t('保存', 'Save')}</button>
+      </div>
+    </form>
+  );
+}
+
+function Companies({ companies, onChange }) {
+  const { t } = useI18n();
+  const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function add(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const company = await api('/api/companies', { method: 'POST', body: { url, name: name || undefined } });
+      setMessage(company.listed !== null && company.listed !== undefined
+        ? t(`已关注 ${company.name}，目前有 ${company.listed} 个公开岗位。`, `Following ${company.name}: ${company.listed} open ${company.listed === 1 ? 'job' : 'jobs'} right now.`)
+        : t(`已关注 ${company.name}。`, `Following ${company.name}.`));
+      setUrl('');
+      setName('');
+      onChange();
+    } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+  }
+  async function toggle(company) {
+    try { await api(`/api/companies/${company.id}`, { method: 'PATCH', body: { enabled: !company.enabled } }); onChange(); }
+    catch (failure) { setError(failure.message); }
+  }
+  async function remove(company) {
+    if (!window.confirm(t(`不再关注 ${company.name}？已抓到的岗位会保留。`, `Stop following ${company.name}? Jobs already found are kept.`))) return;
+    try { await api(`/api/companies/${company.id}`, { method: 'DELETE' }); onChange(); }
+    catch (failure) { setError(failure.message); }
+  }
+  return (
+    <section className="card-section">
+      <h2><Building2 size={18} />{t('关注的公司', 'Followed companies')}</h2>
+      <p className="hint">{t('直接读取公司自己的招聘系统（Greenhouse、Lever、Ashby 的官方公开接口），最稳定，也能准确知道岗位何时下线。每天保留和上面搜索的关键词、地点匹配的所有开放岗位，不受发布时间限制。',
+        'Reads the company\'s own hiring system (the official public Greenhouse, Lever and Ashby feeds): the most reliable source, and it knows exactly when a job closes. Every day Dayjob keeps all open jobs that match your searches\' keywords and location, however long ago they were posted.')}</p>
+      <form className="inline-form" onSubmit={add}>
+        <input value={url} onChange={event => setUrl(event.target.value)} required placeholder={t('招聘页链接，例如 https://jobs.lever.co/acme 或 https://job-boards.greenhouse.io/acme', 'Careers link, e.g. https://jobs.lever.co/acme or https://job-boards.greenhouse.io/acme')} />
+        <input value={name} onChange={event => setName(event.target.value)} placeholder={t('公司名（可选）', 'Company name (optional)')} className="narrow" />
+        <button className="button primary" type="submit" disabled={busy}>{busy ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}{t('关注', 'Follow')}</button>
+      </form>
+      {error ? <p className="notice error">{error}</p> : null}
+      {message ? <p className="notice">{message}</p> : null}
+      {companies.length ? (
+        <ul className="company-list">
+          {companies.map(company => (
+            <li key={company.id} className={company.enabled ? '' : 'disabled'}>
+              <strong>{company.name}</strong><span>{label('site', company.ats)} · {company.slug}</span>
+              <label className="switch"><input type="checkbox" checked={company.enabled} onChange={() => toggle(company)} />{company.enabled ? t('启用', 'On') : t('暂停', 'Paused')}</label>
+              <button className="icon-button" title={t('取消关注', 'Unfollow')} onClick={() => remove(company)}><Trash2 size={15} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function Runs({ runs }) {
+  const { t } = useI18n();
+  if (!runs?.length) return null;
+  return (
+    <section className="card-section">
+      <h2>{t('最近的抓取', 'Recent searches')}</h2>
+      <ul className="run-list">
+        {runs.map(run => (
+          <li key={run.id}>
+            <div className="run-head">
+              <span className={`run-status ${run.status}`}>{run.status === 'failed' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}{t(...(RUN_STATUS[run.status] || [run.status, run.status]))}</span>
+              <span>{formatTime(run.startedAt)}{run.trigger === 'schedule' ? t(' · 每日自动', ' · daily') : t(' · 手动', ' · manual')}</span>
+              <span>{t(`${run.found} 个岗位 · ${run.newCount} 个新 · ${run.scored} 个已打分`, `${run.found} jobs · ${run.newCount} new · ${run.scored} scored`)}</span>
+            </div>
+            {run.detail?.length ? (
+              <ul className="run-detail">
+                {run.detail.map((entry, index) => (
+                  <li key={index} className={entry.error ? 'error' : entry.warning ? 'warning' : ''}>
+                    <span>{entry.source}</span>
+                    {entry.error ? <em>{serverText(entry.error)}{entry.blocked && !/limit|限流/i.test(serverText(entry.error)) ? t('（网站在限流，稍后会再试）', ' (the site is rate limiting; Dayjob tries again later)') : ''}</em>
+                      : entry.warning ? <em>{serverText(entry.warning)}</em>
+                        : <em>{t(`${entry.found} 个`, `${entry.found} found`)}{entry.new ? t(`，${entry.new} 个新`, `, ${entry.new} new`) : ''}{entry.closed ? t(`，${entry.closed} 个已下线`, `, ${entry.closed} closed`) : ''}
+                          {entry.warnings?.length ? t(`（${entry.warnings.map(serverText).join('；')}）`, ` (${entry.warnings.join('; ')})`) : ''}</em>}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function SearchesView({ boot, reload, status }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [runs, setRuns] = useState(boot.runs);
+  const running = status?.scheduler?.running;
+
+  useEffect(() => {
+    api('/api/runs?limit=10').then(setRuns).catch(() => {});
+  }, [running]);
+
+  async function runSearch(search) {
+    setError('');
+    setMessage('');
+    try {
+      await api('/api/runs', { method: 'POST', body: { searchIds: [search.id] } });
+      setMessage(t(`已开始抓取“${search.name}”。`, `Started “${search.name}”.`));
+    } catch (failure) { setError(failure.message); }
+  }
+  async function toggle(search) {
+    try { await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { enabled: !search.enabled } }); await reload(); }
+    catch (failure) { setError(failure.message); }
+  }
+  async function remove(search) {
+    if (!window.confirm(t(`删除搜索“${search.name}”？已抓到的岗位会保留。`, `Delete the search “${search.name}”? Jobs already found are kept.`))) return;
+    try { await api(`/api/searches/${search.id}`, { method: 'DELETE' }); await reload(); }
+    catch (failure) { setError(failure.message); }
+  }
+
+  return (
+    <section className="settings-page">
+      <header className="view-header">
+        <div><h1>{t('搜索与公司', 'Searches & companies')}</h1><p>{t('每天按这些条件抓取。抓取在你的电脑上进行，会放慢请求节奏，避免被网站限流。',
+          'Dayjob searches for these every day, from your computer, at a slow pace so the sites do not rate limit it.')}</p></div>
+        <div className="header-actions"><button className="button primary" onClick={() => setEditing('new')}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
+      </header>
+      {editing ? (
+        <SearchForm initial={editing === 'new' ? null : editing} sites={boot.sites} countries={boot.countries}
+          onCancel={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />
+      ) : null}
+      {error ? <p className="notice error">{error}</p> : null}
+      {message ? <p className="notice">{message}</p> : null}
+      <section className="card-section">
+        <h2>{t('保存的搜索', 'Saved searches')}</h2>
+        {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',
+          'No searches yet. Create one, for example keywords “Data Scientist, Data Analyst”, location “New York, NY”, posted in the past 3 days.')}</p> : null}
+        <ul className="search-list">
+          {boot.searches.map(search => (
+            <li key={search.id} className={search.enabled ? '' : 'disabled'}>
+              <div className="search-main">
+                <strong>{search.name}</strong>
+                <span>{search.keywords}{search.location ? ` · ${search.location}` : ''}{search.isRemote ? t(' · 远程', ' · remote') : ''}</span>
+                <span className="chips">
+                  {search.sites.map(site => <em key={site}>{label('site', site)}</em>)}
+                  {search.hoursOld ? <em>{t(...(POSTED.find(option => option.value === search.hoursOld)?.label || [`${search.hoursOld} 小时内`, `Past ${search.hoursOld} hours`]))}</em> : null}
+                  {search.jobType ? <em>{label('jobType', search.jobType)}</em> : null}
+                  {search.excludeKeywords.length ? <em>{t(`排除 ${search.excludeKeywords.join('、')}`, `Excludes ${search.excludeKeywords.join(', ')}`)}</em> : null}
+                </span>
+                <small>{search.lastRunAt ? t(`上次运行 ${relativeDay(search.lastRunAt)} ${lastTime(search.lastRunAt)}`, `Last run ${relativeDay(search.lastRunAt)} at ${lastTime(search.lastRunAt)}`) : t('还没有运行过', 'Not run yet')}</small>
+              </div>
+              <div className="search-actions">
+                <label className="switch"><input type="checkbox" checked={search.enabled} onChange={() => toggle(search)} />{search.enabled ? t('每日', 'Daily') : t('暂停', 'Paused')}</label>
+                <button className="icon-button" title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}><Play size={15} /></button>
+                <button className="icon-button" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
+                <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(search)}><Trash2 size={15} /></button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <Companies companies={boot.companies} onChange={reload} />
+      <Runs runs={runs} />
+    </section>
+  );
+}

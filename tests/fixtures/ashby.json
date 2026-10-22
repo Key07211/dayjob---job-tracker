@@ -1,0 +1,38 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "9b8c7d6e-5f40-4321-8abc-def012345678",
+      "title": "Software Engineer, Data Platform",
+      "department": "Engineering",
+      "team": "Data Platform",
+      "employmentType": "FullTime",
+      "location": "Remote - US",
+      "secondaryLocations": [],
+      "publishedAt": "2026-10-19T17:30:00.000+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "address": { "postalAddress": { "addressCountry": "United States", "addressRegion": "", "addressLocality": "" } },
+      "jobUrl": "https://jobs.ashbyhq.com/rampish/9b8c7d6e-5f40-4321-8abc-def012345678",
+      "applyUrl": "https://jobs.ashbyhq.com/rampish/9b8c7d6e-5f40-4321-8abc-def012345678/application",
+      "descriptionHtml": "<p>Build our <strong>data platform</strong>.</p><ul><li>Spark</li><li>dbt</li></ul>",
+      "descriptionPlain": "Build our data platform. Spark dbt",
+      "compensation": {
+        "compensationTierSummary": "$170K – $210K",
+        "summaryComponents": [
+          { "compensationType": "Salary", "interval": "1 YEAR", "currencyCode": "USD", "minValue": 170000, "maxValue": 210000 },
+          { "compensationType": "EquityPercentage", "interval": "NONE", "currencyCode": null, "minValue": 0.01, "maxValue": 0.05 }
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "title": "Hidden role",
+      "location": "Remote",
+      "isListed": false,
+      "jobUrl": "https://jobs.ashbyhq.com/rampish/00000000-0000-4000-8000-000000000001",
+      "descriptionPlain": "hidden",
+      "publishedAt": "2026-10-19T17:30:00.000+00:00"
+    }
+  ]
+}

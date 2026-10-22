@@ -1,0 +1,49 @@
+{
+  "data": {
+    "jobSearch": {
+      "pageInfo": { "nextCursor": null },
+      "results": [
+        {
+          "job": {
+            "key": "a1b2c3d4e5f60718",
+            "title": "Data Analyst",
+            "sourceEmployerName": "Bluebird Health",
+            "dateOnIndeed": 1760918400000,
+            "description": { "html": "<p><b>Bluebird Health</b> is looking for a Data Analyst.</p><ul><li>SQL and Tableau</li><li>Python a plus</li></ul><p>Pay: $85,000 - $105,000 a year</p>" },
+            "location": { "countryCode": "US", "admin1Code": "NY", "city": "New York" },
+            "compensation": {
+              "estimated": null,
+              "baseSalary": { "unitOfWork": "YEAR", "range": { "min": 85000, "max": 105000 } },
+              "currencyCode": "USD"
+            },
+            "attributes": [{ "key": "CF3CP" }, { "key": "DSQF7" }],
+            "employer": {
+              "relativeCompanyPageUrl": "/cmp/Bluebird-Health",
+              "name": "Bluebird Health",
+              "dossier": { "images": { "squareLogoUrl": "https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/bluebird.png" }, "links": { "corporateWebsite": "https://bluebird.example" } }
+            },
+            "recruit": { "viewJobUrl": "https://careers.bluebird.example/jobs/889" }
+          }
+        },
+        {
+          "job": {
+            "key": "ffeeddccbbaa0099",
+            "title": "Business Intelligence Intern",
+            "sourceEmployerName": "Northwind",
+            "dateOnIndeed": 1760659200000,
+            "description": { "html": "<p>Summer internship.</p>" },
+            "location": { "countryCode": "US", "admin1Code": "NJ", "city": "Jersey City" },
+            "compensation": {
+              "estimated": { "currencyCode": "USD", "baseSalary": { "unitOfWork": "HOUR", "range": { "min": 28.5, "max": 34 } } },
+              "baseSalary": null,
+              "currencyCode": null
+            },
+            "attributes": [{ "key": "VDTG7" }],
+            "employer": null,
+            "recruit": { "viewJobUrl": "https://www.indeed.com/viewjob?jk=ffeeddccbbaa0099" }
+          }
+        }
+      ]
+    }
+  }
+}
