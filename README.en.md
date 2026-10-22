@@ -27,7 +27,19 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 
 ![Applications: funnel, stages and timeline](docs/media/applications-en.webp)
 
-## Run it
+## Download
+
+Get the latest Windows version from [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest):
+
+| File | What it is |
+| --- | --- |
+| `Dayjob-Setup-x.y.z.exe` | The installer. Open Dayjob from the Start menu or the desktop shortcut. |
+| `Dayjob-Portable-x.y.z.exe` | Runs without installing. |
+| `SHA256SUMS-x.y.z.txt` | SHA-256 checksums of both files. |
+
+The programs are not signed yet, so the first time Windows may say "Windows protected your PC"; click "More info", then "Run anyway". New versions are downloaded by hand and installed over the old one; upgrading or uninstalling keeps your data in `%APPDATA%\Dayjob`.
+
+## Run from source
 
 Needs Node.js 22.13 or newer (for the built-in `node:sqlite`).
 
@@ -143,6 +155,19 @@ To try the interface without scraping, generate made-up data:
 ```bash
 node scripts/seed-demo.mjs ./demo-data
 DAYJOB_DATA_DIR=./demo-data npm start
+```
+
+## Releasing
+
+For every pull request and every push to main, GitHub Actions runs the tests on Windows, builds the installer and the portable app, and starts each form (unpacked, silently installed and portable), including the packaged Claude MCP connection.
+
+To release, change `version` in `package.json` (for example to `0.2.0`) and merge to main. If that version has not been released yet, the workflow publishes the files it just verified as release `v0.2.0`. There is no tag to push, and releases are never published by hand on GitHub.
+
+To check a build on your own computer:
+
+```bash
+npm run package:win
+pwsh scripts/verify-windows-build.ps1 -Version 0.2.0
 ```
 
 ## License notes

@@ -33,7 +33,19 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 
 ![投递追踪：漏斗、状态、时间线](docs/media/applications.webp)
 
-## 运行
+## 下载
+
+到 [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest) 下载最新的 Windows 版本：
+
+| 文件 | 说明 |
+| --- | --- |
+| `Dayjob-Setup-x.y.z.exe` | 安装版。装好后从开始菜单或桌面快捷方式打开。 |
+| `Dayjob-Portable-x.y.z.exe` | 免安装版，双击直接运行。 |
+| `SHA256SUMS-x.y.z.txt` | 两个文件的 SHA-256 校验值。 |
+
+程序还没有签名，第一次打开时 Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。新版本需要手动下载安装，覆盖安装即可；升级或卸载都不会删除 `%APPDATA%\Dayjob` 里的数据。
+
+## 从源码运行
 
 需要 Node.js 22.13 或更新版本（用到内置的 `node:sqlite`）。
 
@@ -151,6 +163,19 @@ node scripts/seed-demo.mjs ./demo-data
 DAYJOB_DATA_DIR=./demo-data npm start
 ```
 
+## 发布新版本
+
+每个 PR 和每次推送到 main，GitHub Actions 都会在 Windows 上跑测试、打包安装版和免安装版，并把这三种形态（解压版、静默安装后的安装版、免安装版）各启动一遍，同时检查打包后的 Claude MCP 连接。
+
+发布时把 `package.json` 里的 `version` 改成新版本号（例如 `0.2.0`）并合并到 main。如果这个版本还没有发布过，工作流会用刚验证过的文件创建 `v0.2.0` 的 Release。不需要手动推送 tag，也不要在 GitHub 网页上手动发布。
+
+在自己电脑上检查打包结果：
+
+```bash
+npm run package:win
+pwsh scripts/verify-windows-build.ps1 -Version 0.2.0
+```
+
 ## 目录
 
 ```
@@ -162,7 +187,8 @@ integrations/      Claude MCP 服务器
 desktop/           Electron 主进程、托盘、Claude 一键连接
 src/               React 界面
 tests/             node:test 测试和抓取样本
-scripts/           演示数据、真实网站检查
+scripts/           演示数据、真实网站检查、Windows 打包检查
+.github/workflows/ Windows 打包、验证和发布
 ```
 
 ## 许可
