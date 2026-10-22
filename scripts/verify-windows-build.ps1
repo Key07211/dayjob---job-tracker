@@ -4,7 +4,7 @@
 # the desktop smoke test, and the Claude MCP bridge answers from inside the
 # packaged app.
 #   npm run package:win
-#   pwsh scripts/verify-windows-build.ps1 -Version 0.1.0 [-Install]
+#   powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.1.0 [-Install]
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [switch]$Install
@@ -25,7 +25,8 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   $deadline = (Get-Date).AddSeconds(120)
   while (-not (Test-Path -LiteralPath $result) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
   if (-not (Test-Path -LiteralPath $result)) { throw "$Name smoke test wrote no report (exit code $($process.ExitCode))" }
-  $report = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
+  # UTF-8 explicitly: Windows PowerShell 5.1 would read it in the system code page.
+  $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} version={5} executable={6}" -f
     $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.version, $report.executable)
   if (-not $report.ok) { throw "$Name smoke test failed" }

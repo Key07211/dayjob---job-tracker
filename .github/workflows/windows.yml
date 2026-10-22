@@ -126,6 +126,9 @@ jobs:
 
           The programs are not signed yet, so Windows may say "Windows protected your PC"; click "More info", then "Run anyway". AI scoring needs Claude Code signed in on this computer, or an Anthropic API key under Resume & AI. Upgrading or uninstalling keeps your data (%APPDATA%\\Dayjob).
           EOF
+          # Copies under fixed names, so the README links straight to the newest download.
+          cp "release/Dayjob-Setup-$VERSION.exe" release/Dayjob-Setup.exe
+          cp "release/Dayjob-Portable-$VERSION.exe" release/Dayjob-Portable.exe
           # A run that failed halfway can leave an unpublished draft behind.
           if gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null | grep -qx true; then gh release delete "$tag" --yes; fi
           gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Dayjob $tag" --notes-file notes.md release/*

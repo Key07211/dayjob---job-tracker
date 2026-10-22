@@ -29,13 +29,12 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 
 ## Download
 
-Get the latest Windows version from [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest):
+Download the latest Windows version:
 
-| File | What it is |
-| --- | --- |
-| `Dayjob-Setup-x.y.z.exe` | The installer. Open Dayjob from the Start menu or the desktop shortcut. |
-| `Dayjob-Portable-x.y.z.exe` | Runs without installing. |
-| `SHA256SUMS-x.y.z.txt` | SHA-256 checksums of both files. |
+- **[Installer (Dayjob-Setup.exe)](https://github.com/Key07211/dayjob---job-tracker/releases/latest/download/Dayjob-Setup.exe)**: open Dayjob from the Start menu or the desktop shortcut afterwards.
+- **[Portable (Dayjob-Portable.exe)](https://github.com/Key07211/dayjob---job-tracker/releases/latest/download/Dayjob-Portable.exe)**: runs without installing.
+
+Each version's notes, the same files with the version in their names (`Dayjob-Setup-x.y.z.exe`, `Dayjob-Portable-x.y.z.exe`) and a SHA-256 checksum file are on the [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest) page.
 
 The programs are not signed yet, so the first time Windows may say "Windows protected your PC"; click "More info", then "Run anyway". New versions are downloaded by hand and installed over the old one; upgrading or uninstalling keeps your data in `%APPDATA%\Dayjob`.
 
@@ -167,7 +166,7 @@ To check a build on your own computer:
 
 ```bash
 npm run package:win
-pwsh scripts/verify-windows-build.ps1 -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.2.0
 ```
 
 ## License notes

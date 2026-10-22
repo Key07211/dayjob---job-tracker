@@ -35,13 +35,12 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 
 ## 下载
 
-到 [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest) 下载最新的 Windows 版本：
+直接下载最新的 Windows 版本：
 
-| 文件 | 说明 |
-| --- | --- |
-| `Dayjob-Setup-x.y.z.exe` | 安装版。装好后从开始菜单或桌面快捷方式打开。 |
-| `Dayjob-Portable-x.y.z.exe` | 免安装版，双击直接运行。 |
-| `SHA256SUMS-x.y.z.txt` | 两个文件的 SHA-256 校验值。 |
+- **[下载安装版（Dayjob-Setup.exe）](https://github.com/Key07211/dayjob---job-tracker/releases/latest/download/Dayjob-Setup.exe)**，装好后从开始菜单或桌面快捷方式打开。
+- **[下载免安装版（Dayjob-Portable.exe）](https://github.com/Key07211/dayjob---job-tracker/releases/latest/download/Dayjob-Portable.exe)**，双击直接运行。
+
+每个版本的说明、带版本号的同一份文件（`Dayjob-Setup-x.y.z.exe`、`Dayjob-Portable-x.y.z.exe`）和 SHA-256 校验文件都在 [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest) 页面。
 
 程序还没有签名，第一次打开时 Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。新版本需要手动下载安装，覆盖安装即可；升级或卸载都不会删除 `%APPDATA%\Dayjob` 里的数据。
 
@@ -173,7 +172,7 @@ DAYJOB_DATA_DIR=./demo-data npm start
 
 ```bash
 npm run package:win
-pwsh scripts/verify-windows-build.ps1 -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.2.0
 ```
 
 ## 目录
