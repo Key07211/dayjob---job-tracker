@@ -1,0 +1,136 @@
+name: Windows build and release
+
+# Every pull request and every push to main builds the Windows installer and
+# portable app, runs the tests and starts each built file. A push to main whose
+# package.json version has no release yet publishes those same files as
+# release v<version>; to release, bump the version and merge.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Read the version
+        id: version
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($version -cnotmatch '\A(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\z') { throw "package.json version must be x.y.z, not $version" }
+          "version=$version" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+      - name: Install locked dependencies
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+      - name: Run tests
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Build the installer and the portable app
+        run: |
+          npm run package:win -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+      - name: Start the unpacked, installed and portable app
+        run: ./scripts/verify-windows-build.ps1 -Version '${{ steps.version.outputs.version }}' -Install
+      - name: Write checksums
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $names = "Dayjob-Setup-$version.exe", "Dayjob-Portable-$version.exe"
+          $lines = foreach ($name in $names) {
+            "$((Get-FileHash -LiteralPath "release/$name" -Algorithm SHA256).Hash.ToLowerInvariant())  $name"
+          }
+          $lines | Set-Content -LiteralPath "release/SHA256SUMS-$version.txt" -Encoding ascii
+          Get-Content -LiteralPath "release/SHA256SUMS-$version.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dayjob-windows
+          path: |
+            release/Dayjob-Setup-${{ steps.version.outputs.version }}.exe
+            release/Dayjob-Portable-${{ steps.version.outputs.version }}.exe
+            release/SHA256SUMS-${{ steps.version.outputs.version }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'Key07211/dayjob---job-tracker'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: dayjob-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Skip a version that is already released
+        id: check
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" > /dev/null 2>&1; then
+            echo "v$VERSION is already released; bump the version in package.json to publish a new one."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.check.outputs.publish == 'true'
+        with:
+          name: dayjob-windows
+          path: release
+      - name: Publish the release
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          cat > notes.md <<EOF
+          Dayjob $VERSION，Windows x64。
+
+          - **Dayjob-Setup-$VERSION.exe**：安装版。装好后从开始菜单或桌面快捷方式打开。
+          - **Dayjob-Portable-$VERSION.exe**：免安装版，双击直接运行。
+
+          程序还没有签名，Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。AI 打分需要本机已登录的 Claude Code，或在“简历与 AI”里填写 Anthropic API key。升级或卸载都不会删除你的数据（%APPDATA%\\Dayjob）。
+
+          ---
+
+          Dayjob $VERSION for Windows x64.
+
+          - **Dayjob-Setup-$VERSION.exe**: the installer. Open Dayjob from the Start menu or the desktop shortcut.
+          - **Dayjob-Portable-$VERSION.exe**: runs without installing.
+
+          The programs are not signed yet, so Windows may say "Windows protected your PC"; click "More info", then "Run anyway". AI scoring needs Claude Code signed in on this computer, or an Anthropic API key under Resume & AI. Upgrading or uninstalling keeps your data (%APPDATA%\\Dayjob).
+          EOF
+          # A run that failed halfway can leave an unpublished draft behind.
+          if gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null | grep -qx true; then gh release delete "$tag" --yes; fi
+          gh release create "$tag" --target "$GITHUB_SHA" --draft --title "Dayjob $tag" --notes-file notes.md release/*
+          expected=$(ls release | wc -l)
+          uploaded=$(gh release view "$tag" --json assets --jq '.assets | length')
+          if [ "$uploaded" != "$expected" ]; then echo "Uploaded $uploaded of $expected files; the release stays a draft." >&2; exit 1; fi
+          gh release edit "$tag" --draft=false --latest
+          echo "Published $(gh release view "$tag" --json url --jq .url)"
