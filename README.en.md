@@ -117,6 +117,7 @@ Then check the Python command under **Settings → JobSpy** (`python` on Windows
 ## About scraping
 
 - LinkedIn and Indeed limit frequent requests. Dayjob waits a few random seconds between pages and backs off on HTTP 429; when a site limits it, that run is marked partly succeeded and the other sources carry on. One run a day with a few dozen results per search is usually fine; avoid short intervals or hundreds of results at once.
+- When checking whether jobs have closed, a job that today's search still lists counts as open and is not requested again. Some networks are refused Indeed's job pages (HTTP 401); then Dayjob cannot tell whether an Indeed job has closed, only whether it still shows up in searches. Other sources are checked as usual.
 - Glassdoor, ZipRecruiter and Google Jobs rely on JobSpy, which may need updating when those sites change.
 - Follow each site's terms of use and use Dayjob for your own job search only.
 

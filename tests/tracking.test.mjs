@@ -55,6 +55,7 @@ test('tracking notices when an applied posting closes', async () => {
     ['/jobs/view/2', { body: fixture('linkedin-closed.html') }],
     ['/jobs/view/3', { status: 429, body: '' }],
   ]);
+  now.advance(DAY);
   const report = await createTracker({ repo, http, now, notify: item => notes.push(item), log: () => {} }).run();
   assert.deepEqual(report.closed, ['li-2']);
   assert.equal(report.errors, 1);
@@ -63,6 +64,31 @@ test('tracking notices when an applied posting closes', async () => {
   assert.equal(repo.getApplication(application.id).events[0].type, 'posting-closed');
   assert.equal(notes[0].kind, 'posting-closed');
   assert.equal(calls.filter(call => call.url.includes('/jobs/view/2')).length, 1, 'applied jobs are checked first');
+});
+
+test('jobs a search listed today are not requested, and a refusing site waits for the next run', async () => {
+  const now = clock('2026-10-10T16:00:00Z');
+  const { repo } = memoryRepo(now);
+  const ind = id => posting({ site: 'indeed', externalId: id, title: `Job ${id}`, company: `Co ${id}`, jobUrl: `https://www.indeed.com/viewjob?jk=${id}` });
+  for (const item of [ind('a1'), ind('a2'), li('4'), li('5')]) {
+    const { id } = repo.upsertPosting(item);
+    repo.createApplication({ postingId: id, company: item.company, title: item.title, followUpDays: 0 });
+  }
+  now.advance(DAY);
+  repo.upsertPosting(li('5'));
+  const { http, calls } = fakeHttp([
+    ['viewjob?jk=', { status: 401, body: '' }],
+    ['/jobs/view/4', { body: fixture('linkedin-job.html') }],
+  ]);
+  const report = await createTracker({ repo, http, now, log: () => {} }).run();
+  assert.equal(calls.filter(call => call.url.includes('indeed.com')).length, 1, 'one refused Indeed page, then Indeed waits');
+  assert.equal(calls.filter(call => call.url.includes('/jobs/view/4')).length, 1, 'the other site is still checked');
+  assert.equal(calls.filter(call => call.url.includes('/jobs/view/5')).length, 0, 'listed by today\'s search');
+  assert.equal(report.checked, 1);
+  assert.equal(report.errors, 1);
+  assert.deepEqual(report.warnings, ['indeed limited requests; the rest are checked next time.']);
+  assert.equal(repo.getPosting('in-a1').closedAt, null);
+  assert.equal(repo.getPosting('in-a1').lastCheckedAt, null, 'tried again first next time');
 });
 
 test('followed company boards are left to the daily search', async () => {

@@ -24,10 +24,11 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
     return response.status === 404 || response.status === 410 ? false : null;
   }
 
-  // Applied jobs first (oldest check first), then saved ones, within a budget.
+  // Applied jobs first (oldest check first), then saved ones.
   function dueForCheck() {
     const cutoff = now().getTime() - RECHECK_HOURS * 3600e3;
-    const fresh = item => !item.lastCheckedAt || Date.parse(item.lastCheckedAt) < cutoff;
+    // A job a search listed since the cutoff is still open, without asking the site again.
+    const fresh = item => !(Date.parse(item.lastCheckedAt) >= cutoff) && !(Date.parse(item.lastSeenAt) >= cutoff);
     // Followed company boards are re-read in full by every search run.
     const followed = new Set(repo.listCompanies().filter(company => company.enabled).map(company => `${company.ats}:${company.slug}`));
     const coveredBySearch = posting => COMPANY_SITES.includes(posting.site)
@@ -40,21 +41,30 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
       if (seen.has(posting.id) || posting.closedAt || !fresh(posting) || coveredBySearch(posting)) return false;
       seen.add(posting.id);
       return true;
-    }).sort((a, b) => (Date.parse(a.lastCheckedAt || 0) || 0) - (Date.parse(b.lastCheckedAt || 0) || 0)).slice(0, MAX_CHECKS);
+    }).sort((a, b) => (Date.parse(a.lastCheckedAt || 0) || 0) - (Date.parse(b.lastCheckedAt || 0) || 0));
   }
 
   async function checkPostings(report) {
     if (!settings().checkClosed) return;
     const cache = new Map();
-    const targets = dueForCheck();
-    for (const [index, posting] of targets.entries()) {
-      if (index) await http.sleep(jitter(CHECK_DELAY));
+    // A site that refuses one check is left until the next run; the other sites carry on.
+    const refused = new Set();
+    let tried = 0;
+    for (const posting of dueForCheck()) {
+      if (tried >= MAX_CHECKS) break;
+      if (refused.has(posting.site)) continue;
+      if (tried) await http.sleep(jitter(CHECK_DELAY));
+      tried += 1;
       let open = null;
       try { open = await isOpen(posting, cache); }
       catch (error) {
         log(`[dayjob] check ${posting.id}: ${error.message}`);
         report.errors += 1;
-        if (error.blocked) { report.warnings.push(`${posting.site} limited requests; the rest are checked next time.`); break; }
+        if (error.blocked) {
+          refused.add(posting.site);
+          report.warnings.push(`${posting.site} limited requests; the rest are checked next time.`);
+          continue;
+        }
       }
       report.checked += 1;
       const change = repo.markChecked(posting.id, open);

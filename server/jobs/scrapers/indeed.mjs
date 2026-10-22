@@ -138,7 +138,14 @@ export const indeed = {
     return { postings: results, warnings: [] };
   },
   async checkOpen(item, { http }) {
-    const response = await http.request(item.jobUrl, { headers: { 'user-agent': HEADERS['user-agent'] }, allowStatus: [404, 410] });
+    let response;
+    try {
+      response = await http.request(item.jobUrl, { headers: { 'user-agent': HEADERS['user-agent'] }, allowStatus: [404, 410] });
+    } catch (error) {
+      // Some networks get 401 for every job page, which says nothing about the job itself.
+      if (error.status === 401) throw new ScrapeError('Indeed refused the job page (HTTP 401).', { status: 401, blocked: true });
+      throw error;
+    }
     if (response.status === 404 || response.status === 410) return false;
     if (/This job has expired|job you were looking for is no longer available/i.test(response.body)) return false;
     return /jobsearch-JobComponent|jobDescriptionText/.test(response.body) ? true : null;
