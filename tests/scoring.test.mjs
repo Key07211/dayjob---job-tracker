@@ -31,8 +31,8 @@ test('score replies are validated and clamped', () => {
 
 test('Claude Code output envelopes', () => {
   assert.equal(parseCliOutput(JSON.stringify({ type: 'result', is_error: false, structured_output: RESULT, result: '', modelUsage: { 'claude-opus-5-5': {} } })).model, 'claude-opus-5-5');
-  assert.equal(parseCliOutput(JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify(RESULT) })).score.score, 78);
-  assert.equal(parseCliOutput(JSON.stringify([{ type: 'system' }, { type: 'result', result: JSON.stringify(RESULT) }])).score.score, 78);
+  assert.equal(parseCliOutput(JSON.stringify({ type: 'result', is_error: false, result: JSON.stringify(RESULT) })).value.score, 78);
+  assert.equal(parseCliOutput(JSON.stringify([{ type: 'system' }, { type: 'result', result: JSON.stringify(RESULT) }])).value.score, 78);
   assert.throws(() => parseCliOutput(JSON.stringify({ is_error: true, result: 'Not logged in' })), /Not logged in/);
   assert.ok(cliArgs({}).includes('--json-schema'));
   assert.ok(!cliArgs({ shell: true }).includes('--system-prompt'), 'cmd shims never get long arguments');

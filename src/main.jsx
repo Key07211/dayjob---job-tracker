@@ -11,6 +11,7 @@ import { ResumeView } from './dayjob/ResumeView.jsx';
 import { SettingsView } from './dayjob/SettingsView.jsx';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
+import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import './dayjob/dayjob.css';
 
 const VIEWS = [
@@ -52,6 +53,7 @@ function App() {
   const wasRunning = useRef(false);
   const adopted = useRef(false);
   const browser = useBrowserState(setView);
+  const update = useUpdateState();
 
   const reload = useCallback(async () => {
     try {
@@ -128,6 +130,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          <UpdateItem state={update} />
           <button className={`nav-item${showNotifications ? ' active' : ''}`} onClick={() => setShowNotifications(value => !value)}>
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em>{stats.unreadNotifications}</em> : null}
           </button>
@@ -150,7 +153,7 @@ function App() {
         {view === 'browser' && hasBrowser ? <BrowserView state={browser} covered={showNotifications} setView={setView} /> : null}
         {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
         {view === 'resume' ? <ResumeView {...shared} status={status} /> : null}
-        {view === 'settings' ? <SettingsView {...shared} /> : null}
+        {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
       </main>
     </div>
   );

@@ -28,7 +28,13 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
   const [selected, setSelected] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [scoringMessage, setScoringMessage] = useState('');
+  const [picked, setPicked] = useState(() => new Set());
   const text = useDebounced(filters.q, 250);
+  const scoreMode = boot.settings.ai.scoreMode || 'auto';
+  const hasResume = boot.resumes.length > 0;
+  // Outside "score everything", the user ticks the jobs worth a Claude call.
+  const picking = scoreMode !== 'auto' && hasResume;
+  const scoreAllShown = scoreMode === 'auto' || (scoreMode === 'saved' && mode === 'saved');
   const set = (key, value) => setFilters(current => ({ ...current, [key]: value }));
 
   useEffect(() => {
@@ -49,6 +55,17 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
 
   const sites = useMemo(() => [...new Set(result.items.map(item => item.site))], [result.items]);
   const unscored = result.items.filter(item => !item.score).length;
+  useEffect(() => {
+    setPicked(current => {
+      const still = new Set(result.items.filter(item => current.has(item.id) && !item.score).map(item => item.id));
+      return still.size === current.size ? current : still;
+    });
+  }, [result.items]);
+  const togglePick = id => setPicked(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   function onChanged(updated, { removed } = {}) {
     if (removed) {
@@ -62,14 +79,24 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
     void refreshStatus();
   }
 
-  async function scoreAll() {
+  async function scoreJobs(ids) {
     setScoringMessage('');
     try {
-      await api('/api/scores', { method: 'POST', body: { postingIds: result.items.filter(item => !item.score).map(item => item.id) } });
+      const { started } = await api('/api/scores', { method: 'POST', body: { postingIds: ids } });
+      if (!started) {
+        setScoringMessage(t('正在给别的岗位打分，完成后再试。', 'Other jobs are being scored. Try again when that is done.'));
+        return;
+      }
       setScoringMessage(t('已开始为这些岗位打分，完成后会自动刷新。', 'Scoring started. The list refreshes when it is done.'));
+      setPicked(new Set());
       void refreshStatus();
     } catch (failure) { setScoringMessage(failure.message); }
   }
+  const scoreAll = () => scoreJobs(result.items.filter(item => !item.score).map(item => item.id));
+  const intro = mode === 'saved' ? t('先收藏，准备好再投递。投递后会自动出现在“投递追踪”。', 'Save jobs now and apply when you are ready. Applied jobs move to Applications.')
+    : scoreMode === 'saved' ? t('每日抓取的新岗位。收藏的岗位会按你的简历 AI 打分，也可以勾选几个直接打分。', 'New jobs from the daily search. Jobs you save are scored against your resume, or tick a few to score them now.')
+      : scoreMode === 'manual' ? t('每日抓取的新岗位。勾选想打分的岗位，再点右上角的按钮。', 'New jobs from the daily search. Tick the ones you want scored, then use the button at the top right.')
+        : t('每日抓取的新岗位，按你的简历 AI 打分。', 'New jobs from the daily search, scored by AI against your resume.');
 
   const empty = !loading && !result.items.length;
   return (
@@ -77,16 +104,16 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
       <header className="view-header">
         <div>
           <h1>{mode === 'saved' ? t('已收藏', 'Saved') : t('今日岗位', 'Today')}</h1>
-          <p>{mode === 'saved' ? t('先收藏，准备好再投递。投递后会自动出现在“投递追踪”。', 'Save jobs now and apply when you are ready. Applied jobs move to Applications.')
-            : t('每日抓取的新岗位，按你的简历 AI 打分。', 'New jobs from the daily search, scored by AI against your resume.')}</p>
+          <p>{intro}</p>
         </div>
         <div className="header-actions">
-          {unscored && boot.resumes.length ? <button className="button" onClick={scoreAll}><Sparkles size={15} />{t(`给 ${unscored} 个岗位打分`, `Score ${unscored} ${unscored === 1 ? 'job' : 'jobs'}`)}</button> : null}
+          {picked.size ? <button className="button primary" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t(`给选中的 ${picked.size} 个岗位打分`, `Score ${picked.size} picked ${picked.size === 1 ? 'job' : 'jobs'}`)}</button>
+            : unscored && hasResume && scoreAllShown ? <button className="button" onClick={scoreAll}><Sparkles size={15} />{t(`给 ${unscored} 个岗位打分`, `Score ${unscored} ${unscored === 1 ? 'job' : 'jobs'}`)}</button> : null}
           <button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button>
         </div>
       </header>
       {scoringMessage ? <p className="notice">{scoringMessage}</p> : null}
-      {!boot.resumes.length && mode === 'active' ? (
+      {!hasResume && mode === 'active' ? (
         <p className="notice">{t('还没有上传简历，岗位不会被打分。', 'No resume yet, so jobs are not scored.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : null}
       <div className="filters">
@@ -125,29 +152,37 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
             </div>
           ) : null}
           {result.items.map(item => (
-            <button key={item.id} role="listitem" className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}`} onClick={() => setSelected(item.id)}>
-              <div className="logo">{item.companyLogo ? <img src={item.companyLogo} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{(item.company || item.title).slice(0, 1).toUpperCase()}</span>}</div>
-              <div className="row-main">
-                <strong>{item.title}</strong>
-                <span className="row-company">{item.company}{item.location ? ` · ${item.location}` : ''}</span>
-                <span className="row-meta">
-                  {item.datePosted ? <span>{t(`${relativeDay(item.datePosted)}发布`, `Posted ${relativeDay(item.datePosted)}`)}</span>
-                    : <span>{t(`${relativeDay(item.firstSeenAt)}抓取`, `Found ${relativeDay(item.firstSeenAt)}`)}</span>}
-                  <span>{label('site', item.site)}</span>
-                  {salaryText(item.salary) ? <span>{salaryText(item.salary)}</span> : null}
-                  {item.isRemote ? <span>{t('远程', 'Remote')}</span> : null}
-                  {item.closedAt ? <span className="tag-closed">{t('已关闭', 'Closed')}</span> : null}
-                  {item.status === 'new' && mode === 'active' ? <span className="tag-new">{t('新', 'New')}</span> : null}
-                  {item.status === 'saved' && mode === 'active' ? <span className="tag-saved"><Bookmark size={11} />{t('已收藏', 'Saved')}</span> : null}
+            <div key={item.id} role="listitem" className={`posting-item${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}`}>
+              {picking ? (
+                <span className="pick">
+                  {!item.score ? <input type="checkbox" checked={picked.has(item.id)} onChange={() => togglePick(item.id)}
+                    title={t('勾选后一起打分', 'Tick to score it')} aria-label={t(`勾选“${item.title}”来打分`, `Pick “${item.title}” for scoring`)} /> : null}
                 </span>
-              </div>
-              <ScoreBadge score={item.score} compact />
-            </button>
+              ) : null}
+              <button className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}`} onClick={() => setSelected(item.id)}>
+                <div className="logo">{item.companyLogo ? <img src={item.companyLogo} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{(item.company || item.title).slice(0, 1).toUpperCase()}</span>}</div>
+                <div className="row-main">
+                  <strong>{item.title}</strong>
+                  <span className="row-company">{item.company}{item.location ? ` · ${item.location}` : ''}</span>
+                  <span className="row-meta">
+                    {item.datePosted ? <span>{t(`${relativeDay(item.datePosted)}发布`, `Posted ${relativeDay(item.datePosted)}`)}</span>
+                      : <span>{t(`${relativeDay(item.firstSeenAt)}抓取`, `Found ${relativeDay(item.firstSeenAt)}`)}</span>}
+                    <span>{label('site', item.site)}</span>
+                    {salaryText(item.salary) ? <span>{salaryText(item.salary)}</span> : null}
+                    {item.isRemote ? <span>{t('远程', 'Remote')}</span> : null}
+                    {item.closedAt ? <span className="tag-closed">{t('已关闭', 'Closed')}</span> : null}
+                    {item.status === 'new' && mode === 'active' ? <span className="tag-new">{t('新', 'New')}</span> : null}
+                    {item.status === 'saved' && mode === 'active' ? <span className="tag-saved"><Bookmark size={11} />{t('已收藏', 'Saved')}</span> : null}
+                  </span>
+                </div>
+                <ScoreBadge score={item.score} compact />
+              </button>
+            </div>
           ))}
           {result.total > result.items.length ? <p className="list-more">{t(`显示前 ${result.items.length} 个，共 ${result.total} 个。用筛选缩小范围。`, `Showing ${result.items.length} of ${result.total}. Use the filters to narrow it down.`)}</p> : null}
         </div>
         <div className="detail-pane">
-          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={boot.resumes.length > 0} mode={mode} />
+          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} />
             : <div className="detail-empty">{t('选择左侧的岗位查看详情', 'Pick a job on the left to see it here')}</div>}
         </div>
       </div>

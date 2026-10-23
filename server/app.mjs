@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { HttpError, readJson, respond } from './http.mjs';
 import { createNotifier, nativeNotification } from './notify.mjs';
 import { openDatabase } from './jobs/db.mjs';
-import { APPLICATION_STATUSES, createRepository } from './jobs/repository.mjs';
+import { APPLICATION_STATUSES, createRepository, MAX_RESUMES } from './jobs/repository.mjs';
 import { createHttp } from './jobs/scrapers/http-client.mjs';
 import { SITES } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
@@ -16,10 +16,12 @@ import { createSearchRunner } from './jobs/search-runner.mjs';
 import { createScorer } from './jobs/scoring/index.mjs';
 import { createTracker } from './jobs/tracker.mjs';
 import { createScheduler } from './jobs/scheduler.mjs';
+import { recommend } from './jobs/recommend.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
-import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, manualApplication, manualPosting, postingStatus, publicSettings, searchInput, settingsPatch } from './validation.mjs';
+import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, manualApplication, manualPosting, postingStatus, publicSettings, recommendInput, searchInput,
+  settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -37,6 +39,8 @@ export async function createApp(options = {}) {
   const { db, filename } = openDatabase(options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data'));
   const repo = createRepository(db, { now });
   repo.abandonRunningRuns();
+  // Databases from before multiple resumes have postings with no matched resume.
+  if (repo.countResumes()) repo.rematchPostings({ missingOnly: true });
   const distDir = path.resolve(options.distDir || path.join(root, 'dist'));
   const csrfToken = randomBytes(32).toString('hex');
   const log = options.log || console.warn;
@@ -57,6 +61,7 @@ export async function createApp(options = {}) {
   const scheduler = createScheduler({ repo, runner, scorer, tracker, notify, now, log, intervalMs: options.intervalMs });
   const configuredOrigins = options.allowedOrigins || (process.env.DAYJOB_ALLOWED_ORIGINS || 'http://localhost:5174,http://127.0.0.1:5174').split(',').filter(Boolean);
   let scoringBatch = null;
+  let recommending = null;
 
   async function sites(refresh = false) {
     const bridgeState = await jobspyStatus(refresh);
@@ -81,6 +86,13 @@ export async function createApp(options = {}) {
       }).catch(error => log(`[dayjob] scoring: ${error.message}`)).finally(() => { scoringBatch = null; });
     }
     return scoringBatch;
+  }
+  // In the "saved jobs" scoring mode, saving a job is the request to score it.
+  function scoreIfSaved(postingId) {
+    if (repo.getSettings().ai.scoreMode !== 'saved') return;
+    const posting = repo.getPosting(postingId);
+    if (posting?.status !== 'saved' || !posting.resumeId || posting.score) return;
+    scorer.score(postingId).catch(error => log(`[dayjob] scoring ${postingId}: ${error.message}`));
   }
   function need(value, label) {
     if (!value) throw new HttpError(404, `${label} not found.`);
@@ -148,7 +160,9 @@ export async function createApp(options = {}) {
     if (pathname === '/api/searches') return repo.listSearches();
     if (pathname === '/api/companies') return repo.listCompanies();
     if (pathname === '/api/resumes') return repo.listResumes();
-    if (pathname === '/api/resumes/active') return need(repo.activeResume(true), 'Active resume');
+    match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
+    if (match) return need(repo.getResume(match[1], true), 'Resume');
+    if (pathname === '/api/recommendations') return { result: repo.getMeta('recommendations'), running: Boolean(recommending) };
     if (pathname === '/api/runs') return repo.listRuns(Math.min(number(params.get('limit')) || 20, 100));
     match = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (match) return need(repo.listRuns(100).find(run => run.id === match[1]), 'Run');
@@ -213,7 +227,7 @@ export async function createApp(options = {}) {
       return [202, { started: true }];
     }
     if (pathname === '/api/scores' && method === 'POST') {
-      if (!repo.activeResume()) throw new HttpError(409, 'Upload a resume first.');
+      if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
       const ids = Array.isArray(input.postingIds) ? input.postingIds.filter(id => typeof id === 'string').slice(0, 200) : undefined;
       const limit = Number.isInteger(input.limit) ? Math.min(Math.max(input.limit, 1), 200) : undefined;
       const already = Boolean(scoringBatch);
@@ -223,7 +237,10 @@ export async function createApp(options = {}) {
     if (pathname === '/api/postings' && method === 'POST') {
       const item = manualPosting(input);
       const stored = repo.upsertPosting(item);
-      if (input.status === 'saved') repo.setPostingStatus(stored.id, 'saved');
+      if (input.status === 'saved') {
+        repo.setPostingStatus(stored.id, 'saved');
+        scoreIfSaved(stored.id);
+      }
       return [201, repo.getPosting(stored.id)];
     }
     match = pathname.match(/^\/api\/postings\/([^/]+)(\/score|\/apply)?$/);
@@ -231,19 +248,21 @@ export async function createApp(options = {}) {
       const posting = need(repo.getPosting(match[1]), 'Posting');
       if (!match[2] && method === 'PATCH') {
         if (posting.status === 'applied') throw new HttpError(409, 'This job is already tracked as an application.');
-        return repo.setPostingStatus(posting.id, postingStatus(input));
+        const updated = repo.setPostingStatus(posting.id, postingStatus(input));
+        scoreIfSaved(posting.id);
+        return updated;
       }
       if (match[2] === '/score' && method === 'POST') {
         if (input.result !== undefined) {
           // Claude (through MCP) did the analysis itself; store it like any other score.
-          const resume = need(repo.activeResume(), 'Active resume');
+          if (!posting.resumeId) throw new HttpError(409, 'Upload a resume first.');
           let result;
           try { result = normalizeScore({ ...input.result, missing_keywords: input.result?.missingKeywords ?? input.result?.missing_keywords }); }
           catch (error) { throw new HttpError(400, error.message); }
-          repo.saveScore(posting.id, resume.id, { ...result, provider: source === 'mcp' ? 'claude-mcp' : 'manual', model: null });
+          repo.saveScore(posting.id, posting.resumeId, { ...result, provider: source === 'mcp' ? 'claude-mcp' : 'manual', model: null });
           return repo.getPosting(posting.id);
         }
-        if (!repo.activeResume()) throw new HttpError(409, 'Upload a resume before scoring.');
+        if (!posting.resumeId) throw new HttpError(409, 'Upload a resume before scoring.');
         try { await scorer.score(posting.id, { force: input.force === true }); }
         catch (error) { throw new HttpError(error.status || 502, error.message); }
         return repo.getPosting(posting.id);
@@ -252,14 +271,14 @@ export async function createApp(options = {}) {
         if (repo.applicationForPosting(posting.id)) throw new HttpError(409, 'This job is already tracked.');
         const { appliedAt, note } = applyInput(input);
         const application = repo.createApplication({ postingId: posting.id, company: posting.company || 'Unknown company', title: posting.title,
-          jobUrl: posting.applyUrl || posting.jobUrl, appliedAt, note, resumeId: repo.activeResume()?.id || null,
+          jobUrl: posting.applyUrl || posting.jobUrl, appliedAt, note, resumeId: posting.resumeId,
           followUpDays: repo.getSettings().tracking.followUpDays, source });
         return [201, application];
       }
     }
     if (pathname === '/api/applications' && method === 'POST') {
       const fields = manualApplication(input);
-      return [201, repo.createApplication({ ...fields, resumeId: repo.activeResume()?.id || null, followUpDays: repo.getSettings().tracking.followUpDays, source })];
+      return [201, repo.createApplication({ ...fields, followUpDays: repo.getSettings().tracking.followUpDays, source })];
     }
     match = pathname.match(/^\/api\/applications\/([^/]+)$/);
     if (match) {
@@ -268,18 +287,26 @@ export async function createApp(options = {}) {
       if (method === 'DELETE') return { ok: repo.deleteApplication(match[1]) };
     }
     if (pathname === '/api/resumes' && method === 'POST') {
+      if (repo.countResumes() >= MAX_RESUMES) throw new HttpError(409, `You can keep up to ${MAX_RESUMES} resumes. Delete one before adding another.`);
       if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the resume file as base64 data.');
       const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '',
         data: Buffer.from(input.data, 'base64') });
       return [201, repo.addResume(parsed)];
     }
     match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
-    if (match) {
-      if (method === 'PATCH') {
-        if (input.active !== true) throw new HttpError(400, 'Only { "active": true } is supported.');
-        return need(repo.activateResume(match[1]), 'Resume');
-      }
-      if (method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
+    if (match && method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
+    if (pathname === '/api/recommendations' && method === 'POST') {
+      const { preference } = recommendInput(input);
+      if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
+      if (recommending) throw new HttpError(409, 'Claude is already suggesting searches; wait for it to finish.');
+      recommending = recommend({ repo, scorer, http: httpClient, preference, now, log });
+      try {
+        const result = await recommending;
+        repo.setMeta('recommendations', result);
+        return { result, running: false };
+      } catch (error) {
+        throw new HttpError(error.status || 502, error.message);
+      } finally { recommending = null; }
     }
     match = pathname.match(/^\/api\/browser\/([a-z]+)$/);
     if (match && method === 'POST' && BROWSER_ACTIONS.includes(match[1])) {

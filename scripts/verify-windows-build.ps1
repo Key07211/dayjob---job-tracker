@@ -3,7 +3,8 @@
 # -Install, installed silently for this user) and the portable app each run
 # the desktop smoke test (which also fills in and submits a local job form in
 # the Dayjob browser), and the Claude MCP bridge answers from inside the
-# packaged app.
+# packaged app. The installed app also finds, downloads and verifies an update
+# from a local copy of the files the release publishes for automatic updates.
 #   npm run package:win
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.1.0 [-Install]
 param(
@@ -28,9 +29,11 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   if (-not (Test-Path -LiteralPath $result)) { throw "$Name smoke test wrote no report (exit code $($process.ExitCode))" }
   # UTF-8 explicitly: Windows PowerShell 5.1 would read it in the system code page.
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
-  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} version={6} executable={7}" -f
-    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.version, $report.executable)
+  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} update={6} version={7} executable={8}" -f
+    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok, $report.version, $report.executable)
   if ($report.browser.error) { Write-Output "${Name} browser check: $($report.browser.error)" }
+  if ($report.update.error) { Write-Output "${Name} update check: $($report.update.error)" }
+  if ($env:DAYJOB_SMOKE_UPDATE_FEED -and $report.update.downloaded -ne $true) { throw "$Name did not download the test update" }
   if (-not $report.ok) { throw "$Name smoke test failed" }
   if ($report.version -cne $Version) { throw "$Name reports version $($report.version), expected $Version" }
 }
@@ -66,7 +69,22 @@ function Test-McpBridge([string]$Exe) {
   }
 }
 
+# What electron-updater reads: latest.yml next to the installer it names, and
+# app-update.yml (the GitHub feed) inside the app.
+function Test-UpdateFiles {
+  $latest = Join-Path $release 'latest.yml'
+  if (-not (Test-Path -LiteralPath $latest)) { throw 'latest.yml was not built' }
+  $yaml = Get-Content -LiteralPath $latest -Raw -Encoding UTF8
+  if ($yaml -notmatch "(?m)^version: $([regex]::Escape($Version))\s*$") { throw "latest.yml does not name version $Version" }
+  if ($yaml -notmatch "(?m)^path: Dayjob-Setup-$([regex]::Escape($Version))\.exe\s*$") { throw "latest.yml does not point at Dayjob-Setup-$Version.exe" }
+  if (-not (Test-Path -LiteralPath (Join-Path $release "Dayjob-Setup-$Version.exe.blockmap"))) { throw 'The installer blockmap was not built' }
+  $feed = Get-Content -LiteralPath (Join-Path $release 'win-unpacked\resources\app-update.yml') -Raw -Encoding UTF8
+  if ($feed -notmatch 'provider: github' -or $feed -notmatch 'repo: dayjob---job-tracker') { throw "app-update.yml does not point at the GitHub releases: $feed" }
+  Write-Output 'update files: latest.yml, blockmap and app-update.yml are in place'
+}
+
 try {
+  Test-UpdateFiles
   $unpacked = Join-Path $release 'win-unpacked\Dayjob.exe'
   Invoke-Smoke 'unpacked' $unpacked
   Test-McpBridge $unpacked
@@ -79,7 +97,8 @@ try {
       Select-Object -First 1
     if (-not $installed) { throw 'Setup finished but Dayjob.exe is not under %LOCALAPPDATA%\Programs' }
     Write-Output "installed to $($installed.DirectoryName)"
-    Invoke-Smoke 'installed' $installed.FullName
+    $env:DAYJOB_SMOKE_UPDATE_FEED = $release
+    try { Invoke-Smoke 'installed' $installed.FullName } finally { Remove-Item Env:DAYJOB_SMOKE_UPDATE_FEED -ErrorAction SilentlyContinue }
   }
 
   Invoke-Smoke 'portable' (Join-Path $release "Dayjob-Portable-$Version.exe")

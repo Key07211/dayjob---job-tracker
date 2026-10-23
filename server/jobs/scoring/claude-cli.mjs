@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
-import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseScoreText } from './prompt.mjs';
+import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText } from './prompt.mjs';
 
 const TIMEOUT_MS = 4 * 60 * 1000;
 
@@ -46,11 +46,11 @@ export async function detectClaude(configured, { run = execFile, exists = fs.exi
 
 // Through cmd.exe (a .cmd shim) arguments are not quoted for us, so long text
 // such as the system prompt goes over stdin and only plain flags stay here.
-export function cliArgs({ model, shell = false, basic = false }) {
+export function cliArgs({ model, shell = false, basic = false, system = SYSTEM_PROMPT, schema = SCORE_SCHEMA }) {
   const args = ['-p', '--output-format', 'json'];
   if (!basic) {
     args.push('--tools', shell ? '""' : '', '--no-session-persistence');
-    if (!shell) args.push('--system-prompt', SYSTEM_PROMPT, '--json-schema', JSON.stringify(SCORE_SCHEMA));
+    if (!shell) args.push('--system-prompt', system, '--json-schema', JSON.stringify(schema));
   }
   if (model && /^[\w.:\[\]-]+$/.test(model)) args.push('--model', model);
   return args;
@@ -61,12 +61,12 @@ export function cliArgs({ model, shell = false, basic = false }) {
 export function parseCliOutput(stdout) {
   const text = String(stdout || '').trim();
   let envelope;
-  try { envelope = JSON.parse(text); } catch { return { score: parseScoreText(text), model: null }; }
+  try { envelope = JSON.parse(text); } catch { return { value: parseJsonText(text), model: null }; }
   if (Array.isArray(envelope)) envelope = envelope.findLast(item => item?.type === 'result') || {};
   if (envelope.is_error) throw new Error(`Claude Code: ${String(envelope.result || envelope.subtype || 'error').slice(0, 300)}`);
   const model = Object.keys(envelope.modelUsage || {})[0] || null;
-  if (envelope.structured_output && typeof envelope.structured_output === 'object') return { score: normalizeScore(envelope.structured_output), model };
-  return { score: parseScoreText(envelope.result), model };
+  if (envelope.structured_output && typeof envelope.structured_output === 'object') return { value: envelope.structured_output, model };
+  return { value: parseJsonText(envelope.result), model };
 }
 
 // Scores through the user's signed-in Claude Code, so no API key is needed.
@@ -109,14 +109,14 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
       if (found.available && signedOut && Date.now() - signedOut < 30 * 60 * 1000) return { available: false, detail: SIGNED_OUT, signedOut: true };
       return { available: found.available, detail: found.available ? `Claude Code ${found.version}` : 'Claude Code was not found. Install it and sign in, or set its path in Settings.' };
     },
-    async score({ resume, posting }) {
+    // One prompt in, one JSON object (matching schema) out.
+    async ask({ system, prompt, schema }) {
       const found = await info();
       if (!found.available) throw new Error('Claude Code was not found. Install it and sign in, or set its path in Settings.');
       const { ai } = getSettings();
       const shell = needsShell(found.command);
-      const prompt = buildUserPrompt({ resume, posting, language: ai.language });
-      const withSystem = `${SYSTEM_PROMPT}\n\n${prompt}`;
-      let result = await execute(found.command, cliArgs({ model: ai.model, shell }), shell ? withSystem : prompt);
+      const withSystem = `${system}\n\n${prompt}`;
+      let result = await execute(found.command, cliArgs({ model: ai.model, shell, system, schema }), shell ? withSystem : prompt);
       // Older Claude Code releases lack --json-schema or --tools; retry with the basics.
       if (result.code !== 0 && /unknown option|unexpected argument/i.test(result.stderr)) {
         result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), withSystem);
@@ -131,7 +131,12 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
         throw error;
       }
       signedOut = 0;
-      return { ...parsed.score, provider: 'claude-cli', model: parsed.model || ai.model || null };
+      return { value: parsed.value, provider: 'claude-cli', model: parsed.model || ai.model || null };
+    },
+    async score({ resume, posting }) {
+      const { ai } = getSettings();
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
     },
   };
 }

@@ -19,19 +19,19 @@ export function createScorer({ repo, providers, log = console.warn }) {
 
   async function status(refresh = false) {
     const current = provider();
-    const resume = repo.activeResume();
-    return { provider: current.id, ...(await current.status(refresh)), resume: resume ? { id: resume.id, name: resume.name } : null, pending };
+    return { provider: current.id, ...(await current.status(refresh)), mode: getSettings().ai.scoreMode, resumes: repo.countResumes(), pending };
   }
 
+  // Each posting is scored against the resume it was matched to by keywords.
   async function scoreNow(postingId, { force = false } = {}) {
-    const resume = repo.activeResume(true);
+    const posting = repo.postingForScoring(postingId);
+    if (!posting) throw new Error('Posting not found.');
+    const resume = posting.resumeId ? repo.getResume(posting.resumeId, true) : null;
     if (!resume) throw new Error('Upload a resume before scoring.');
     if (!force) {
       const existing = repo.getScore(postingId, resume.id);
       if (existing) return existing;
     }
-    const posting = repo.postingForScoring(postingId);
-    if (!posting) throw new Error('Posting not found.');
     const result = await provider().score({ resume: resume.text, posting });
     return repo.saveScore(postingId, resume.id, result);
   }
@@ -47,12 +47,17 @@ export function createScorer({ repo, providers, log = console.warn }) {
   return {
     status,
     get pending() { return pending; },
+    // Any other single question for the same provider, outside the scoring queue.
+    async ask(request) {
+      const state = await provider().status();
+      if (!state.available) throw new Error(state.detail);
+      return provider().ask(request);
+    },
     score: (postingId, options) => enqueue(() => scoreNow(postingId, options)),
     async scoreBatch(ids, { limit } = {}) {
-      const resume = repo.activeResume();
-      if (!resume) return { scored: 0, failed: 0, skipped: ids?.length || 0, reason: 'no-resume' };
+      if (!repo.countResumes()) return { scored: 0, failed: 0, skipped: ids?.length || 0, reason: 'no-resume' };
       const max = limit ?? getSettings().ai.maxPerRun;
-      const targets = (ids?.length ? ids : repo.unscoredPostingIds(resume.id, max)).slice(0, max);
+      const targets = (ids?.length ? ids : repo.unscoredPostingIds(max)).slice(0, max);
       const state = await status();
       if (!state.available) return { scored: 0, failed: 0, skipped: targets.length, reason: state.detail };
       let scored = 0;

@@ -26,4 +26,11 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
   }),
+  updates: Object.freeze({
+    getState: () => ipcRenderer.invoke('dayjob:update-state'),
+    onState: callback => listen('dayjob:update-state', callback),
+    check: () => ipcRenderer.invoke('dayjob:update-check'),
+    download: () => ipcRenderer.invoke('dayjob:update-download'),
+    install: () => ipcRenderer.invoke('dayjob:update-install'),
+  }),
 }));

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { dedupeKey, postingId } from './normalize.mjs';
 import { transaction } from './db.mjs';
+import { rankResumes, resumeTerms } from './keywords.mjs';
 import { splitCompanyId } from './scrapers/company-boards.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
@@ -8,14 +9,18 @@ export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'acc
 export const OPEN_APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer'];
 // Set by the tracker; a status change by the user clears them.
 export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
+export const MAX_RESUMES = 3;
+// auto: after each search; saved: the jobs the user saves; manual: only on request.
+export const SCORE_MODES = ['auto', 'saved', 'manual'];
 
 export const DEFAULT_SETTINGS = {
   language: 'zh',
   schedule: { enabled: true, time: '08:30' },
-  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', autoScore: true, language: 'zh', maxPerRun: 40, effort: 'medium' },
+  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', scoreMode: 'auto', language: 'zh', maxPerRun: 40, effort: 'medium' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
+  updates: { autoCheck: true },
   retentionDays: 45,
 };
 
@@ -42,7 +47,13 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   // ---------- settings ----------
   function getSettings() {
     const row = q("SELECT value FROM settings WHERE key = 'app'").get();
-    return merge(DEFAULT_SETTINGS, json(row?.value, {}));
+    const stored = json(row?.value, {});
+    // Up to 0.2.0 scoring was an on/off switch; off now means "only when I ask".
+    if (stored.ai && typeof stored.ai === 'object') {
+      if (stored.ai.scoreMode === undefined && stored.ai.autoScore === false) stored.ai.scoreMode = 'manual';
+      delete stored.ai.autoScore;
+    }
+    return merge(DEFAULT_SETTINGS, stored);
   }
   function saveSettings(settings) {
     q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings));
@@ -111,6 +122,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       currency: row.salary_currency, source: row.salary_source } : null,
     jobUrl: row.job_url, applyUrl: row.apply_url, datePosted: row.date_posted, firstSeenAt: row.first_seen_at, lastSeenAt: row.last_seen_at,
     closedAt: row.closed_at, lastCheckedAt: row.last_checked_at, status: row.status, duplicateOf: row.duplicate_of,
+    resumeId: row.resume_id ?? null, resumeOverlap: row.resume_overlap ?? null,
     ...(row.description !== undefined ? { description: row.description, emails: json(row.emails, []) } : {}),
     ...(row.score !== undefined ? { score: row.score === null ? null : { score: row.score, verdict: row.verdict, summary: row.score_summary } } : {}),
     ...(row.application_id !== undefined ? { application: row.application_id ? { id: row.application_id, status: row.application_status } : null } : {}),
@@ -153,14 +165,16 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       isNew = !twin;
     }
     if (searchId) q('INSERT OR IGNORE INTO posting_searches (posting_id, search_id, matched_at) VALUES (?, ?, ?)').run(id, searchId, at);
+    matchPosting(id);
     return { id, isNew, reopened };
   }
 
   const LIST_COLUMNS = `p.id, p.site, p.external_id, p.title, p.company, p.company_url, p.company_logo, p.location, p.city, p.state, p.country,
     p.is_remote, p.job_type, p.job_level, p.job_function, p.department, p.salary_min, p.salary_max, p.salary_interval, p.salary_currency,
     p.salary_source, p.job_url, p.apply_url, p.date_posted, p.first_seen_at, p.last_seen_at, p.closed_at, p.last_checked_at, p.status,
-    p.duplicate_of, s.score, s.verdict, s.summary AS score_summary, a.id AS application_id, a.status AS application_status`;
-  const LIST_JOINS = `LEFT JOIN scores s ON s.posting_id = p.id AND s.resume_id = (SELECT id FROM resumes WHERE active = 1 LIMIT 1)
+    p.duplicate_of, p.resume_id, p.resume_overlap, s.score, s.verdict, s.summary AS score_summary, a.id AS application_id, a.status AS application_status`;
+  // A posting shows the score from the resume it was matched to.
+  const LIST_JOINS = `LEFT JOIN scores s ON s.posting_id = p.id AND s.resume_id = p.resume_id
     LEFT JOIN applications a ON a.posting_id = p.id`;
 
   function listPostings({ status = 'active', site, q: text, minScore, searchId, sort = 'posted', includeDuplicates = false,
@@ -191,8 +205,8 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       FROM postings p ${LIST_JOINS} WHERE p.id = ?`).get(id);
     if (!row) return null;
     const item = postingRow(row);
-    const resume = activeResume();
-    item.score = resume ? getScore(id, resume.id) : null;
+    item.score = row.resume_id ? getScore(id, row.resume_id) : null;
+    item.resumeMatch = resumeMatch(row);
     item.duplicates = q('SELECT id, site, job_url FROM postings WHERE duplicate_of = ?').all(row.duplicate_of || id)
       .filter(other => other.id !== id).map(other => ({ id: other.id, site: other.site, jobUrl: other.job_url }));
     if (row.duplicate_of) {
@@ -259,32 +273,53 @@ export function createRepository(db, { now = () => new Date() } = {}) {
 
   // ---------- resumes ----------
   const resumeRow = (row, withText = false) => row && ({ id: row.id, name: row.name, mime: row.mime, size: row.size, uploadedAt: row.uploaded_at,
-    active: Boolean(row.active), characters: row.text.length, ...(withText ? { text: row.text } : { preview: row.text.slice(0, 600) }) });
+    characters: row.text.length, ...(withText ? { text: row.text } : { preview: row.text.slice(0, 600) }) });
+  let resumeIndex = null;
+  const resumes = () => (resumeIndex ??= q('SELECT id, name, uploaded_at, text FROM resumes').all()
+    .map(row => ({ id: row.id, name: row.name, uploadedAt: row.uploaded_at, terms: resumeTerms(row.text) })));
+  function matchPosting(id) {
+    const index = resumes();
+    const row = q('SELECT title, description FROM postings WHERE id = ?').get(id);
+    if (!row) return;
+    const [best] = index.length ? rankResumes(row, index) : [];
+    q('UPDATE postings SET resume_id = ?, resume_overlap = ? WHERE id = ?').run(best?.id ?? null, best?.overlap ?? null, id);
+  }
+  // After resumes change, every posting picks its resume again; on start only
+  // postings without a valid match are looked at.
+  function rematchPostings({ missingOnly = false } = {}) {
+    const index = resumes();
+    return transaction(db, () => {
+      const rows = q(`SELECT id, title, description FROM postings
+        ${missingOnly ? 'WHERE resume_id IS NULL OR resume_id NOT IN (SELECT id FROM resumes)' : ''}`).all();
+      const update = q('UPDATE postings SET resume_id = ?, resume_overlap = ? WHERE id = ?');
+      for (const row of rows) {
+        const [best] = index.length ? rankResumes(row, index) : [];
+        update.run(best?.id ?? null, best?.overlap ?? null, row.id);
+      }
+      return rows.length;
+    });
+  }
+  function resumeMatch(row) {
+    const index = resumes();
+    if (!index.length) return null;
+    return { resumeId: row.resume_id, ranking: rankResumes(row, index).map(entry => ({ id: entry.id, name: index.find(resume => resume.id === entry.id).name,
+      overlap: entry.overlap, matched: entry.matched })) };
+  }
   function addResume({ name, mime, size, text }) {
     const id = randomUUID();
-    transaction(db, () => {
-      q('UPDATE resumes SET active = 0').run();
-      q('INSERT INTO resumes (id, name, mime, size, text, uploaded_at, active) VALUES (?, ?, ?, ?, ?, ?, 1)').run(id, name, mime, size, text, iso());
-    });
-    return resumeRow(q('SELECT * FROM resumes WHERE id = ?').get(id));
+    q('INSERT INTO resumes (id, name, mime, size, text, uploaded_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, mime, size, text, iso());
+    resumeIndex = null;
+    rematchPostings();
+    return getResume(id);
   }
-  function listResumes() { return q('SELECT * FROM resumes ORDER BY uploaded_at DESC').all().map(row => resumeRow(row)); }
-  function activeResume(withText = false) { return resumeRow(q('SELECT * FROM resumes WHERE active = 1 LIMIT 1').get(), withText); }
-  function activateResume(id) {
-    return transaction(db, () => {
-      if (!q('SELECT id FROM resumes WHERE id = ?').get(id)) return null;
-      q('UPDATE resumes SET active = CASE WHEN id = ? THEN 1 ELSE 0 END').run(id);
-      return resumeRow(q('SELECT * FROM resumes WHERE id = ?').get(id));
-    });
-  }
+  function listResumes() { return q('SELECT * FROM resumes ORDER BY uploaded_at DESC, rowid DESC').all().map(row => resumeRow(row)); }
+  function getResume(id, withText = false) { return resumeRow(q('SELECT * FROM resumes WHERE id = ?').get(id), withText) ?? null; }
+  function countResumes() { return q('SELECT COUNT(*) AS n FROM resumes').get().n; }
   function deleteResume(id) {
-    return transaction(db, () => {
-      const row = q('SELECT active FROM resumes WHERE id = ?').get(id);
-      if (!row) return false;
-      q('DELETE FROM resumes WHERE id = ?').run(id);
-      if (row.active) q('UPDATE resumes SET active = 1 WHERE id = (SELECT id FROM resumes ORDER BY uploaded_at DESC LIMIT 1)').run();
-      return true;
-    });
+    if (!q('DELETE FROM resumes WHERE id = ?').run(id).changes) return false;
+    resumeIndex = null;
+    rematchPostings();
+    return true;
   }
 
   // ---------- scores ----------
@@ -301,10 +336,10 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     return getScore(postingIdValue, resumeId);
   }
   function getScore(postingIdValue, resumeId) { return scoreRow(q('SELECT * FROM scores WHERE posting_id = ? AND resume_id = ?').get(postingIdValue, resumeId)) ?? null; }
-  function unscoredPostingIds(resumeId, limit) {
-    return q(`SELECT p.id FROM postings p WHERE p.status IN ('new', 'saved') AND p.duplicate_of IS NULL AND p.closed_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.posting_id = p.id AND s.resume_id = ?) ORDER BY p.first_seen_at DESC LIMIT ?`)
-      .all(resumeId, limit).map(row => row.id);
+  function unscoredPostingIds(limit, { savedOnly = false } = {}) {
+    return q(`SELECT p.id FROM postings p WHERE p.status IN (${savedOnly ? "'saved'" : "'new', 'saved'"}) AND p.duplicate_of IS NULL AND p.closed_at IS NULL
+      AND p.resume_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.posting_id = p.id AND s.resume_id = p.resume_id)
+      ORDER BY p.first_seen_at DESC LIMIT ?`).all(limit).map(row => row.id);
   }
 
   // ---------- applications ----------
@@ -351,7 +386,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     if (open) where.push(`a.status IN (${OPEN_APPLICATION_STATUSES.map(() => '?').join(', ')})`), params.push(...OPEN_APPLICATION_STATUSES);
     const rows = q(`SELECT a.*, p.closed_at, p.site, p.location, p.date_posted, s.score FROM applications a
       LEFT JOIN postings p ON p.id = a.posting_id
-      LEFT JOIN scores s ON s.posting_id = a.posting_id AND s.resume_id = (SELECT id FROM resumes WHERE active = 1 LIMIT 1)
+      LEFT JOIN scores s ON s.posting_id = a.posting_id AND s.resume_id = p.resume_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.status_changed_at DESC`).all(...params);
     return rows.map(applicationRow);
   }
@@ -426,7 +461,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, postingForScoring, setPostingStatus, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
-    addResume, listResumes, activeResume, activateResume, deleteResume,
+    addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,

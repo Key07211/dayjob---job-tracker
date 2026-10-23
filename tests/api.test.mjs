@@ -116,6 +116,43 @@ test('settings and searches are validated; the API key never comes back', async 
   } finally { await app.close(); }
 });
 
+test('saving a job scores it only when the user chose to score saved jobs', async () => {
+  const scored = [];
+  const { app, call } = await start({ providers: { 'claude-cli': { id: 'claude-cli', status: async () => ({ available: true, detail: 'test' }),
+    score: async ({ posting }) => {
+      scored.push(posting.title);
+      return { score: 70, verdict: 'good', summary: 'ok', strengths: [], gaps: [], missingKeywords: [], provider: 'claude-cli' };
+    } } } });
+  const add = title => call('/api/postings', { method: 'POST', body: { title, company: 'Acme', jobUrl: `https://acme.example/jobs/${title.length}` } });
+  const settle = () => app.scorer.score('none').catch(() => {});
+  try {
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'sometimes' } } })).status, 400);
+    await call('/api/resumes', { method: 'POST', body: { name: 'cv.txt', mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } });
+    const first = await add('Data Analyst');
+    await call(`/api/postings/${first.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await settle();
+    assert.deepEqual(scored, [], 'the default mode leaves scoring to the daily run');
+
+    const mode = await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'saved' } } });
+    assert.equal(mode.body.ai.scoreMode, 'saved');
+    assert.equal((await call('/api/scoring/status')).body.mode, 'saved');
+    const second = await add('Data Scientist');
+    await call(`/api/postings/${second.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await call('/api/postings', { method: 'POST', body: { title: 'ML Engineer', company: 'Acme', jobUrl: 'https://acme.example/jobs/ml', status: 'saved' } });
+    await settle();
+    assert.deepEqual(scored, ['Data Scientist', 'ML Engineer'], 'saving, in the app or from the browser, scores the job');
+    const again = await call(`/api/postings/${second.body.id}/score`, { method: 'POST', body: {} });
+    assert.equal(again.body.score.score, 70);
+    assert.equal(scored.length, 2, 'the app waiting for that score does not score it twice');
+
+    await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'manual' } } });
+    const third = await add('Analytics Engineer');
+    await call(`/api/postings/${third.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await settle();
+    assert.equal(scored.length, 2);
+  } finally { await app.close(); }
+});
+
 test('resumes are read from PDF, Word and text files', async () => {
   const pdf = await extractResumeText({ name: 'cv.pdf', mime: 'application/pdf', data: makePdf(RESUME.replace('—', '-').replace(/\n/g, ' ')) });
   assert.match(pdf.text, /Jane Doe/);
@@ -128,9 +165,15 @@ test('resumes are read from PDF, Word and text files', async () => {
   try {
     const uploaded = await call('/api/resumes', { method: 'POST', body: { name: 'cv.txt', mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } });
     assert.equal(uploaded.status, 201);
-    assert.equal(uploaded.body.active, true);
-    assert.equal((await call('/api/resumes/active')).body.text.startsWith('Jane Doe'), true);
+    assert.equal((await call(`/api/resumes/${uploaded.body.id}`)).body.text.startsWith('Jane Doe'), true);
     assert.equal((await call('/api/resumes', { method: 'POST', body: { name: 'cv.txt', data: '%%%' } })).status, 400);
+    for (const name of ['two.txt', 'three.txt']) {
+      assert.equal((await call('/api/resumes', { method: 'POST', body: { name, mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } })).status, 201);
+    }
+    const fourth = await call('/api/resumes', { method: 'POST', body: { name: 'four.txt', mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } });
+    assert.equal(fourth.status, 409, 'three resumes at most');
+    assert.equal((await call(`/api/resumes/${uploaded.body.id}`, { method: 'DELETE' })).body.ok, true);
+    assert.equal((await call('/api/resumes')).body.length, 2);
   } finally { await app.close(); }
 });
 
@@ -186,12 +229,16 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 28);
+    assert.equal(tools.length, 29);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
-    const added = await call('dayjob_add_posting', { title: 'ML Engineer', company: 'Nimbus', jobUrl: 'https://nimbus.example/jobs/7', description: 'PyTorch' });
+    const added = await call('dayjob_add_posting', { title: 'ML Engineer', company: 'Nimbus', jobUrl: 'https://nimbus.example/jobs/7', description: 'PyTorch, Python, SQL and forecasting models.' });
     assert.match((await call('dayjob_save_analysis', { id: added.id, score: 82, verdict: 'good', summary: 's', strengths: [], gaps: [] })).error, /resume/i);
-    await call('dayjob_get_resume').then(result => assert.match(result.error, /not found/));
+    await call('dayjob_get_resume').then(result => assert.match(result.error, /No resume/));
     await app.repo.addResume({ name: 'cv', mime: 'text/plain', size: 1, text: RESUME });
+    await app.repo.addResume({ name: 'swe', mime: 'text/plain', size: 1, text: 'Software engineer. Java, Kubernetes, distributed systems.' });
+    assert.match((await call('dayjob_get_resume')).error, /2 resumes/);
+    assert.equal((await call('dayjob_get_resume', { postingId: added.id })).name, 'cv', 'the PyTorch job matches the ML resume');
+    assert.equal((await call('dayjob_list_resumes')).length, 2);
     const analysed = await call('dayjob_save_analysis', { id: added.id, score: 82, verdict: 'good', summary: 'Strong ML match', strengths: ['PyTorch'], gaps: ['Visa'] });
     assert.equal(analysed.score.provider, 'claude-mcp');
     const listed = await call('dayjob_list_postings', { minScore: 80 });

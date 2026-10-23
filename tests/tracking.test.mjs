@@ -146,7 +146,7 @@ test('a daily run searches, scores new postings, tracks and summarizes', async (
   const runner = createSearchRunner({ repo, http, bridge: () => { throw new Error('unused'); }, now, log: () => {} });
   const scored = [];
   const scorer = { pending: 0, scoreBatch: async ids => {
-    for (const id of ids) { scored.push(id); repo.saveScore(id, repo.activeResume().id, { score: 90, verdict: 'strong', summary: 's', strengths: [], gaps: [], missingKeywords: [], provider: 'test' }); }
+    for (const id of ids) { scored.push(id); repo.saveScore(id, repo.getPosting(id).resumeId, { score: 90, verdict: 'strong', summary: 's', strengths: [], gaps: [], missingKeywords: [], provider: 'test' }); }
     return { scored: ids.length, results: ids.map(id => ({ id, score: 90 })) };
   } };
   const notes = [];
@@ -166,6 +166,32 @@ test('a daily run searches, scores new postings, tracks and summarizes', async (
   const second = await scheduler.runNow({ searchIds: [search.id] });
   assert.equal(second.run.newCount, 0);
   assert.equal(second.tracking, null, 'a single-search run skips tracking');
+});
+
+test('the scoring mode decides what a run scores', async () => {
+  const now = clock('2026-10-21T16:00:00Z');
+  const { repo } = memoryRepo(now);
+  repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
+  const [oldJob, savedJob, newJob] = ['1', '2', '3'].map(id => repo.upsertPosting(li(id)).id);
+  repo.setPostingStatus(savedJob, 'saved');
+  assert.deepEqual(repo.unscoredPostingIds(10, { savedOnly: true }), [savedJob]);
+  const runner = { run: async () => ({ run: repo.finishRun(repo.startRun('search', 'manual'), { status: 'succeeded', found: 3, newCount: 1 }), newIds: [newJob] }) };
+  const batches = [];
+  const scorer = { pending: 0, scoreBatch: async ids => { batches.push(ids); return { scored: 0, results: [] }; } };
+  const scheduler = createScheduler({ repo, runner, scorer, tracker: { run: async () => null }, notify: () => {}, now, log: () => {} });
+  for (const scoreMode of ['manual', 'saved', 'auto']) {
+    repo.updateSettings({ ai: { scoreMode } });
+    await scheduler.runNow({ searchIds: ['any'] });
+  }
+  assert.equal(batches.length, 2, 'manual scores nothing');
+  assert.deepEqual(batches[0], [savedJob], 'saved scores only the saved job');
+  assert.equal(batches[1][0], newJob, 'auto scores the new job first');
+  assert.deepEqual([...batches[1]].sort(), [oldJob, savedJob, newJob].sort());
+
+  repo.updateSettings({ ai: { scoreMode: 'saved' } });
+  repo.setPostingStatus(savedJob, 'new');
+  await scheduler.runNow({ searchIds: ['any'] });
+  assert.equal(batches.length, 2, 'with nothing saved, nothing is scored');
 });
 
 test('one failing board makes a run partial, not failed', async () => {

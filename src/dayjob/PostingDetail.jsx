@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, FileUser, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../api.js';
 import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInput, relativeDay, salaryText, scoreTone } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -12,7 +12,7 @@ function DateRow({ name, value, relative = true }) {
   return <div><dt>{name}</dt><dd>{formatDay(value)}{relative ? <span>{t(`（${relativeDay(value)}）`, ` (${relativeDay(value)})`)}</span> : null}</dd></div>;
 }
 
-function ScoreCard({ score, onScore, scoring, hasResume, setView }) {
+function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, saved }) {
   const { t } = useI18n();
   if (!hasResume) {
     return (
@@ -25,7 +25,9 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView }) {
   if (!score) {
     return (
       <div className="score-card empty">
-        <p>{t('这个岗位还没有打分。', 'This job has not been scored yet.')}</p>
+        <p>{scoreMode === 'saved' && !saved ? t('这个岗位还没有打分。收藏后会自动打分，也可以现在就打。', 'This job has not been scored yet. Saving it scores it, or score it now.')
+          : scoreMode === 'auto' ? t('这个岗位还没有打分。', 'This job has not been scored yet.')
+            : t('这个岗位还没有打分。打一次分用一次 Claude 额度。', 'This job has not been scored yet. Each score is one Claude call.')}</p>
         <button className="button primary" onClick={() => onScore(false)} disabled={scoring}>
           {scoring ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{scoring ? t('打分中…（约半分钟）', 'Scoring… (about 30 seconds)') : t('AI 打分', 'Score with AI')}
         </button>
@@ -56,6 +58,24 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView }) {
   );
 }
 
+// Which resume this job is scored against, and how the others compare.
+function ResumeMatch({ match }) {
+  const { t } = useI18n();
+  if (!match?.ranking?.length) return null;
+  const chosen = match.ranking.find(entry => entry.id === match.resumeId) || match.ranking[0];
+  const percent = value => `${Math.round(value * 100)}%`;
+  return (
+    <details className="resume-match">
+      <summary><FileUser size={14} />{t(`按简历“${chosen.name}”分析 · 关键词重合 ${percent(chosen.overlap)}`, `Scored against “${chosen.name}” · ${percent(chosen.overlap)} keyword overlap`)}</summary>
+      {chosen.matched.length ? <div className="keywords"><h4>{t('重合的关键词', 'Shared keywords')}</h4><div>{chosen.matched.map(word => <span key={word}>{word}</span>)}</div></div> : null}
+      {match.ranking.length > 1 ? (
+        <ul>{match.ranking.map(entry => <li key={entry.id} className={entry.id === chosen.id ? 'chosen' : undefined}><span>{entry.name}</span><em>{percent(entry.overlap)}</em></li>)}</ul>
+      ) : null}
+      <p className="hint">{t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</p>
+    </details>
+  );
+}
+
 function ApplyForm({ onApply, onCancel, busy }) {
   const { t } = useI18n();
   const [day, setDay] = useState(localDateInput());
@@ -74,17 +94,21 @@ function ApplyForm({ onApply, onCancel, busy }) {
   );
 }
 
-export function PostingDetail({ id, onChanged, setView, hasResume, mode }) {
+export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto' }) {
   const { t } = useI18n();
   const [posting, setPosting] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [applying, setApplying] = useState(false);
+  // A slow request (scoring takes about 30 s) must not show on another job.
+  const shown = useRef(id);
+  shown.current = id;
 
   useEffect(() => {
     let cancelled = false;
     setPosting(null);
     setApplying(false);
+    setBusy('');
     setError('');
     api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) setPosting(value); })
       .catch(failure => { if (!cancelled) setError(failure.message); });
@@ -92,19 +116,22 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode }) {
   }, [id]);
 
   async function act(name, work) {
+    const own = () => shown.current === id;
     setBusy(name);
     setError('');
-    try { await work(); } catch (failure) { setError(failure.message); } finally { setBusy(''); }
+    try { await work(own); } catch (failure) { if (own()) setError(failure.message); } finally { if (own()) setBusy(''); }
   }
-  const setStatus = status => act(status, async () => {
-    const updated = await api(`/api/postings/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } });
-    setPosting(updated);
-    onChanged(updated, { removed: status === 'dismissed' || (mode === 'saved' && status !== 'saved') });
-  });
-  const score = force => act('score', async () => {
+  const score = force => act('score', async own => {
     const updated = await api(`/api/postings/${encodeURIComponent(id)}/score`, { method: 'POST', body: { force } });
-    setPosting(updated);
+    if (own()) setPosting(updated);
     onChanged(updated);
+  });
+  const setStatus = status => act(status, async own => {
+    const updated = await api(`/api/postings/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } });
+    if (own()) setPosting(updated);
+    onChanged(updated, { removed: status === 'dismissed' || (mode === 'saved' && status !== 'saved') });
+    // Saving is the request to score in that mode; the server has queued it, and this waits for it.
+    if (status === 'saved' && scoreMode === 'saved' && hasResume && !updated.score && own()) await score(false);
   });
   const apply = input => act('apply', async () => {
     await api(`/api/postings/${encodeURIComponent(id)}/apply`, { method: 'POST', body: input });
@@ -173,7 +200,8 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode }) {
           ? <span>{t(`（也发布在 ${posting.duplicates.map(item => label('site', item.site)).join('、')}）`, ` (also on ${posting.duplicates.map(item => label('site', item.site)).join(', ')})`)}</span> : null}</dd></div>
         {posting.searches?.length ? <div><dt>{t('匹配的搜索', 'Matched searches')}</dt><dd>{posting.searches.map(search => search.name).join(t('、', ', '))}</dd></div> : null}
       </dl>
-      <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} />
+      <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} scoreMode={scoreMode} saved={posting.status === 'saved'} />
+      <ResumeMatch match={posting.resumeMatch} />
       <section className="description">
         <h3>{t('职位描述', 'Job description')}</h3>
         {posting.description ? <Markdown text={posting.description} /> : <p className="hint">{t('这个来源没有提供完整描述。打开原帖查看。', 'This source does not include the full description. Open the posting to read it.')}</p>}

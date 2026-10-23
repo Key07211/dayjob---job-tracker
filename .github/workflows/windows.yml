@@ -70,8 +70,10 @@ jobs:
           name: dayjob-windows
           path: |
             release/Dayjob-Setup-${{ steps.version.outputs.version }}.exe
+            release/Dayjob-Setup-${{ steps.version.outputs.version }}.exe.blockmap
             release/Dayjob-Portable-${{ steps.version.outputs.version }}.exe
             release/SHA256SUMS-${{ steps.version.outputs.version }}.txt
+            release/latest.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -117,6 +119,8 @@ jobs:
 
           程序还没有签名，Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。AI 打分需要本机已登录的 Claude Code，或在“简历与 AI”里填写 Anthropic API key。升级或卸载都不会删除你的数据（%APPDATA%\\Dayjob）。
 
+          从 0.3.0 起，安装版会每天检查一次新版本：左侧栏的“检查更新”变成圆形下载按钮时，点它下载，再点“重启并更新”。latest.yml 和 .blockmap 是自动更新用的文件，不需要手动下载。
+
           ---
 
           Dayjob $VERSION for Windows x64.
@@ -125,6 +129,8 @@ jobs:
           - **Dayjob-Portable-$VERSION.exe**: runs without installing.
 
           The programs are not signed yet, so Windows may say "Windows protected your PC"; click "More info", then "Run anyway". AI scoring needs Claude Code signed in on this computer, or an Anthropic API key under Resume & AI. Upgrading or uninstalling keeps your data (%APPDATA%\\Dayjob).
+
+          From 0.3.0 the installed app checks for a new version once a day: when "Check for updates" in the sidebar turns into a round download button, click it, then "Restart to update". latest.yml and the .blockmap file are for the automatic update; you do not need to download them.
           EOF
           # Copies under fixed names, so the README links straight to the newest download.
           cp "release/Dayjob-Setup-$VERSION.exe" release/Dayjob-Setup.exe

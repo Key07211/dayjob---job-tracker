@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Building2, CheckCircle2, LoaderCircle, Pencil, Play, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, CheckCircle2, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime, label, labels, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -17,8 +17,10 @@ const RUN_STATUS = { succeeded: ['成功', 'Succeeded'], partial: ['部分成功
 const EMPTY = { name: '', keywords: '', location: '', sites: ['linkedin', 'indeed'], hoursOld: 72, jobType: '', isRemote: false, resultsWanted: 25,
   country: 'usa', titleInclude: '', excludeKeywords: '', enabled: true };
 
+// initial without an id is a draft (a suggestion) that is saved as a new search.
 function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
   const { t, lang } = useI18n();
+  const existing = Boolean(initial?.id);
   const [form, setForm] = useState(() => initial ? { ...initial, jobType: initial.jobType || '', hoursOld: initial.hoursOld ?? '',
     titleInclude: initial.titleInclude.join(', '), excludeKeywords: initial.excludeKeywords.join(', ') } : EMPTY);
   const [error, setError] = useState('');
@@ -33,13 +35,13 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
       hoursOld: form.hoursOld === '' ? null : Number(form.hoursOld), jobType: form.jobType || null, isRemote: form.isRemote,
       resultsWanted: Number(form.resultsWanted), country: form.country, titleInclude: form.titleInclude, excludeKeywords: form.excludeKeywords, enabled: form.enabled };
     try {
-      const saved = await api(initial ? `/api/searches/${encodeURIComponent(initial.id)}` : '/api/searches', { method: initial ? 'PATCH' : 'POST', body });
+      const saved = await api(existing ? `/api/searches/${encodeURIComponent(initial.id)}` : '/api/searches', { method: existing ? 'PATCH' : 'POST', body });
       onSaved(saved);
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   return (
     <form className="panel-form" onSubmit={submit}>
-      <div className="form-head"><h3>{initial ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={onCancel}><X size={16} /></button></div>
+      <div className="form-head"><h3>{existing ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={onCancel}><X size={16} /></button></div>
       <div className="form-grid">
         <label>{t('关键词', 'Keywords')}<input value={form.keywords} onChange={event => set('keywords', event.target.value)} required maxLength={200}
           placeholder="Data Scientist, Machine Learning Engineer" /><small>{t('用逗号分隔表示“任一”。', 'Separate with commas to match any of them.')}</small></label>
@@ -86,6 +88,154 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
         <button type="submit" className="button primary" disabled={busy || !form.sites.length}>{t('保存', 'Save')}</button>
       </div>
     </form>
+  );
+}
+
+const sameSearch = (a, b) => a.keywords.trim().toLowerCase() === b.keywords.trim().toLowerCase() && (a.location || '').trim().toLowerCase() === (b.location || '').trim().toLowerCase();
+const sameBoard = (a, b) => a.ats === b.ats && a.slug.toLowerCase() === b.slug.toLowerCase();
+// Suggestions start on the built-in boards, posted in the past 3 days.
+const draftSearch = (item, sites) => ({ name: item.name, keywords: item.keywords, location: item.location, country: item.country, isRemote: item.isRemote,
+  jobType: item.jobType, titleInclude: item.titleInclude, excludeKeywords: item.excludeKeywords, hoursOld: 72, resultsWanted: 25, enabled: true,
+  sites: sites.filter(site => site.engine === 'native' && site.available).map(site => site.id).filter(id => ['linkedin', 'indeed'].includes(id)) });
+
+function Suggestions({ boot, reload, onEdit, setView }) {
+  const { t } = useI18n();
+  const [state, setState] = useState({ result: null, running: false });
+  const [preference, setPreference] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [adding, setAdding] = useState('');
+  const result = state.result;
+
+  useEffect(() => {
+    let cancelled = false;
+    api('/api/recommendations').then(value => {
+      if (cancelled) return;
+      setState(value);
+      if (value.result?.preference) setPreference(value.result.preference);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  // Started elsewhere (another window, or before this page opened): wait for it.
+  useEffect(() => {
+    if (!state.running || state.mine) return undefined;
+    const timer = setInterval(() => api('/api/recommendations').then(value => { if (!value.running) setState(value); }).catch(() => {}), 3000);
+    return () => clearInterval(timer);
+  }, [state.running, state.mine]);
+
+  async function ask(event) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setState(current => ({ ...current, running: true, mine: true }));
+    try { setState(await api('/api/recommendations', { method: 'POST', body: { preference } })); }
+    catch (failure) { setError(serverText(failure.message)); setState(current => ({ ...current, running: false, mine: false })); }
+  }
+  async function addSearch(item, key) {
+    setAdding(key);
+    setError('');
+    try { await api('/api/searches', { method: 'POST', body: draftSearch(item, boot.sites) }); await reload(); setMessage(t(`已添加搜索“${item.name}”，会在下次每日抓取时运行。`, `Added “${item.name}”; it runs with the next daily search.`)); }
+    catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
+  }
+  async function follow(item, key) {
+    setAdding(key);
+    setError('');
+    try {
+      const company = await api('/api/companies', { method: 'POST', body: { ats: item.ats, slug: item.slug, name: item.name } });
+      await reload();
+      setMessage(company.listed !== null && company.listed !== undefined
+        ? t(`已关注 ${company.name}，目前有 ${company.listed} 个公开岗位。`, `Following ${company.name}: ${company.listed} open ${company.listed === 1 ? 'job' : 'jobs'} right now.`)
+        : t(`已关注 ${company.name}。`, `Following ${company.name}.`));
+    } catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
+  }
+  const resumeName = id => boot.resumes.find(resume => resume.id === id)?.name;
+
+  return (
+    <section className="card-section suggestions">
+      <h2><Sparkles size={18} />{t('Claude 按简历推荐', 'Suggestions from your resumes')}</h2>
+      <p className="hint">{t('Claude 读你的简历，推荐每天要抓的搜索和值得关注的公司；公司招聘页会先检查确实存在。推荐不会自动加入，点“添加”或“关注”的才会。使用“简历与 AI”里设置的 Claude（本机 Claude Code 会用你的 Claude 额度）。',
+        'Claude reads your resumes and suggests daily searches and companies worth following; Dayjob checks that each company board exists. Nothing is added until you click Add or Follow. Uses the Claude set under Resume & AI (Claude Code on this computer uses your Claude allowance).')}</p>
+      {!boot.resumes.length ? (
+        <p className="notice">{t('先上传简历，Claude 才能推荐。', 'Upload a resume first so Claude has something to read.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
+      ) : (
+        <form className="inline-form" onSubmit={ask}>
+          <input value={preference} onChange={event => setPreference(event.target.value)} maxLength={500}
+            placeholder={t('补充偏好（可选），例如：只看湾区和远程、需要 H-1B 担保、New Grad', 'Preferences (optional), e.g. Bay Area or remote only, needs H-1B sponsorship, new grad')} />
+          <button className="button primary" type="submit" disabled={state.running}>
+            {state.running ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{result ? t('重新推荐', 'Suggest again') : t('让 Claude 推荐', 'Ask Claude')}
+          </button>
+        </form>
+      )}
+      {state.running ? <p className="notice"><LoaderCircle size={14} className="spin" />{t('Claude 正在读简历并检查公司招聘页，大约需要一分钟…', 'Claude is reading your resumes and Dayjob is checking the company boards. This takes about a minute…')}</p> : null}
+      {error ? <p className="notice error">{error}</p> : null}
+      {message ? <p className="notice">{message}</p> : null}
+      {result && !state.running ? (
+        <div className="suggestion-result">
+          {result.summary ? <p className="suggestion-summary">{result.summary}</p> : null}
+          {result.searches.length ? (
+            <>
+              <h3>{t('推荐的搜索', 'Suggested searches')}</h3>
+              <ul className="search-list">
+                {result.searches.map((item, index) => {
+                  const key = `search-${index}`;
+                  const added = boot.searches.some(search => sameSearch(search, item));
+                  return (
+                    <li key={key}>
+                      <div className="search-main">
+                        <strong>{item.name}</strong>
+                        <span>{item.keywords}{item.location ? ` · ${item.location}` : ''}{item.isRemote ? t(' · 远程', ' · remote') : ''}</span>
+                        <span className="chips">
+                          {item.jobType ? <em>{label('jobType', item.jobType)}</em> : null}
+                          {item.titleInclude.length ? <em>{t(`标题含 ${item.titleInclude.join('、')}`, `Title has ${item.titleInclude.join(', ')}`)}</em> : null}
+                          {item.excludeKeywords.length ? <em>{t(`排除 ${item.excludeKeywords.join('、')}`, `Excludes ${item.excludeKeywords.join(', ')}`)}</em> : null}
+                          {resumeName(item.resumeId) ? <em>{t(`适合：${resumeName(item.resumeId)}`, `Fits ${resumeName(item.resumeId)}`)}</em> : null}
+                        </span>
+                        {item.reason ? <small>{item.reason}</small> : null}
+                      </div>
+                      <div className="search-actions">
+                        {added ? <span className="added-tag"><Check size={14} />{t('已添加', 'Added')}</span> : (
+                          <>
+                            <button className="icon-button" title={t('编辑后添加', 'Edit, then add')} onClick={() => onEdit(draftSearch(item, boot.sites))}><Pencil size={15} /></button>
+                            <button className="button small" onClick={() => addSearch(item, key)} disabled={Boolean(adding)}>{adding === key ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}{t('添加', 'Add')}</button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : null}
+          {result.companies.length ? (
+            <>
+              <h3>{t('推荐关注的公司', 'Suggested companies')}</h3>
+              <ul className="company-list">
+                {result.companies.map((item, index) => {
+                  const key = `company-${index}`;
+                  const following = boot.companies.some(company => sameBoard(company, item));
+                  return (
+                    <li key={key}>
+                      <div className="search-main">
+                        <strong>{item.name}</strong>
+                        <span>{label('site', item.ats)} · {item.slug}{item.openJobs !== null && item.openJobs !== undefined ? t(` · 目前 ${item.openJobs} 个公开岗位`, ` · ${item.openJobs} open ${item.openJobs === 1 ? 'job' : 'jobs'}`) : ''}</span>
+                        {item.reason ? <small>{item.reason}</small> : null}
+                      </div>
+                      {following ? <span className="added-tag"><Check size={14} />{t('已关注', 'Following')}</span>
+                        : <button className="button small" onClick={() => follow(item, key)} disabled={Boolean(adding)}>{adding === key ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}{t('关注', 'Follow')}</button>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : null}
+          <p className="hint">
+            {t(`${formatTime(result.createdAt)} 推荐`, `Suggested ${formatTime(result.createdAt)}`)}
+            {result.dropped ? t(`；另有 ${result.dropped} 家公司的招聘页不存在，已去掉`, `; ${result.dropped} more ${result.dropped === 1 ? 'company was' : 'companies were'} dropped because their board does not exist`) : ''}
+            {t('。', '.')}
+          </p>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -181,7 +331,7 @@ function Runs({ runs }) {
   );
 }
 
-export function SearchesView({ boot, reload, status }) {
+export function SearchesView({ boot, reload, status, setView }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
@@ -224,6 +374,7 @@ export function SearchesView({ boot, reload, status }) {
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
+      <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); window.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
       <section className="card-section">
         <h2>{t('保存的搜索', 'Saved searches')}</h2>
         {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',
