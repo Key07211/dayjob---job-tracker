@@ -1,6 +1,6 @@
 {
   "name": "dayjob",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Dayjob · 本地岗位抓取、AI 简历匹配与投递追踪",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.32.0",
+    "electron-updater": "6.8.9",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.9.1",
     "node-html-parser": "^7.0.1",
@@ -88,7 +89,14 @@
       "artifactName": "Dayjob-Portable-${version}.${ext}",
       "requestExecutionLevel": "user"
     },
-    "npmRebuild": false
+    "npmRebuild": false,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Key07211",
+        "repo": "dayjob---job-tracker"
+      }
+    ]
   },
   "repository": {
     "type": "git",

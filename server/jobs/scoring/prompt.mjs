@@ -65,12 +65,16 @@ export function normalizeScore(value) {
 }
 
 // CLI replies are free text: take the outermost JSON object, fenced or not.
-export function parseScoreText(text) {
+export function parseJsonText(text) {
   const source = String(text || '').trim();
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(source);
   const candidate = fenced ? fenced[1] : source;
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('The AI reply did not contain JSON.');
-  return normalizeScore(JSON.parse(candidate.slice(start, end + 1)));
+  return JSON.parse(candidate.slice(start, end + 1));
+}
+
+export function parseScoreText(text) {
+  return normalizeScore(parseJsonText(text));
 }

@@ -162,6 +162,12 @@ const migrations = [
     read INTEGER NOT NULL DEFAULT 0
   );
   `,
+  // Up to three resumes; each posting is scored against the one that shares
+  // the most keywords with it (resumes.active is no longer used).
+  `
+  ALTER TABLE postings ADD COLUMN resume_id TEXT;
+  ALTER TABLE postings ADD COLUMN resume_overlap REAL;
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

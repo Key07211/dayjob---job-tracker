@@ -14,7 +14,8 @@ const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 
 // Shown to the model by Claude Code and Claude Desktop.
 export const INSTRUCTIONS = [
   'Dayjob is the user\'s local job-search tracker: it fetches postings every day from LinkedIn, Indeed and company career boards, scores each against the user\'s resume, and tracks applications.',
-  'To analyse fit yourself, read the posting (dayjob_get_posting) and the resume (dayjob_get_resume), then store your verdict with dayjob_save_analysis so it shows in the app.',
+  'The user can keep up to three resumes. Each posting is matched to the resume that shares the most keywords with it and is scored against that one.',
+  'To analyse fit yourself, read the posting (dayjob_get_posting) and its matched resume (dayjob_get_resume with postingId), then store your verdict with dayjob_save_analysis so it shows in the app.',
   'Only call dayjob_mark_applied when the user says they have actually applied. Never invent application dates.',
   'When the user asks you to update applications from email (for example Gmail), match each message to an application by company and title, then call dayjob_update_application with a short note naming the email (sender, date, subject). Ask the user when the match is unclear.',
   'Status values: applied, oa (online assessment), interview, offer, accepted, rejected, withdrawn, ghosted. Dates must be ISO 8601 with a timezone offset; dayjob_status returns the computer\'s time and timezone.',
@@ -125,10 +126,29 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
   tool('dayjob_get_posting', 'Read one posting in full: description, pay, posted and first-seen dates, whether it has closed, the stored fit analysis, duplicate listings on other boards, and any application.',
     { id }, ({ id: postingId }) => request(`/api/postings/${encodeURIComponent(postingId)}`), readOnly);
 
-  tool('dayjob_get_resume', 'Read the text of the user\'s active resume, which Dayjob scores postings against.',
-    {}, () => request('/api/resumes/active'), readOnly);
+  tool('dayjob_list_resumes', 'List the user\'s resumes (up to three): id, file name, upload date and length.',
+    {}, () => request('/api/resumes'), readOnly);
 
-  tool('dayjob_save_analysis', 'Store your own fit analysis of a posting against the active resume. It replaces any earlier score and is shown in the app.', {
+  tool('dayjob_get_resume', 'Read a resume\'s text: the one matched to a posting (postingId), a given resume (id), or the only resume when there is one.', {
+    postingId: id.optional().describe('Read the resume this posting is matched to and scored against.'),
+    id: id.optional().describe('A resume id from dayjob_list_resumes.'),
+  }, async ({ postingId, id: resumeId }) => {
+    let wanted = resumeId;
+    if (!wanted && postingId) {
+      const posting = await request(`/api/postings/${encodeURIComponent(postingId)}`);
+      if (!posting.resumeId) throw new Error('No resume has been uploaded yet.');
+      wanted = posting.resumeId;
+    }
+    if (!wanted) {
+      const resumes = await request('/api/resumes');
+      if (!resumes.length) throw new Error('No resume has been uploaded yet.');
+      if (resumes.length > 1) throw new Error(`The user has ${resumes.length} resumes; pass postingId, or id from dayjob_list_resumes.`);
+      wanted = resumes[0].id;
+    }
+    return request(`/api/resumes/${encodeURIComponent(wanted)}`);
+  }, readOnly);
+
+  tool('dayjob_save_analysis', 'Store your own fit analysis of a posting against its matched resume. It replaces any earlier score and is shown in the app.', {
     id,
     score: z.number().int().min(0).max(100).describe('85-100 strong, 65-84 good, 40-64 stretch, 0-39 weak.'),
     verdict: z.enum(['strong', 'good', 'stretch', 'weak']),

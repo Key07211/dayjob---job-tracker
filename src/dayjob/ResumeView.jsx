@@ -16,58 +16,58 @@ function toBase64(file, failed) {
   });
 }
 
+const MAX_RESUMES = 3;
+
 function Resumes({ resumes, reload }) {
   const { t } = useI18n();
   const input = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
-  const active = resumes.find(resume => resume.active);
+  const full = resumes.length >= MAX_RESUMES;
   async function upload(file) {
-    if (!file) return;
+    if (!file || full) return;
     setError('');
     if (file.size > MAX_BYTES) { setError(t('文件超过 8 MB。', 'The file is larger than 8 MB.')); return; }
     setBusy(true);
     try {
       await api('/api/resumes', { method: 'POST', body: { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) } });
       await reload();
-    } catch (failure) { setError(failure.message); } finally { setBusy(false); if (input.current) input.current.value = ''; }
-  }
-  async function activate(resume) {
-    try { await api(`/api/resumes/${resume.id}`, { method: 'PATCH', body: { active: true } }); await reload(); }
-    catch (failure) { setError(failure.message); }
+    } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); if (input.current) input.current.value = ''; }
   }
   async function remove(resume) {
-    if (!window.confirm(t(`删除简历“${resume.name}”？基于它的打分也会删除。`, `Delete the resume “${resume.name}”? Scores based on it are deleted too.`))) return;
+    if (!window.confirm(t(`删除简历“${resume.name}”？基于它的打分也会删除，相关岗位会改用其他简历。`, `Delete the resume “${resume.name}”? Scores based on it are deleted too, and its jobs move to your other resumes.`))) return;
     try { await api(`/api/resumes/${resume.id}`, { method: 'DELETE' }); await reload(); }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(serverText(failure.message)); }
   }
   return (
     <section className="card-section">
-      <h2>{t('简历', 'Resume')}</h2>
-      <p className="hint">{t('支持 PDF、Word（.docx）和纯文本。只保存提取出的文字，不保存原文件；数据只在本机。换一份简历后，岗位会按新简历重新打分。',
-        'PDF, Word (.docx) or plain text. Dayjob keeps only the extracted text, never the file, and only on this computer. After you switch resumes, jobs are scored again against the new one.')}</p>
-      <div className={`dropzone${dragging ? ' dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files[0]); }}>
-        {busy ? <LoaderCircle className="spin" /> : <FileUp size={24} />}
-        <p>{busy ? t('正在读取简历…', 'Reading your resume…') : t('把简历拖到这里，或', 'Drop your resume here, or')}</p>
-        <button className="button" onClick={() => input.current?.click()} disabled={busy}>{t('选择文件', 'Choose a file')}</button>
-        <input ref={input} type="file" hidden accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-          onChange={event => upload(event.target.files[0])} />
-      </div>
+      <h2>{t(`简历（${resumes.length}/${MAX_RESUMES}）`, `Resumes (${resumes.length}/${MAX_RESUMES})`)}</h2>
+      <p className="hint">{t('最多 3 份，比如分别针对数据分析和软件工程。打分时，Dayjob 会给每个岗位自动选关键词重合度最高的那份简历。支持 PDF、Word（.docx）和纯文本；只保存提取出的文字，不保存原文件，数据只在本机。',
+        'Up to 3, for example one for data roles and one for software roles. Each job is scored against the resume that shares the most keywords with it. PDF, Word (.docx) or plain text; Dayjob keeps only the extracted text, never the file, and only on this computer.')}</p>
+      {full ? <p className="notice">{t('已经有 3 份简历。删除一份后才能再上传。', 'You have 3 resumes. Delete one to upload another.')}</p> : (
+        <div className={`dropzone${dragging ? ' dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files[0]); }}>
+          {busy ? <LoaderCircle className="spin" /> : <FileUp size={24} />}
+          <p>{busy ? t('正在读取简历…', 'Reading your resume…') : t('把简历拖到这里，或', 'Drop a resume here, or')}</p>
+          <button className="button" onClick={() => input.current?.click()} disabled={busy}>{t('选择文件', 'Choose a file')}</button>
+          <input ref={input} type="file" hidden accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            onChange={event => upload(event.target.files[0])} />
+        </div>
+      )}
       {error ? <p className="notice error">{error}</p> : null}
       {resumes.length ? (
         <ul className="resume-list">
           {resumes.map(resume => (
-            <li key={resume.id} className={resume.active ? 'active' : ''}>
-              <div><strong>{resume.name}</strong><span>{formatTime(resume.uploadedAt)} · {t(`${resume.characters.toLocaleString()} 字符`, `${resume.characters.toLocaleString()} characters`)}</span></div>
-              {resume.active ? <span className="active-tag"><CheckCircle2 size={14} />{t('正在使用', 'In use')}</span> : <button className="button small" onClick={() => activate(resume)}>{t('使用这份', 'Use this one')}</button>}
+            <li key={resume.id}>
+              <div><strong>{resume.name}</strong><span>{formatTime(resume.uploadedAt)} · {t(`${resume.characters.toLocaleString()} 字符`, `${resume.characters.toLocaleString()} characters`)}</span>
+                <details className="resume-preview"><summary>{t('查看提取出的文字（前 600 字）', 'Show the extracted text (first 600 characters)')}</summary><pre>{resume.preview}</pre></details>
+              </div>
               <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(resume)}><Trash2 size={15} /></button>
             </li>
           ))}
         </ul>
       ) : null}
-      {active ? <details className="resume-preview"><summary>{t('查看提取出的文字（前 600 字）', 'Show the extracted text (first 600 characters)')}</summary><pre>{active.preview}</pre></details> : null}
     </section>
   );
 }
@@ -176,7 +176,7 @@ export function ResumeView({ boot, reload, status }) {
   const { t } = useI18n();
   return (
     <section className="settings-page">
-      <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1><p>{t('AI 会对照你的简历给每个岗位打 0–100 分，并列出匹配点、差距和可补充的关键词。', 'AI rates each job 0–100 against your resume and lists strengths, gaps and keywords to add.')}</p></div></header>
+      <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1><p>{t('AI 会对照最匹配的那份简历给每个岗位打 0–100 分，并列出匹配点、差距和可补充的关键词。', 'AI rates each job 0–100 against your best-matching resume and lists strengths, gaps and keywords to add.')}</p></div></header>
       <Resumes resumes={boot.resumes} reload={reload} />
       <AiSettings boot={boot} reload={reload} status={status} />
     </section>

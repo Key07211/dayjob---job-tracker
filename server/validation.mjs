@@ -104,6 +104,9 @@ export function settingsPatch(input) {
     maxPerRun: item => integer(item, 'Scores per run', 1, 200),
     effort: item => oneOf(item, EFFORTS, 'Effort'),
   }));
+  section('updates', value => pick(value, {
+    autoCheck: item => boolean(item, 'Daily update check'),
+  }));
   section('tracking', value => pick(value, {
     followUpDays: item => integer(item, 'Follow-up days', 0, 90),
     ghostDays: item => integer(item, 'No-reply days', 0, 180),
@@ -124,6 +127,10 @@ export function settingsPatch(input) {
 export function publicSettings(settings) {
   const { apiKey, ...ai } = settings.ai;
   return { ...settings, ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY) } };
+}
+
+export function recommendInput(input) {
+  return { preference: text(input.preference, 'Preferences', { max: 500, optional: true }) };
 }
 
 export function postingStatus(input) {

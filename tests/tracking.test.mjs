@@ -146,7 +146,7 @@ test('a daily run searches, scores new postings, tracks and summarizes', async (
   const runner = createSearchRunner({ repo, http, bridge: () => { throw new Error('unused'); }, now, log: () => {} });
   const scored = [];
   const scorer = { pending: 0, scoreBatch: async ids => {
-    for (const id of ids) { scored.push(id); repo.saveScore(id, repo.activeResume().id, { score: 90, verdict: 'strong', summary: 's', strengths: [], gaps: [], missingKeywords: [], provider: 'test' }); }
+    for (const id of ids) { scored.push(id); repo.saveScore(id, repo.getPosting(id).resumeId, { score: 90, verdict: 'strong', summary: 's', strengths: [], gaps: [], missingKeywords: [], provider: 'test' }); }
     return { scored: ids.length, results: ids.map(id => ({ id, score: 90 })) };
   } };
   const notes = [];

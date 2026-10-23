@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, FileUser, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../api.js';
 import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInput, relativeDay, salaryText, scoreTone } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -53,6 +53,24 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView }) {
         <div className="keywords"><h4>{t('简历可补充的关键词（属实时）', 'Keywords to add to your resume (if true)')}</h4><div>{score.missingKeywords.map(word => <span key={word}>{word}</span>)}</div></div>
       ) : null}
     </div>
+  );
+}
+
+// Which resume this job is scored against, and how the others compare.
+function ResumeMatch({ match }) {
+  const { t } = useI18n();
+  if (!match?.ranking?.length) return null;
+  const chosen = match.ranking.find(entry => entry.id === match.resumeId) || match.ranking[0];
+  const percent = value => `${Math.round(value * 100)}%`;
+  return (
+    <details className="resume-match">
+      <summary><FileUser size={14} />{t(`按简历“${chosen.name}”分析 · 关键词重合 ${percent(chosen.overlap)}`, `Scored against “${chosen.name}” · ${percent(chosen.overlap)} keyword overlap`)}</summary>
+      {chosen.matched.length ? <div className="keywords"><h4>{t('重合的关键词', 'Shared keywords')}</h4><div>{chosen.matched.map(word => <span key={word}>{word}</span>)}</div></div> : null}
+      {match.ranking.length > 1 ? (
+        <ul>{match.ranking.map(entry => <li key={entry.id} className={entry.id === chosen.id ? 'chosen' : undefined}><span>{entry.name}</span><em>{percent(entry.overlap)}</em></li>)}</ul>
+      ) : null}
+      <p className="hint">{t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</p>
+    </details>
   );
 }
 
@@ -174,6 +192,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode }) {
         {posting.searches?.length ? <div><dt>{t('匹配的搜索', 'Matched searches')}</dt><dd>{posting.searches.map(search => search.name).join(t('、', ', '))}</dd></div> : null}
       </dl>
       <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} />
+      <ResumeMatch match={posting.resumeMatch} />
       <section className="description">
         <h3>{t('职位描述', 'Job description')}</h3>
         {posting.description ? <Markdown text={posting.description} /> : <p className="hint">{t('这个来源没有提供完整描述。打开原帖查看。', 'This source does not include the full description. Open the posting to read it.')}</p>}

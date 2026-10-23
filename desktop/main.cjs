@@ -5,6 +5,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
 const { createBrowser } = require('./browser.cjs');
+const { createUpdater } = require('./updater.cjs');
 
 app.setName('Dayjob');
 app.setAppUserModelId('com.dayjob.tracker');
@@ -27,6 +28,7 @@ let tray;
 let origin;
 let claude;
 let browser;
+let updates;
 let quitting = false;
 let shutdownStarted = false;
 let language = null;
@@ -104,6 +106,10 @@ function setupIpc() {
   handle('dayjob:browser-agent-control', value => browser.setAgentControl(value === true));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
+  handle('dayjob:update-state', () => updates.state());
+  handle('dayjob:update-check', () => updates.check());
+  handle('dayjob:update-download', () => updates.download());
+  handle('dayjob:update-install', () => updates.install());
 }
 
 function buildTray() {
@@ -234,6 +240,52 @@ async function smokeBrowser(token) {
   return steps;
 }
 
+// The installed app finds a "9.9.9" release on a local feed (the installer
+// that was just built, under a newer version number), shows the round
+// download button, and downloads and verifies it. It does not install it.
+async function smokeUpdate() {
+  const steps = { item: await window.webContents.executeJavaScript("Boolean(document.querySelector('.update-item'))") };
+  const feed = process.env.DAYJOB_SMOKE_UPDATE_FEED;
+  if (!feed) {
+    steps.ok = steps.item;
+    return steps;
+  }
+  const latest = fs.readFileSync(path.join(feed, 'latest.yml'), 'utf8').replace(/^version: .*$/m, 'version: 9.9.9');
+  const site = http.createServer((request, response) => {
+    const name = path.basename(decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname));
+    if (name === 'latest.yml') {
+      response.writeHead(200, { 'Content-Type': 'text/yaml' });
+      return response.end(latest);
+    }
+    const file = path.join(feed, name);
+    if (!/\.exe$/i.test(name) || !fs.existsSync(file)) {
+      response.writeHead(404);
+      return response.end();
+    }
+    response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(file).size });
+    return fs.createReadStream(file).pipe(response);
+  });
+  await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.disableDifferentialDownload = true;
+    autoUpdater.setFeedURL({ provider: 'generic', url: `http://127.0.0.1:${site.address().port}` });
+    const checked = await updates.check();
+    steps.found = checked.status === 'available' && checked.latest === '9.9.9';
+    steps.roundButton = await until(() => window.webContents.executeJavaScript("Boolean(document.querySelector('.update-item.available .update-circle'))"), 5000);
+    if (steps.roundButton) await window.webContents.executeJavaScript("document.querySelector('.update-item.available').click()");
+    steps.downloaded = await until(() => updates.state().status === 'downloaded', 180000);
+    steps.restartButton = await until(() => window.webContents.executeJavaScript("Boolean(document.querySelector('.update-item.downloaded'))"), 5000);
+    if (updates.state().error) steps.error = updates.state().error;
+  } catch (error) {
+    steps.error = error.message;
+  } finally {
+    site.close();
+  }
+  steps.ok = !steps.error && ['item', 'found', 'roundButton', 'downloaded', 'restartButton'].every(step => steps[step] === true);
+  return steps;
+}
+
 async function runSmoke() {
   const ready = "['今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -267,8 +319,10 @@ async function runSmoke() {
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
   const browserCheck = await smokeBrowser(state.csrfToken);
-  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath) && browserCheck.ok;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  const updateCheck = await smokeUpdate();
+  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
+    && browserCheck.ok && updateCheck.ok;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath }, null, 2));
   if (!ok) throw new Error('Desktop smoke assertions failed.');
   app.quit();
@@ -292,10 +346,22 @@ async function boot() {
       'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"],
     } });
   });
+  updates = createUpdater({
+    updater: app.isPackaged ? require('electron-updater').autoUpdater : null,
+    version: app.getVersion(), portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR), installOnQuit: !smoke,
+    openExternal: url => shell.openExternal(url),
+    autoCheck: () => service.repo.getSettings().updates.autoCheck,
+    lastCheck: () => service.repo.getMeta('lastUpdateCheck'),
+    saveLastCheck: at => service.repo.setMeta('lastUpdateCheck', at),
+    onState: state => { if (window && !window.isDestroyed()) window.webContents.send('dayjob:update-state', state); },
+  });
   setupIpc();
   await createWindow();
   if (smoke) await runSmoke();
-  else void claude.check();
+  else {
+    void claude.check();
+    updates.start();
+  }
 }
 
 app.on('window-all-closed', () => { /* The tray keeps daily searches running. */ });
@@ -305,6 +371,7 @@ app.on('before-quit', event => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
+  updates?.stop();
   Promise.resolve(service?.close()).catch(console.error).finally(() => {
     tray?.destroy();
     quitting = true;

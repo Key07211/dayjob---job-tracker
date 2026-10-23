@@ -13,7 +13,8 @@ export function createApiProvider({ getSettings, createClient = options => new A
       const key = ai.apiKey || process.env.ANTHROPIC_API_KEY;
       return { available: Boolean(key), detail: key ? `Claude API · ${ai.model || DEFAULT_API_MODEL}` : 'Add an Anthropic API key in Settings.' };
     },
-    async score({ resume, posting }) {
+    // One prompt in, one JSON object (matching schema) out.
+    async ask({ system, prompt, schema }) {
       const { ai } = getSettings();
       const apiKey = ai.apiKey || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new Error('No Anthropic API key is set.');
@@ -26,9 +27,9 @@ export function createApiProvider({ getSettings, createClient = options => new A
           max_tokens: 16000,
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
-          system: SYSTEM_PROMPT,
-          output_config: { effort: ai.effort || 'medium', format: { type: 'json_schema', schema: SCORE_SCHEMA } },
-          messages: [{ role: 'user', content: buildUserPrompt({ resume, posting, language: ai.language }) }],
+          system,
+          output_config: { effort: ai.effort || 'medium', format: { type: 'json_schema', schema } },
+          messages: [{ role: 'user', content: prompt }],
         });
       } catch (error) {
         if (error instanceof Anthropic.AuthenticationError) throw new Error('The Anthropic API key was rejected.');
@@ -36,10 +37,15 @@ export function createApiProvider({ getSettings, createClient = options => new A
         if (error instanceof Anthropic.APIError) throw new Error(`Claude API error ${error.status}: ${error.message}`);
         throw error;
       }
-      if (response.stop_reason === 'refusal') throw new Error('Claude declined to score this posting.');
-      if (response.stop_reason === 'max_tokens') throw new Error('The scoring reply was cut off.');
+      if (response.stop_reason === 'refusal') throw new Error('Claude declined this request.');
+      if (response.stop_reason === 'max_tokens') throw new Error('The Claude reply was cut off.');
       const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('');
-      return { ...normalizeScore(JSON.parse(text)), provider: 'anthropic-api', model: response.model || model };
+      return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || model };
+    },
+    async score({ resume, posting }) {
+      const { ai } = getSettings();
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
     },
   };
 }

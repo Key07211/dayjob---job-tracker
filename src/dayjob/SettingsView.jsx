@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, FolderOpen, Globe, Link2, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -74,7 +74,45 @@ function BrowserData() {
   );
 }
 
-export function SettingsView({ boot, reload }) {
+const UPDATE_STATES = { idle: ['还没有检查', 'Not checked yet'], checking: ['正在检查…', 'Checking…'], latest: ['已是最新版本', 'Dayjob is up to date'],
+  error: ['检查失败', 'The check failed'], downloading: ['正在下载新版本…', 'Downloading the new version…'], downloaded: ['新版本已下载，重启即可更新', 'Downloaded; restart to update'],
+  unsupported: ['开发版不检查更新', 'Development builds do not check for updates'] };
+
+function Updates({ boot, reload, update }) {
+  const { t } = useI18n();
+  const [error, setError] = useState('');
+  if (!desktop?.updates || !update) return null;
+  async function toggle(event) {
+    setError('');
+    try { await api('/api/settings', { method: 'PATCH', body: { updates: { autoCheck: event.target.checked } } }); await reload(); }
+    catch (failure) { setError(serverText(failure.message)); }
+  }
+  const text = update.status === 'available' ? t(`有新版本 v${update.latest}`, `Version ${update.latest} is available`) : t(...(UPDATE_STATES[update.status] || [update.status, update.status]));
+  return (
+    <section className="card-section">
+      <h2><Download size={18} />{t('更新', 'Updates')}</h2>
+      <p className="hint">{t('从 GitHub Releases 检查新版本。有新版本时，左侧栏的“检查更新”会变成圆形下载按钮；下载完点“重启并更新”，数据会保留。',
+        'Dayjob looks for new versions on GitHub Releases. When one is out, “Check for updates” in the sidebar turns into a round download button; once downloaded, click “Restart to update”. Your data stays.')}</p>
+      <p className={`status-line ${update.status === 'error' ? 'off' : 'ok'}`}>
+        {update.status === 'latest' ? <CheckCircle2 size={15} /> : null}{t(`当前 v${update.version} · `, `Current v${update.version} · `)}{text}
+        {update.checkedAt ? <span className="muted">{t(` · 上次检查 ${new Date(update.checkedAt).toLocaleString('zh-CN')}`, ` · last checked ${new Date(update.checkedAt).toLocaleString('en-US')}`)}</span> : null}
+      </p>
+      {update.error ? <p className="notice error">{update.error}</p> : null}
+      {error ? <p className="notice error">{error}</p> : null}
+      <div className="form-grid">
+        <label className="check-line"><input type="checkbox" checked={boot.settings.updates.autoCheck} onChange={toggle} />{t('每天自动检查一次', 'Check once a day')}</label>
+      </div>
+      {update.portable ? <p className="hint">{t('免安装版不能自己替换，下载按钮会在浏览器里下载新的免安装版。', 'The portable app cannot replace itself; its download button gets the new portable app in your browser.')}</p> : null}
+      <div className="form-actions">
+        <button className="button" onClick={() => desktop.updates.check()} disabled={['checking', 'downloading', 'downloaded', 'unsupported'].includes(update.status)}>
+          {update.status === 'checking' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}{t('立即检查', 'Check now')}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+export function SettingsView({ boot, reload, update }) {
   const { t } = useI18n();
   const settings = boot.settings;
   const [form, setForm] = useState({ scheduleEnabled: settings.schedule.enabled, time: settings.schedule.time,
@@ -149,6 +187,7 @@ export function SettingsView({ boot, reload }) {
       </form>
       <ClaudeConnection />
       <BrowserData />
+      <Updates boot={boot} reload={reload} update={update} />
       <section className="card-section">
         <h2>{t('语言、外观与数据', 'Language, look and data')}</h2>
         <div className="option-row">

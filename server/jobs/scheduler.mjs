@@ -49,8 +49,7 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
       phase = 'score';
       try {
         // Today's new postings first, then any older ones still unscored.
-        const resume = repo.activeResume();
-        const backlog = resume ? repo.unscoredPostingIds(resume.id, settings.ai.maxPerRun) : [];
+        const backlog = repo.unscoredPostingIds(settings.ai.maxPerRun);
         const ids = [...new Set([...newIds, ...backlog])];
         scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun });
         if (scoring.reason && scoring.reason !== 'no-resume') {

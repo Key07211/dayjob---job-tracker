@@ -132,21 +132,28 @@ test('applications record a timeline and keep follow-ups current', () => {
   assert.equal(repo.getPosting('li-1').status, 'saved', 'a deleted application leaves the job saved');
 });
 
-test('resumes switch and scores follow the active one', () => {
+test('each posting is scored against the resume that shares the most keywords', () => {
   const { repo } = memoryRepo();
-  repo.upsertPosting(job());
-  const first = repo.addResume({ name: 'a.pdf', mime: 'application/pdf', size: 1, text: 'A'.repeat(300) });
-  repo.saveScore('li-1', first.id, { score: 80, verdict: 'good', summary: 's', strengths: ['x'], gaps: [], missingKeywords: [], provider: 'claude-cli' });
-  assert.equal(repo.listPostings().items[0].score.score, 80);
-  const second = repo.addResume({ name: 'b.pdf', mime: 'application/pdf', size: 1, text: 'B'.repeat(300) });
-  assert.equal(repo.activeResume().id, second.id);
-  assert.equal(repo.listPostings().items[0].score, null);
-  assert.deepEqual(repo.unscoredPostingIds(second.id, 10), ['li-1']);
-  repo.activateResume(first.id);
-  assert.equal(repo.getPosting('li-1').score.score, 80);
-  repo.deleteResume(first.id);
-  assert.equal(repo.activeResume().id, second.id);
-  assert.equal(repo.getScore('li-1', first.id), null, 'scores are deleted with their resume');
+  repo.upsertPosting(job({ description: 'Python, SQL and machine learning for experimentation. Equal opportunity employer.' }));
+  repo.upsertPosting(job({ externalId: '2', title: 'Software Engineer', jobUrl: 'https://www.linkedin.com/jobs/view/2', description: 'Java, Kubernetes and distributed systems.' }));
+  assert.equal(repo.getPosting('li-1').resumeId, null);
+  const data = repo.addResume({ name: 'data.pdf', mime: 'application/pdf', size: 1, text: 'Data scientist. Python, SQL, machine learning, A/B tests.' });
+  assert.equal(repo.getPosting('li-2').resumeId, data.id, 'with one resume every posting uses it');
+  repo.saveScore('li-1', data.id, { score: 80, verdict: 'good', summary: 's', strengths: ['x'], gaps: [], missingKeywords: [], provider: 'claude-cli' });
+  const swe = repo.addResume({ name: 'swe.pdf', mime: 'application/pdf', size: 1, text: 'Software engineer. Java, Kubernetes, distributed systems, Go.' });
+  assert.equal(repo.getPosting('li-1').resumeId, data.id);
+  assert.equal(repo.getPosting('li-2').resumeId, swe.id);
+  const match = repo.getPosting('li-2').resumeMatch;
+  assert.equal(match.ranking[0].name, 'swe.pdf');
+  assert.ok(match.ranking[0].overlap > match.ranking[1].overlap);
+  assert.ok(match.ranking[0].matched.includes('kubernetes'), 'keywords keep their spelling');
+  assert.equal(repo.listPostings({ sort: 'company' }).items.find(item => item.id === 'li-1').score.score, 80);
+  assert.deepEqual(repo.unscoredPostingIds(10), ['li-2']);
+  assert.equal(repo.listResumes().length, 2);
+  repo.deleteResume(data.id);
+  assert.equal(repo.getPosting('li-1').resumeId, swe.id, 'postings move to the remaining resume');
+  assert.equal(repo.getScore('li-1', data.id), null, 'scores are deleted with their resume');
+  assert.equal(repo.getPosting('li-1').score, null);
 });
 
 test('settings merge with defaults and runs record results', () => {

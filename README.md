@@ -24,12 +24,14 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 岗位来源 | LinkedIn、Indeed（参照 JobSpy 的做法直接请求，不需要 Python）；Greenhouse、Lever、Ashby 公司招聘页（官方公开 JSON）；Glassdoor、ZipRecruiter、Google Jobs 通过可选的 Python 版 JobSpy。 |
 | 岗位信息 | 标题、公司、地点、远程、薪资、职位类型和级别、完整职位描述；**发布 / 开放时间**、Dayjob 首次抓取、最近一次出现在搜索中、最近一次检查是否关闭。 |
 | 过滤 | 每个搜索可设关键词（逗号分隔表示“或”）、地点、发布时间范围、职位类型、只要远程、排除词；跨站重复的岗位自动合并。 |
-| AI 打分 | 上传 PDF / Word / 文本简历，AI 对每个岗位给 0–100 分，列出匹配点、差距和可以补进简历的关键词。默认用本机已登录的 Claude Code（`claude -p`，不需要 API key），也可以填自己的 Anthropic API key。 |
+| AI 打分 | 上传最多 3 份 PDF / Word / 文本简历（比如分别针对数据和软件岗位），每个岗位自动用关键词重合度最高的那份打 0–100 分，列出匹配点、差距和可以补进简历的关键词。默认用本机已登录的 Claude Code（`claude -p`，不需要 API key），也可以填自己的 Anthropic API key。 |
+| 按简历推荐 | “搜索与公司”里点“让 Claude 推荐”，Claude 读你的简历，推荐每天要抓的搜索和值得关注的公司（招聘页会先核实存在），选中的一键添加。 |
 | 投递追踪 | 点“我已投递”记下日期和备注，自动进入“投递追踪”。状态：已投递 → 在线测评 → 面试中 → Offer / 已接受 / 未通过 / 已撤回 / 无回音，每次变化都记在时间线上。也可以手动添加不在 Dayjob 里的投递。 |
 | 自动追踪 | 投递或状态变化后 N 天（默认 7）提醒跟进；“已投递”超过 N 天（默认 21）没有变化时提示可能无回音；每天检查已投递和已收藏的岗位是否已关闭。 |
 | 通知 | 每日汇总（新岗位数、高匹配岗位）、跟进提醒、岗位关闭提醒，Windows 桌面通知 + 应用内通知。 |
 | 内置浏览器 | 桌面版自带浏览器（左侧“浏览器”）：多标签页，登录状态只存在本机。看到岗位点“加入 Dayjob”就能收藏、打分、追踪。Claude 也能通过 MCP 打开和阅读网页、帮你填申请表，提交或发送前会先请你点“允许”。 |
-| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器，共 28 个工具。 |
+| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器，共 29 个工具。 |
+| 自动更新 | 安装版每天从 GitHub Releases 检查一次新版本（可在设置里关掉），左侧栏“检查更新”也能随时手动检查。有新版本时它会变成圆形下载按钮，下载完点“重启并更新”。 |
 | 中文 / English | 左上角的 EN / 中 按钮或“设置 → 界面语言”随时切换。通知和托盘菜单跟着切换；AI 分析的语言单独在“简历与 AI”里选。 |
 
 ![投递追踪：漏斗、状态、时间线](docs/media/applications.webp)
@@ -43,7 +45,7 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 
 每个版本的说明、带版本号的同一份文件（`Dayjob-Setup-x.y.z.exe`、`Dayjob-Portable-x.y.z.exe`）和 SHA-256 校验文件都在 [Releases](https://github.com/Key07211/dayjob---job-tracker/releases/latest) 页面。
 
-程序还没有签名，第一次打开时 Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。新版本需要手动下载安装，覆盖安装即可；升级或卸载都不会删除 `%APPDATA%\Dayjob` 里的数据。
+程序还没有签名，第一次打开时 Windows 可能提示“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。从 0.3.0 起安装版会自己更新（左侧栏“检查更新”）；免安装版有新版本时，下载按钮会在浏览器里下载新的免安装版。0.2.0 及更早的版本需要手动下载安装一次 0.3.0，覆盖安装即可。升级或卸载都不会删除 `%APPDATA%\Dayjob` 里的数据。
 
 ## 从源码运行
 
@@ -76,8 +78,8 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 ## 第一次使用
 
-1. **简历与 AI**：上传简历。用 Claude Code 打分时，先在终端里安装 Claude Code，运行 `claude` 并输入 `/login` 登录。没登录时“简历与 AI”页会提示，登录后点“重新检测”。
-2. **搜索与公司**：添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）；关注公司里和搜索关键词、地点匹配的开放岗位都会保留，不受发布时间限制。
+1. **简历与 AI**：上传简历（最多 3 份）。用 Claude Code 打分时，先在终端里安装 Claude Code，运行 `claude` 并输入 `/login` 登录。没登录时“简历与 AI”页会提示，登录后点“重新检测”。
+2. **搜索与公司**：点 **让 Claude 推荐**，从推荐里挑搜索和公司添加；也可以自己添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）；关注公司里和搜索关键词、地点匹配的开放岗位都会保留，不受发布时间限制。
 3. 点左下角 **立即抓取**。抓取完成后会自动打分。
 4. 在 **今日岗位** 里看岗位、收藏或标记不感兴趣；投递后点 **我已投递**，之后的跟进都在 **投递追踪** 里。
 
@@ -89,7 +91,18 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 | Claude API | 用你自己的 API key，默认模型 `claude-opus-5-5`，按用量计费。开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。 |
 | 通过 MCP 让 Claude 分析 | 在 Claude Code 或 Claude Desktop 里说“对照我的简历分析这个岗位”，Claude 读取岗位和简历后用 `dayjob_save_analysis` 把结果写回 Dayjob。 |
 
-每次抓取后最多给 40 个岗位打分（可调），先打新岗位，再补之前没打分的。换一份简历后会按新简历重新打分。
+每次抓取后最多给 40 个岗位打分（可调），先打新岗位，再补之前没打分的。
+
+有多份简历时，Dayjob 先在本机比较岗位和每份简历的关键词（标题里的词权重更高，忽略 “experience”“team” 和平等就业声明这类每个岗位都有的词），选重合度最高的那份交给 AI 打分。岗位详情里能看到用了哪份简历、重合了哪些词，以及每份简历的重合度。上传或删除简历后，岗位会重新选简历，选到的简历变了就会重新打分。
+
+## 按简历推荐搜索和公司
+
+在 **搜索与公司** 页点 **让 Claude 推荐**（可以先写补充偏好，比如“只看湾区和远程、需要 H-1B 担保”）。Claude 用“简历与 AI”里设置的方式运行（本机 Claude Code 会用你的 Claude 额度，一次大约一分钟），读完所有简历后给出：
+
+- 最多 6 个搜索：职位关键词、地点、要排除的级别词（比如应届简历排除 Senior / Staff），以及适合哪份简历；
+- 最多 10 家公司：只推荐用 Greenhouse、Lever、Ashby 招聘的公司。Dayjob 会逐个请求它们的招聘页，不存在的直接去掉，并显示目前的公开岗位数。
+
+推荐不会自动加入，点 **添加** / **关注** 的才会；也可以先编辑再添加。最近一次推荐会保存下来，下次打开页面还在。
 
 ## 连接 Claude（MCP）
 
@@ -113,7 +126,8 @@ Claude 需要 Dayjob 保持运行。连接后可以这样说：
 | --- | --- |
 | `dayjob_status` | 运行状态、下次抓取时间、简历和打分状态 |
 | `dayjob_list_postings` / `dayjob_get_posting` | 查岗位（按分数、来源、时间筛选）和详情 |
-| `dayjob_get_resume` / `dayjob_save_analysis` / `dayjob_score_posting` | 读简历、写回 Claude 自己的分析、触发打分 |
+| `dayjob_list_resumes` / `dayjob_get_resume` | 列出简历；读某个岗位匹配到的那份简历（或指定的一份） |
+| `dayjob_save_analysis` / `dayjob_score_posting` | 写回 Claude 自己的分析、触发打分 |
 | `dayjob_set_posting_status` / `dayjob_add_posting` | 收藏、不感兴趣、手动添加岗位 |
 | `dayjob_mark_applied` / `dayjob_add_application` | 标记已投递、添加 Dayjob 之外的投递 |
 | `dayjob_list_applications` / `dayjob_get_application` / `dayjob_update_application` | 查看和更新投递状态、备注、跟进日期 |
@@ -181,7 +195,7 @@ npm test
 
 测试不访问任何网站：抓取用保存下来的页面（`tests/fixtures/`），AI 打分用假的 provider，MCP 用内存连接。
 
-桌面版的冒烟测试（`electron . --smoke-test <结果.json>`，打包检查里每个安装包都会跑）还会在内置浏览器里打开一个本机的申请表，填写、选择，并确认点“提交”前会先请用户允许。
+桌面版的冒烟测试（`electron . --smoke-test <结果.json>`，打包检查里每个安装包都会跑）还会在内置浏览器里打开一个本机的申请表，填写、选择，并确认点“提交”前会先请用户允许。安装版的检查还会从本机模拟一个“9.9.9”新版本：确认左侧栏出现圆形下载按钮、点它下载并校验安装包（不会真的安装）。
 
 想看界面但不想抓取，可以生成一份虚构数据：
 
@@ -200,7 +214,7 @@ DAYJOB_DATA_DIR=./demo-data npm start
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.3.0
 ```
 
 ## 目录
@@ -209,9 +223,9 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Versi
 server/            本机 HTTP 服务（只监听 127.0.0.1）
   jobs/scrapers/   LinkedIn、Indeed、公司招聘页、JobSpy 桥接
   jobs/scoring/    Claude Code / Claude API 打分
-  jobs/            SQLite、搜索、追踪、每日调度
+  jobs/            SQLite、搜索、追踪、每日调度、简历匹配、Claude 推荐
 integrations/      Claude MCP 服务器
-desktop/           Electron 主进程、托盘、Claude 一键连接、内置浏览器
+desktop/           Electron 主进程、托盘、Claude 一键连接、内置浏览器、自动更新
 src/               React 界面
 tests/             node:test 测试和抓取样本
 scripts/           演示数据、真实网站检查、Windows 打包检查
