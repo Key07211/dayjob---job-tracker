@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { memoryRepo } from './helpers.mjs';
 import { posting } from '../server/jobs/normalize.mjs';
 import { buildUserPrompt, normalizeScore, parseScoreText, SCORE_SCHEMA } from '../server/jobs/scoring/prompt.mjs';
-import { claudeCandidates, cliArgs, createClaudeCliProvider, detectClaude, parseCliOutput } from '../server/jobs/scoring/claude-cli.mjs';
+import { claudeCandidates, cliArgs, createClaudeCliProvider, detectClaude, parseCliOutput, stopProcess } from '../server/jobs/scoring/claude-cli.mjs';
 import { createApiProvider } from '../server/jobs/scoring/anthropic-api.mjs';
 import { createScorer } from '../server/jobs/scoring/index.mjs';
 
@@ -157,4 +157,73 @@ test('a batch reports postings that could not be scored', async () => {
   assert.equal(result.scored, 1);
   assert.equal(result.failed, 1);
   assert.match(result.reason, /1 of 2 could not be scored: The AI reply did not contain JSON/);
+});
+
+test('pausing stops the posting being scored and holds the rest until resumed, across restarts', async () => {
+  const { repo } = memoryRepo();
+  for (const id of ['1', '2', '3']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: `Acme ${id}`, jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
+  repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
+  let started;
+  const running = new Promise(resolve => { started = resolve; });
+  const scoredIds = [];
+  let first = true;
+  // The first call hangs until it is aborted; every later one answers.
+  const provider = { id: 'claude-cli', status: async () => ({ available: true, detail: 'ok' }),
+    score: ({ posting: item, signal }) => new Promise((resolve, reject) => {
+      if (!first) { scoredIds.push(item.title); resolve({ ...normalizeScore(RESULT), provider: 'claude-cli' }); return; }
+      first = false;
+      started();
+      signal.addEventListener('abort', () => reject(new Error('aborted')));
+    }) };
+  const scorer = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
+  const batch = scorer.scoreBatch(['li-1', 'li-2', 'li-3']);
+  await running;
+  assert.deepEqual((await scorer.status()).progress, { done: 0, total: 3 });
+  assert.deepEqual(scorer.pause(), { paused: true, held: 0 });
+  const result = await batch;
+  assert.equal(result.paused, true);
+  assert.equal(result.scored, 0);
+  assert.deepEqual(await scorer.status().then(state => [state.paused, state.held, state.progress]), [true, 3, null]);
+
+  // While paused, new work waits too: a batch is held at once and a single job is refused.
+  assert.equal((await scorer.scoreBatch(['li-2'])).paused, true);
+  await assert.rejects(scorer.score('li-1'), error => error.status === 409 && /paused/.test(error.message));
+  assert.equal(repo.getPosting('li-1').score, null);
+
+  // Dayjob restarts paused, with the same jobs waiting.
+  const restarted = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
+  assert.deepEqual(await restarted.status().then(state => [state.paused, state.held]), [true, 3]);
+  repo.setPostingStatus('li-3', 'dismissed');
+  const ids = await restarted.resume();
+  assert.deepEqual(ids, ['li-1', 'li-2'], 'a job dismissed meanwhile is not scored');
+  assert.equal((await restarted.status()).paused, false);
+  assert.equal(repo.getMeta('scoringPaused'), null);
+  assert.equal((await restarted.scoreBatch(ids)).scored, 2);
+  assert.deepEqual(scoredIds, ['Job 1', 'Job 2']);
+});
+
+test('pausing kills the running Claude Code process', async () => {
+  const stopped = [];
+  const spawn = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.stdin = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    return child;
+  };
+  // A child of the stopped process can hold the output open; the score still ends now.
+  const stop = child => { stopped.push(child); };
+  const provider = createClaudeCliProvider({ getSettings: settings(), spawn, stop, detect: async () => ({ available: true, command: 'claude', version: 'x' }) });
+  const controller = new AbortController();
+  const scoring = provider.score({ resume: 'r', posting: { title: 'x' }, signal: controller.signal });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  controller.abort();
+  await assert.rejects(scoring);
+  assert.equal(stopped.length, 1);
+  await assert.rejects(provider.score({ resume: 'r', posting: { title: 'x' }, signal: controller.signal }), 'an aborted signal never starts Claude Code');
+  assert.equal(stopped.length, 1);
+  const runs = [];
+  stopProcess({ pid: 42, kill: () => runs.push('kill') }, { platform: 'win32', run: (command, args) => runs.push([command, ...args]) });
+  stopProcess({ pid: 43, kill: () => runs.push('kill') }, { platform: 'linux' });
+  assert.deepEqual(runs, [['taskkill', '/pid', '42', '/T', '/F'], 'kill'], 'on Windows the cmd.exe shim and Claude Code under it both go');
 });

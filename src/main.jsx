@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Play, Search, Settings } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Pause, Play, Search, Settings } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -77,6 +77,7 @@ function App() {
   const [runMessage, setRunMessage] = useState('');
   const [dataVersion, setDataVersion] = useState(0);
   const wasRunning = useRef(false);
+  const wasSearching = useRef(false);
   const adopted = useRef(false);
   const browser = useBrowserState(goTo);
   const update = useUpdateState();
@@ -115,12 +116,24 @@ function App() {
   useEffect(() => {
     if (wasRunning.current && !busy) {
       setDataVersion(version => version + 1);
-      const run = status?.runs?.[0];
+      // Only a search has a result to report; a scoring batch just refreshes the list.
+      const run = wasSearching.current ? status?.runs?.[0] : null;
       if (run) setRunMessage(run.status === 'failed' ? tr('这次抓取没有成功，详情见“搜索与公司”。', 'This search did not succeed. See Searches for details.')
         : tr(`抓取完成：${run.found} 个岗位，其中 ${run.newCount} 个是新的。`, `Done: ${run.found} jobs, ${run.newCount} new.`));
     }
     wasRunning.current = busy;
+    wasSearching.current = Boolean(status?.scheduler?.running);
   }, [busy, status]);
+
+  // Pausing stops the job being scored right away; resuming scores what was left.
+  async function setScoringPaused(pause) {
+    setRunMessage('');
+    try {
+      await api(`/api/scoring/${pause ? 'pause' : 'resume'}`, { method: 'POST', body: {} });
+      setStatus(await api('/api/status'));
+      if (!pause) setDataVersion(version => version + 1);
+    } catch (failure) { setRunMessage(failure.message); }
+  }
 
   async function runNow() {
     setRunMessage('');
@@ -140,6 +153,9 @@ function App() {
 
   const stats = status?.stats || boot.stats;
   const scheduler = status?.scheduler || boot.scheduler;
+  const scoring = status?.scoring || boot.scoring;
+  const scoringNow = !scoring.paused && (scheduler.running ? scheduler.phase === 'score' : scheduler.scoringBatch);
+  const progress = scoringNow && scoring.progress?.total ? ` ${Math.min(scoring.progress.done + 1, scoring.progress.total)}/${scoring.progress.total}` : '';
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
@@ -202,10 +218,13 @@ function App() {
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em>{stats.unreadNotifications}</em> : null}
           </button>
           <div className="run-card">
-            {scheduler.running || scheduler.scoringBatch
-              ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t(...(PHASES[scheduler.phase] || PHASES.score))}</p>
-              : <p>{nextRunText(scheduler.nextRunAt)}</p>}
+            {scoringNow ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t('AI 正在打分', 'AI is scoring')}{progress}</p>
+              : scheduler.running ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t(...(PHASES[scheduler.phase] || PHASES.score))}</p>
+                : <p>{nextRunText(scheduler.nextRunAt)}</p>}
+            {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
             {runMessage ? <p className="run-message">{runMessage}</p> : null}
+            {scoringNow ? <button className="button block" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
+              : scoring.paused ? <button className="button block" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
             <button className="button primary block" onClick={runNow} disabled={scheduler.running}>
               <Play size={15} />{scheduler.running ? t('抓取中', 'Searching') : t('立即抓取', 'Search now')}
             </button>

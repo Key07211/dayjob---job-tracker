@@ -10,6 +10,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createApp } from '../server/app.mjs';
 import { createDayjobServer, localBaseUrl } from '../integrations/mcp-server.mjs';
 import { extractResumeText } from '../server/jobs/resume.mjs';
+import { posting } from '../server/jobs/normalize.mjs';
 import { fakeHttp, fixture } from './helpers.mjs';
 
 const RESUME = `Jane Doe — Data Scientist\n${'Python, SQL, PyTorch, experimentation, forecasting. '.repeat(12)}`;
@@ -295,6 +296,36 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
     assert.deepEqual([home.funnel.applied, home.funnel.interview, home.sources[0].site], [1, 1, 'manual']);
   } finally {
     await client.close();
+    await app.close();
+  }
+});
+
+test('removing low matches moves only new jobs under the line, and can be undone; scoring pauses and resumes', async () => {
+  const { app, call } = await start();
+  try {
+    const resume = app.repo.addResume({ name: 'r.txt', mime: 'text/plain', size: 10, text: RESUME });
+    const scores = { a: 45, b: 59, c: 60, d: 30 };
+    for (const [key, score] of Object.entries(scores)) {
+      app.repo.upsertPosting(posting({ site: 'linkedin', externalId: key, title: `Job ${key}`, company: `Company ${key}`, jobUrl: `https://www.linkedin.com/jobs/view/${key}` }));
+      app.repo.saveScore(`li-${key}`, resume.id, { score, verdict: 'weak', summary: 's', strengths: [], gaps: [], missingKeywords: [], provider: 'claude-cli' });
+    }
+    app.repo.setPostingStatus('li-d', 'saved');
+    assert.equal((await call('/api/postings/dismiss-low', { method: 'POST', body: { below: 'sixty' } })).status, 400);
+    const removed = await call('/api/postings/dismiss-low', { method: 'POST', body: { below: 60 } });
+    assert.deepEqual(removed.body.dismissed.sort(), ['li-a', 'li-b']);
+    assert.equal(app.repo.getPosting('li-c').status, 'new', '60 itself stays');
+    assert.equal(app.repo.getPosting('li-d').status, 'saved', 'saved jobs stay');
+    const restored = await call('/api/postings/restore', { method: 'POST', body: { ids: [...removed.body.dismissed, 'li-d'] } });
+    assert.deepEqual(restored.body.restored.sort(), ['li-a', 'li-b']);
+    assert.equal(app.repo.getPosting('li-a').status, 'new');
+
+    assert.equal((await call('/api/scoring/pause', { method: 'POST' })).body.paused, true);
+    const queued = await call('/api/scores', { method: 'POST', body: { postingIds: ['li-c'] } });
+    assert.equal(queued.body.paused, true);
+    assert.equal((await call('/api/status')).body.scoring.paused, true);
+    assert.equal((await call('/api/scoring/resume', { method: 'POST' })).body.resumed, 1);
+    assert.equal((await call('/api/status')).body.scoring.paused, false);
+  } finally {
     await app.close();
   }
 });
