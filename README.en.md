@@ -25,8 +25,9 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
 | Home | Dayjob opens on a statistics page: applications this week and month, reply rate, OA / interview rate, the monthly and weekly goals, the last 12 weeks, the funnel, a daily heatmap, where applications stand, results by job board, and what needs a follow-up, recent changes and the best matches not applied to yet. |
 | Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week on Home. |
-| Built-in browser | The desktop app has its own browser (Browser in the sidebar) with tabs, and its sign-ins stay on this computer. "Add to Dayjob" saves the job you are looking at so it can be scored and tracked. Claude can open and read pages through MCP and help fill in applications; anything that submits or sends waits for you to click Allow. |
-| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser, read or set monthly goals and read the Home statistics, with 33 tools. |
+| Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
+| Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
+| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
 
@@ -74,10 +75,10 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 
 ## First steps
 
-1. **Resume & AI**: upload your resume (up to 3). To score with Claude Code, install it, run `claude` in a terminal and type `/login`. If it is not signed in, the Resume & AI page says so; click "Check again" after signing in.
+1. **Resume & AI**: upload your resume (up to 3), then click **Read from my resume** under **Application profile** below and fill in what it missed; autofill uses it. To score with Claude Code, install it, run `claude` in a terminal and type `/login`. If it is not signed in, the Resume & AI page says so; click "Check again" after signing in.
 2. **Searches**: click **Ask Claude** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
 3. Click **Search now** at the bottom left. By default jobs are scored when the search finishes; to save Claude allowance, switch Resume & AI to score only the jobs you save, or only when you ask.
-4. Browse **Today**, save jobs or mark them not interested. After applying, click **I applied**; everything after that happens in **Applications**.
+4. Browse **Today**, save jobs or mark them not interested. To apply, click "Company apply page" in a job's details; it opens in the browser on the right, where **Autofill** fills in the application form. After applying, click **I applied** (or **Mark applied** in the browser's assistant panel); everything after that happens in **Applications**.
 5. Come back to **Home** for the overall picture: how much you have applied, what needs a follow-up and which strong matches are still waiting.
 
 ## AI scoring
@@ -175,33 +176,45 @@ Dayjob needs to be running. Then try:
 | `dayjob_list_notifications` | Recent reminders |
 | `dayjob_get_goals` / `dayjob_set_goal` / `dayjob_log_goal_progress` | Read monthly goals and weekly tasks, set a goal, log a custom goal |
 | `dayjob_get_dashboard` | Read the Home statistics (weekly applications, the funnel, reply rate, results by board, applications that need a follow-up…), handy for a weekly review with Claude |
-
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
 | `dayjob_browser_scroll` / `dayjob_browser_navigate` / `dayjob_browser_tabs` | Scroll, go back, forward or reload, switch and close tabs |
+| `dayjob_browser_autofill` | Fill the open application form from the application profile (same as Autofill in the assistant panel) and tell Claude what was filled and which required fields are left; it never submits |
 
 Changes made through MCP show as "Claude" on the timeline.
 
 ## Built-in browser
 
-**Browser** in the desktop app's sidebar is Dayjob's own browser, separate from Chrome and Edge:
+**Browser** in the desktop app's sidebar is Dayjob's own browser, separate from Chrome and Edge. It opens on the right side of the window and the page you were on stays on the left, so you can read a job and keep notes at the same time:
 
+![The browser on the right: Home on the left, an application form and the assistant panel on the right](docs/media/browser-en.webp)
+
+- Drag the divider between the two to change the width (double-click resets it; the left and right arrow keys work too). The buttons at the top right switch between **Fill the window** and **Show beside the current page**, and × hides the browser while keeping its tabs. In a narrow window it always fills the window.
 - Sign in to LinkedIn, Indeed, Handshake or company career sites there. Sign-ins and cookies stay in Dayjob's data on this computer (**Settings → Dayjob browser** clears them).
-- "Open on LinkedIn" and "Company apply page" in a job's details open there; the arrow at the right of the toolbar opens the page in your own browser.
-- For a job Dayjob did not find, click **Add to Dayjob**. It reads the page's standard job data (schema.org JobPosting, which most job sites publish) or its text, and saves the job so it can be scored and tracked.
+- "Open on LinkedIn" and "Company apply page" in a job's details open there; **Open in your browser** at the bottom of the assistant panel opens the page in Chrome or Edge.
+
+The **Assistant** panel sits to the right of the page (`»` folds it into a thin strip):
+
+| Part | What it does |
+| --- | --- |
+| This page | When the page is already in Dayjob, it shows the title, company and status, with **View in Dayjob** and **Mark applied**. Otherwise click **Add to Dayjob**: it reads the page's standard job data (schema.org JobPosting, which most job sites publish) or its text, and after you check it, saves the job, or **Save and mark applied** in one go. |
+| Autofill | Reads each question on the form and fills the empty boxes from your **Application profile**: name, email, phone, address, LinkedIn / GitHub / website, school and work, work authorization, sponsorship, relocation, desired salary, earliest start date, where you heard about the job and more, including dropdowns and radio buttons. Boxes that already have an answer are left alone. Afterwards it lists what it filled and the required fields still yours to fill in (such as the resume upload). Forms embedded from another site, like a Greenhouse form on a company's own page, work too. |
+| Auto-submit | Off by default; while it is off, nothing is submitted unless you click it or allow it. Turning it on asks once more. While it is on, Autofill clicks Submit as soon as every required field is filled and checks that the page says the application was received, and Claude's clicks on Submit no longer ask first. It turns off again every time Dayjob starts. After a submit, click **Mark applied** and the job moves to Applications. |
+| Claude | Untick **Let Claude use it** and Claude can no longer open or use the browser. |
+
+Autofill never touches passwords, one-time codes, signatures, references or emergency contacts. Voluntary self-identification questions (gender, race, veteran, disability) are answered "decline to answer" by default; untick that in the application profile and they are left for you. The profile stays on this computer.
 
 With Claude connected, try:
 
-> Open this job's application page in the Dayjob browser, fill in the form from my resume, and show me before you submit.
+> Open this job's application page in the Dayjob browser, autofill it, answer the remaining questions from my resume, and show me before you submit.
 
 What Claude can and cannot do there:
 
-- It can open pages, read them, take screenshots, click, type, pick dropdown options and switch tabs. You see it happen in the Dayjob window ("Claude is working" in the toolbar).
-- Clicking a button such as Submit, Send, Confirm or Delete, or pressing Enter in a multi-field form, first asks you in Dayjob. Nothing happens until you click **Allow**, and the request is dropped after 2 minutes.
+- It can open pages, read them, take screenshots, click, type, pick dropdown options and switch tabs, and fill in your profile first with `dayjob_browser_autofill`. You see it happen in the Dayjob window ("Claude is working").
+- Clicking a button such as Submit, Send, Confirm or Delete, or pressing Enter in a multi-field form, first asks you in Dayjob. Nothing happens until you click **Allow**, and the request is dropped after 2 minutes. Only while you have **Auto-submit** on does it go ahead straight away, and Claude is told so.
 - It never types passwords, card numbers or one-time codes, and it does not upload files; you choose the resume yourself. Text on web pages is treated as data, never as instructions.
-- Untick **Let Claude use it** in the toolbar and Claude can no longer open or use the browser.
 
-Some sites do not allow signing in with Google inside an app's browser. Sign in with email and password there, or use the toolbar arrow to switch to your own browser.
+Some sites do not allow signing in with Google inside an app's browser. Sign in with email and password there, or click **Open in your browser**.
 
 ## JobSpy (optional)
 
@@ -237,7 +250,7 @@ npm test
 
 The tests never touch a real site: scrapers read saved pages (`tests/fixtures/`), scoring uses fake providers and MCP an in-memory connection.
 
-The desktop smoke test (`electron . --smoke-test <result.json>`, run on every Windows build) also opens a local application form in the built-in browser, fills it in, picks an option, and checks that clicking Submit asks the user first. For the installed app it also serves a pretend "9.9.9" release from this computer, checks that the sidebar shows the round download button, then clicks it and downloads and verifies the installer (without installing it).
+The desktop smoke test (`electron . --smoke-test <result.json>`, run on every Windows build) also opens a local application form in the built-in browser (part of it inside an iframe from another origin), autofills it and checks every value, checks that a second run leaves the filled answers alone, checks that Claude clicking Submit asks the user first, and that with auto-submit on, Autofill submits the form and recognizes the "application received" page. For the installed app it also serves a pretend "9.9.9" release from this computer, checks that the sidebar shows the round download button, then clicks it and downloads and verifies the installer (without installing it).
 
 To try the interface without scraping, generate made-up data:
 
@@ -256,7 +269,7 @@ To check a build on your own computer:
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.5.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.6.0
 ```
 
 ## License notes

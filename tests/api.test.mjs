@@ -258,7 +258,7 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 33);
+    assert.equal(tools.length, 34);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
     const goals = await call('dayjob_set_goal', { metric: 'custom', name: 'Coffee chats', target: 8 });
     assert.deepEqual(goals.goals.map(goal => [goal.name, goal.target]), [['Coffee chats', 8]]);

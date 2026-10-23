@@ -25,6 +25,14 @@ const VIEWS = [
   { id: 'resume', label: ['简历与 AI', 'Resume & AI'], icon: FileUser },
   { id: 'settings', label: ['设置', 'Settings'], icon: Settings },
 ];
+// The browser opens beside the current view; below this window width it fills the window.
+const SIDE_MIN_WINDOW = 1000;
+const SIDEBAR = 216;
+const PANE_MIN = 420;
+const VIEW_MIN = 360;
+const paneLimits = windowWidth => [PANE_MIN, Math.max(PANE_MIN, windowWidth - SIDEBAR - VIEW_MIN)];
+const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
+const keep = (storage, key, value) => { try { storage.setItem(key, value); } catch { /* optional */ } };
 const PHASES = { search: ['正在抓取岗位…', 'Fetching jobs…'], score: ['AI 正在打分…', 'AI is scoring…'], track: ['正在更新投递状态…', 'Updating applications…'] };
 
 function nextRunText(value) {
@@ -46,12 +54,24 @@ function App() {
   const [boot, setBoot] = useState(null);
   const [error, setError] = useState('');
   const [view, setView] = useState(() => {
-    try { const saved = sessionStorage.getItem('dayjob-view'); return VIEWS.some(item => item.id === saved) ? saved : 'home'; } catch { return 'home'; }
+    const saved = read(sessionStorage, 'dayjob-view');
+    return saved !== 'browser' && VIEWS.some(item => item.id === saved) ? saved : 'home';
   });
-  // A job or application picked on Home, for its view to open with; any other
-  // way of changing views clears it.
+  const [browserOpen, setBrowserOpen] = useState(() => hasBrowser && (read(sessionStorage, 'dayjob-browser') === 'open' || read(sessionStorage, 'dayjob-view') === 'browser'));
+  const [browserWide, setBrowserWide] = useState(false);
+  const [paneWidth, setPaneWidth] = useState(() => Number(read(localStorage, 'dayjob-browser-width')) || null);
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const [resizing, setResizing] = useState(false);
+  // A job or application picked on Home or in the browser, for its view to
+  // open with; any other way of changing views clears it. "browser" opens the
+  // browser beside the current view.
   const [focus, setFocus] = useState(null);
-  const goTo = useCallback(target => { setFocus(null); setView(target); }, []);
+  const goTo = useCallback(target => {
+    if (target === 'browser') { setBrowserOpen(true); return; }
+    setFocus(null);
+    setView(target);
+    setBrowserWide(false);
+  }, []);
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
@@ -75,7 +95,13 @@ function App() {
   }, [setLang]);
 
   useEffect(() => { void reload(); }, [reload]);
-  useEffect(() => { try { sessionStorage.setItem('dayjob-view', view); } catch { /* optional */ } }, [view]);
+  useEffect(() => { keep(sessionStorage, 'dayjob-view', view); }, [view]);
+  useEffect(() => { keep(sessionStorage, 'dayjob-browser', browserOpen ? 'open' : 'closed'); }, [browserOpen]);
+  useEffect(() => {
+    const resize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
 
   // Poll quickly while a run is in progress, slowly otherwise.
   const busy = Boolean(status?.scheduler?.running || status?.scheduler?.scoringBatch);
@@ -117,8 +143,40 @@ function App() {
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
-  const openItem = (target, id) => { setFocus({ view: target, id }); setView(target); };
+  const openItem = (target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); };
   const focusFor = target => (focus?.view === target ? focus.id : null);
+  const canSide = windowWidth >= SIDE_MIN_WINDOW;
+  const wide = browserOpen && (browserWide || !canSide);
+  const [minPane, maxPane] = paneLimits(windowWidth);
+  const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((windowWidth - SIDEBAR) * 0.58)));
+  // Dragging the divider: the page (a native view) is hidden meanwhile so it
+  // does not swallow the pointer.
+  function startResize(event) {
+    event.preventDefault();
+    setResizing(true);
+    let last = width;
+    const move = moved => {
+      const [low, high] = paneLimits(window.innerWidth);
+      last = Math.min(high, Math.max(low, window.innerWidth - moved.clientX));
+      setPaneWidth(last);
+    };
+    const stop = () => {
+      setResizing(false);
+      keep(localStorage, 'dayjob-browser-width', String(last));
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  }
+  function nudge(event) {
+    const step = { ArrowLeft: 40, ArrowRight: -40 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = Math.min(maxPane, Math.max(minPane, width + step));
+    setPaneWidth(next);
+    keep(localStorage, 'dayjob-browser-width', String(next));
+  }
 
   return (
     <div className="app-shell">
@@ -130,7 +188,8 @@ function App() {
         </div>
         <nav>
           {VIEWS.map(item => (
-            <button key={item.id} className={`nav-item${view === item.id ? ' active' : ''}`} onClick={() => goTo(item.id)}>
+            <button key={item.id} className={`nav-item${(item.id === 'browser' ? browserOpen : view === item.id && !wide) ? ' active' : ''}`}
+              onClick={() => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id))}>
               <item.icon size={18} />
               <span>{t(...item.label)}</span>
               {badges[item.id] ? <em className={item.id === 'browser' ? 'alert' : undefined}>{badges[item.id] > 999 ? '999+' : badges[item.id]}</em> : null}
@@ -154,15 +213,26 @@ function App() {
         </div>
       </aside>
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
-      <main className={`main${view === 'browser' ? ' flush' : ''}`}>
-        {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-        {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
-        {view === 'saved' ? <FeedView key="saved" mode="saved" {...shared} /> : null}
-        {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
-        {view === 'browser' && hasBrowser ? <BrowserView state={browser} covered={showNotifications} setView={goTo} /> : null}
-        {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
-        {view === 'resume' ? <ResumeView {...shared} status={status} /> : null}
-        {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
+      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}`}>
+        <div className="main-view">
+          {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
+          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
+          {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
+          {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
+          {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
+          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} /> : null}
+          {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
+        </div>
+        {browserOpen ? (
+          <>
+            {!wide ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
+              onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
+            <div className="browser-pane" style={wide ? undefined : { width }}>
+              <BrowserView state={browser} covered={showNotifications || resizing} boot={boot} dataVersion={dataVersion} openItem={openItem}
+                wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} />
+            </div>
+          </>
+        ) : null}
       </main>
     </div>
   );
