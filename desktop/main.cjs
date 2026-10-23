@@ -395,8 +395,9 @@ if (!app.requestSingleInstanceLock()) {
     const copy = text();
     const message = error.code === 'EADDRINUSE' ? copy.portInUse(port) : copy.failed(error.message);
     // A failed assertion already wrote the full report; keep it.
-    if (smoke && !error.reported) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message, log: smokeLog }, null, 2));
-    else dialog.showErrorBox(copy.cannotStart, message);
+    if (smoke) {
+      if (!error.reported) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message, log: smokeLog }, null, 2));
+    } else dialog.showErrorBox(copy.cannotStart, message);
     await service?.close().catch(() => {});
     quitting = true;
     app.exit(1);
