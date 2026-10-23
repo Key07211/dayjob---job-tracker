@@ -32,6 +32,8 @@ let updates;
 let quitting = false;
 let shutdownStarted = false;
 let language = null;
+// Renderer errors during a smoke test, so a failed check says what broke.
+const smokeLog = [];
 
 // Desktop copy follows the interface language (a Dayjob setting); before the
 // service starts, the system language decides.
@@ -144,6 +146,12 @@ async function createWindow() {
     },
   });
   window.removeMenu();
+  if (smoke) {
+    window.webContents.on('console-message', event => {
+      if (event.level === 'error' && smokeLog.length < 20) smokeLog.push(`${event.message} (${event.sourceId}:${event.lineNumber})`);
+    });
+    window.webContents.on('render-process-gone', (_event, details) => smokeLog.push(`renderer gone: ${details.reason}`));
+  }
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalLink(url)) shell.openExternal(url).catch(console.error);
     return { action: 'deny' };
@@ -323,8 +331,8 @@ async function runSmoke() {
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && browserCheck.ok && updateCheck.ok;
   fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
-    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath }, null, 2));
-  if (!ok) throw new Error('Desktop smoke assertions failed.');
+    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, log: smokeLog }, null, 2));
+  if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   app.quit();
 }
 
@@ -386,7 +394,8 @@ if (!app.requestSingleInstanceLock()) {
   boot().catch(async error => {
     const copy = text();
     const message = error.code === 'EADDRINUSE' ? copy.portInUse(port) : copy.failed(error.message);
-    if (smoke) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message }, null, 2));
+    // A failed assertion already wrote the full report; keep it.
+    if (smoke && !error.reported) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message, log: smokeLog }, null, 2));
     else dialog.showErrorBox(copy.cannotStart, message);
     await service?.close().catch(() => {});
     quitting = true;
