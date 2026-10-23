@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../api.js';
 import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInput, relativeDay, salaryText, scoreTone } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { Markdown } from './Markdown.jsx';
+import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 
 function DateRow({ name, value, relative = true }) {
   const { t } = useI18n();
@@ -134,8 +135,18 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode }) {
         </div>
         {posting.closedAt ? <p className="banner closed"><CalendarClock size={15} />{t(`这个岗位在 ${formatDay(posting.closedAt)} 被发现已关闭或下线。`, `This posting was found closed or taken down on ${formatDay(posting.closedAt)}.`)}</p> : null}
         <div className="detail-actions">
-          <a className="button" href={posting.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{posting.site !== 'manual' ? t(`打开 ${label('site', posting.site)}`, `Open on ${label('site', posting.site)}`) : t('打开原帖', 'Open posting')}</a>
-          {posting.applyUrl ? <a className="button" href={posting.applyUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('公司申请页', 'Company apply page')}</a> : null}
+          {hasBrowser ? (
+            <>
+              <button className="button" onClick={() => openInBrowser(posting.jobUrl, setView)}><Globe size={15} />{posting.site !== 'manual' ? t(`打开 ${label('site', posting.site)}`, `Open on ${label('site', posting.site)}`) : t('打开原帖', 'Open posting')}</button>
+              {posting.applyUrl ? <button className="button" onClick={() => openInBrowser(posting.applyUrl, setView)}><Globe size={15} />{t('公司申请页', 'Company apply page')}</button> : null}
+              <a className="icon-button" href={posting.applyUrl || posting.jobUrl} target="_blank" rel="noreferrer" title={t('用系统浏览器打开', 'Open in your browser')}><ExternalLink size={15} /></a>
+            </>
+          ) : (
+            <>
+              <a className="button" href={posting.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{posting.site !== 'manual' ? t(`打开 ${label('site', posting.site)}`, `Open on ${label('site', posting.site)}`) : t('打开原帖', 'Open posting')}</a>
+              {posting.applyUrl ? <a className="button" href={posting.applyUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('公司申请页', 'Company apply page')}</a> : null}
+            </>
+          )}
           {posting.application ? (
             <button className="button primary" onClick={() => setView('applications')}><CircleCheck size={15} />{label('status', posting.application.status)} · {t('查看追踪', 'View tracking')}</button>
           ) : (

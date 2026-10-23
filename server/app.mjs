@@ -19,7 +19,7 @@ import { createScheduler } from './jobs/scheduler.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
-import { applicationPatch, applyInput, manualApplication, manualPosting, postingStatus, publicSettings, searchInput, settingsPatch } from './validation.mjs';
+import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, manualApplication, manualPosting, postingStatus, publicSettings, searchInput, settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -280,6 +280,14 @@ export async function createApp(options = {}) {
         return need(repo.activateResume(match[1]), 'Resume');
       }
       if (method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
+    }
+    match = pathname.match(/^\/api\/browser\/([a-z]+)$/);
+    if (match && method === 'POST' && BROWSER_ACTIONS.includes(match[1])) {
+      // options.browser is the desktop app's browser; plain `npm start` has none.
+      if (!options.browser) throw new HttpError(503, 'The Dayjob browser is part of the Dayjob desktop app. Ask the user to open Dayjob from the Start menu.');
+      const action = browserInput(match[1], input);
+      try { return await options.browser.run(match[1], action); }
+      catch (error) { throw new HttpError(error.status || 500, error.status ? error.message : `The Dayjob browser failed: ${error.message}`); }
     }
     if (pathname === '/api/notifications/read' && method === 'POST') {
       repo.markNotificationsRead(typeof input.id === 'string' ? input.id : null);

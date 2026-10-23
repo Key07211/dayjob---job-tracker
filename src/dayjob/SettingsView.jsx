@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, FolderOpen, Link2, LoaderCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, FolderOpen, Globe, Link2, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -47,6 +47,29 @@ function ClaudeConnection() {
       </div>
       <p className="hint">{t('会写入 Claude Code 的 ~/.claude.json 和 Claude Desktop 的配置文件（改之前自动备份）。Claude Desktop 需要重启后才会看到新工具。',
         'Writes Claude Code\'s ~/.claude.json and Claude Desktop\'s config file, backing each up first. Restart Claude Desktop to see the new tools.')}</p>
+    </section>
+  );
+}
+
+function BrowserData() {
+  const { t } = useI18n();
+  const [state, setState] = useState('');
+  if (!desktop?.browser) return null;
+  async function clear() {
+    if (!window.confirm(t('清除 Dayjob 浏览器里所有网站的登录状态、Cookie 和缓存？打开的标签页会关闭。', 'Clear every sign-in, cookie and cache in the Dayjob browser? Open tabs are closed.'))) return;
+    setState('busy');
+    try { await desktop.browser.clearData(); setState('done'); } catch { setState('error'); }
+  }
+  return (
+    <section className="card-section">
+      <h2><Globe size={18} />{t('Dayjob 浏览器', 'Dayjob browser')}</h2>
+      <p className="hint">{t('浏览器里的登录状态和 Cookie 只保存在这台电脑的 Dayjob 数据里，和 Chrome、Edge 分开。连接 Claude 后，Claude 能在里面打开和阅读网页、填写表单；提交或发送之前会先请你在 Dayjob 里确认，密码和文件上传不会交给 Claude。浏览器工具栏里可以随时关掉“允许 Claude 使用”。',
+        'Sign-ins and cookies in the browser stay in Dayjob\'s data on this computer, separate from Chrome and Edge. With Claude connected, Claude can open and read pages there and fill in forms; before anything is submitted or sent it asks you in Dayjob, and it never gets passwords or file uploads. Turn off “Let Claude use it” in the browser toolbar at any time.')}</p>
+      <div className="form-actions">
+        <button className="button" onClick={clear} disabled={state === 'busy'}><Trash2 size={15} />{t('清除登录状态和缓存', 'Clear sign-ins and cache')}</button>
+      </div>
+      {state === 'done' ? <p className="notice">{t('已清除。', 'Cleared.')}</p> : null}
+      {state === 'error' ? <p className="notice error">{t('没能清除，请重试。', 'Could not clear it. Try again.')}</p> : null}
     </section>
   );
 }
@@ -125,6 +148,7 @@ export function SettingsView({ boot, reload }) {
         <div className="form-actions"><button className="button primary" type="submit">{t('保存设置', 'Save settings')}</button></div>
       </form>
       <ClaudeConnection />
+      <BrowserData />
       <section className="card-section">
         <h2>{t('语言、外观与数据', 'Language, look and data')}</h2>
         <div className="option-row">

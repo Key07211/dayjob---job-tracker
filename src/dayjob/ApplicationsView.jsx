@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
+import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { OPEN_STATUSES, dateInputToIso, daysSince, formatDay, formatTime, label, labels, localDateInput, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
+import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -63,7 +64,7 @@ function NewApplication({ onCreated, onCancel }) {
   );
 }
 
-function ApplicationDetail({ id, onChanged, onDeleted }) {
+function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
   const { t } = useI18n();
   const [item, setItem] = useState(null);
   const [error, setError] = useState('');
@@ -117,7 +118,8 @@ function ApplicationDetail({ id, onChanged, onDeleted }) {
         <p className="hint">{t(`投递于 ${formatDay(item.appliedAt)}（${relativeDay(item.appliedAt)}）· 当前状态已持续 ${quiet} 天`,
           `Applied ${formatDay(item.appliedAt)} (${relativeDay(item.appliedAt)}) · in this stage for ${quiet} ${quiet === 1 ? 'day' : 'days'}`)}
           {item.score !== undefined && item.score !== null ? t(` · 匹配度 ${item.score}`, ` · match ${item.score}`) : ''}</p>
-        {item.jobUrl ? <a className="button" href={item.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('打开岗位页面', 'Open posting')}</a> : null}
+        {item.jobUrl && hasBrowser ? <button className="button" onClick={() => openInBrowser(item.jobUrl, setView)}><Globe size={15} />{t('打开岗位页面', 'Open posting')}</button> : null}
+        {item.jobUrl && !hasBrowser ? <a className="button" href={item.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('打开岗位页面', 'Open posting')}</a> : null}
       </header>
       {item.flags.includes('follow-up-due') ? (
         <div className="banner attention"><BellRing size={16} /><span>{t('该跟进了：可以给招聘方发一封简短的跟进邮件。', 'Time to follow up: a short email to the recruiter helps.')}</span>
@@ -177,7 +179,7 @@ function ApplicationDetail({ id, onChanged, onDeleted }) {
   );
 }
 
-export function ApplicationsView({ dataVersion, refreshStatus }) {
+export function ApplicationsView({ dataVersion, refreshStatus, setView }) {
   const { t } = useI18n();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -238,7 +240,7 @@ export function ApplicationsView({ dataVersion, refreshStatus }) {
           ))}
         </div>
         <div className="detail-pane">
-          {selected ? <ApplicationDetail id={selected} onChanged={changed}
+          {selected ? <ApplicationDetail id={selected} onChanged={changed} setView={setView}
             onDeleted={id => { setItems(current => current.filter(item => item.id !== id)); void refreshStatus(); }} />
             : <div className="detail-empty">{t('选择一条投递查看时间线', 'Pick an application to see its timeline')}</div>}
         </div>

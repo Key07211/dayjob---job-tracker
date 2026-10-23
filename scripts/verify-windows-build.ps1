@@ -1,7 +1,8 @@
 # Starts every Windows file that gets released, so a release never ships a
 # build that does not open: the unpacked app, the Setup installer (with
 # -Install, installed silently for this user) and the portable app each run
-# the desktop smoke test, and the Claude MCP bridge answers from inside the
+# the desktop smoke test (which also fills in and submits a local job form in
+# the Dayjob browser), and the Claude MCP bridge answers from inside the
 # packaged app.
 #   npm run package:win
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.1.0 [-Install]
@@ -27,8 +28,9 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   if (-not (Test-Path -LiteralPath $result)) { throw "$Name smoke test wrote no report (exit code $($process.ExitCode))" }
   # UTF-8 explicitly: Windows PowerShell 5.1 would read it in the system code page.
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
-  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} version={5} executable={6}" -f
-    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.version, $report.executable)
+  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} version={6} executable={7}" -f
+    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.version, $report.executable)
+  if ($report.browser.error) { Write-Output "${Name} browser check: $($report.browser.error)" }
   if (-not $report.ok) { throw "$Name smoke test failed" }
   if ($report.version -cne $Version) { throw "$Name reports version $($report.version), expected $Version" }
 }

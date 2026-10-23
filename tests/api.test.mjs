@@ -186,7 +186,7 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 18);
+    assert.equal(tools.length, 28);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
     const added = await call('dayjob_add_posting', { title: 'ML Engineer', company: 'Nimbus', jobUrl: 'https://nimbus.example/jobs/7', description: 'PyTorch' });
     assert.match((await call('dayjob_save_analysis', { id: added.id, score: 82, verdict: 'good', summary: 's', strengths: [], gaps: [] })).error, /resume/i);
@@ -197,7 +197,8 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
     const listed = await call('dayjob_list_postings', { minScore: 80 });
     assert.equal(listed.postings[0].score, 82);
     assert.equal(listed.postings[0].description, undefined, 'lists stay compact');
-    const application = await call('dayjob_mark_applied', { id: added.id });
+    // A fixed applied date keeps the timeline order independent of today's date.
+    const application = await call('dayjob_mark_applied', { id: added.id, appliedAt: '2026-10-20T12:00:00Z' });
     const updated = await call('dayjob_update_application', { id: application.id, status: 'interview', note: 'Invite from recruiter@nimbus.example', statusAt: '2026-10-22T09:00:00-07:00' });
     assert.equal(updated.events[0].source, 'mcp');
     assert.equal(updated.events[0].at, '2026-10-22T16:00:00.000Z');

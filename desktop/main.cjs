@@ -1,8 +1,10 @@
 const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session } = require('electron');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
+const { createBrowser } = require('./browser.cjs');
 
 app.setName('Dayjob');
 app.setAppUserModelId('com.dayjob.tracker');
@@ -24,6 +26,7 @@ let window;
 let tray;
 let origin;
 let claude;
+let browser;
 let quitting = false;
 let shutdownStarted = false;
 let language = null;
@@ -33,10 +36,14 @@ let language = null;
 const TEXT = {
   zh: { title: 'Dayjob · 求职追踪', tooltip: 'Dayjob · 每日岗位抓取与投递追踪', open: '打开 Dayjob', run: '立即抓取新岗位', data: '打开数据文件夹', quit: '退出 Dayjob',
     portable: '请先安装 Dayjob，再添加稳定的 Claude MCP 连接。', cannotStart: 'Dayjob 无法启动',
-    portInUse: port => `本地端口 ${port} 已被占用。请先关闭已运行的 Dayjob（npm start）或占用该端口的程序，然后重新打开。`, failed: message => `Dayjob 启动失败：${message}` },
+    portInUse: port => `本地端口 ${port} 已被占用。请先关闭已运行的 Dayjob（npm start）或占用该端口的程序，然后重新打开。`, failed: message => `Dayjob 启动失败：${message}`,
+    approval: ({ action, name, site }) => ({ title: 'Claude 请你确认一下', body: action === 'enter' ? `在 ${site} 的“${name}”里按回车` : `在 ${site} 上点击“${name}”` }),
+    browser: { openTab: '在新标签页打开链接', openExternal: '用系统浏览器打开链接', copyLink: '复制链接地址', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选', back: '后退', forward: '前进', reload: '重新加载' } },
   en: { title: 'Dayjob · Job tracker', tooltip: 'Dayjob · daily job search and application tracking', open: 'Open Dayjob', run: 'Search for new jobs now', data: 'Open data folder', quit: 'Quit Dayjob',
     portable: 'Install Dayjob before adding a lasting Claude MCP connection.', cannotStart: 'Dayjob cannot start',
-    portInUse: port => `Local port ${port} is in use. Close the Dayjob already running (npm start) or the program using that port, then open Dayjob again.`, failed: message => `Dayjob failed to start: ${message}` },
+    portInUse: port => `Local port ${port} is in use. Close the Dayjob already running (npm start) or the program using that port, then open Dayjob again.`, failed: message => `Dayjob failed to start: ${message}`,
+    approval: ({ action, name, site }) => ({ title: 'Claude is asking first', body: action === 'enter' ? `Press Enter in “${name}” on ${site}` : `Click “${name}” on ${site}` }),
+    browser: { openTab: 'Open link in new tab', openExternal: 'Open link in your browser', copyLink: 'Copy link address', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select all', back: 'Back', forward: 'Forward', reload: 'Reload' } },
 };
 const text = () => TEXT[language || (app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en')];
 
@@ -47,7 +54,8 @@ function showWindow() {
   window.focus();
 }
 
-// Job links point anywhere; they open in the user's browser, never in the app.
+// Links in Dayjob's own pages open in the user's browser; the Dayjob browser
+// (browser.cjs) has separate tabs that never load Dayjob itself.
 function externalLink(value) {
   try {
     const url = new URL(value);
@@ -86,6 +94,16 @@ function setupIpc() {
     if (process.env.PORTABLE_EXECUTABLE_DIR) throw new Error(text().portable);
     return claude.ensure();
   });
+  const handle = (channel, work) => ipcMain.handle(channel, (event, ...args) => { verifiedSender(event); return work(...args); });
+  handle('dayjob:browser-state', () => browser.state());
+  handle('dayjob:browser-bounds', rect => browser.setBounds(rect));
+  handle('dayjob:browser-open', url => browser.show(String(url)));
+  handle('dayjob:browser-go', url => browser.go(String(url)));
+  handle('dayjob:browser-command', (name, id) => browser.command(String(name), typeof id === 'string' ? id : undefined));
+  handle('dayjob:browser-answer', (id, allowed) => browser.answer(String(id), allowed === true));
+  handle('dayjob:browser-agent-control', value => browser.setAgentControl(value === true));
+  handle('dayjob:browser-extract', () => browser.extract());
+  handle('dayjob:browser-clear', () => browser.clearData());
 }
 
 function buildTray() {
@@ -136,12 +154,84 @@ async function createWindow() {
     if (!quitting && tray) { event.preventDefault(); window.hide(); }
   });
 
+  browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
+    onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
+
   tray = new Tray(image.resize({ width: 32, height: 32 }));
   buildTray();
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
   await window.loadURL(origin);
   if (!smoke && !process.argv.includes('--hidden')) showWindow();
+}
+
+// A job page with an application form, served on this computer and driven
+// through the same local API Claude uses.
+const SMOKE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Data Analyst · Smoke Co</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Data Analyst","datePosted":"2026-10-20",
+"hiringOrganization":{"@type":"Organization","name":"Smoke Co"},"employmentType":"FULL_TIME",
+"jobLocation":{"@type":"Place","address":{"addressLocality":"Berkeley","addressRegion":"CA","addressCountry":"US"}},
+"description":"&lt;p&gt;Analyse data with SQL.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Dashboards&lt;/li&gt;&lt;/ul&gt;"}</script></head>
+<body><h1>Data Analyst</h1><p>Analyse data with SQL.</p><form action="/submitted" method="get">
+<label>Full name <input name="name" required></label> <label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label>
+<label for="source">How did you hear about us?</label> <select id="source" name="source"><option>LinkedIn</option><option>Referral</option></select>
+<button>Submit application</button></form></body></html>`;
+
+async function until(check, ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
+async function smokeBrowser(token) {
+  const escape = value => String(value ?? '').replace(/[<>&"]/g, character => `&#${character.charCodeAt(0)};`);
+  const site = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1');
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(url.pathname === '/submitted'
+      ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
+      : SMOKE_PAGE);
+  });
+  await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${site.address().port}`;
+  const post = (action, body = {}) => fetch(`${origin}/api/browser/${action}`, { method: 'POST', body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', 'X-Dayjob-Token': token, 'X-Dayjob-Client': 'mcp' } });
+  const call = async (action, body) => {
+    const response = await post(action, body);
+    const value = await response.json();
+    if (!response.ok) throw new Error(`${action}: ${value.error}`);
+    return value;
+  };
+  const steps = {};
+  try {
+    steps.refusesDayjob = (await post('open', { url: `${origin}/` })).status === 400;
+    steps.opened = (await call('open', { url: `${base}/jobs/7` })).page.title === 'Data Analyst · Smoke Co';
+    const page = await call('read');
+    const ref = name => page.elements.find(item => item.name === name)?.ref;
+    steps.jobPosting = page.jobPosting?.title === 'Data Analyst' && page.jobPosting.company === 'Smoke Co' && page.jobPosting.description.includes('• Dashboards');
+    steps.typed = (await call('type', { ref: ref('Full name'), text: 'Smoke Test' })).typed.value === 'Smoke Test'
+      && (await call('type', { ref: ref('Email'), text: 'smoke@example.com' })).typed.value === 'smoke@example.com';
+    steps.selected = (await call('select', { ref: ref('How did you hear about us?'), option: 'referral' })).selected.value === 'Referral';
+    // Submitting waits for the user; answer in the banner as a user would.
+    const submitting = call('click', { ref: ref('Submit application') });
+    steps.askedFirst = await until(() => window.webContents.executeJavaScript("Boolean(document.querySelector('.browser-approval'))"), 10000);
+    if (steps.askedFirst) await window.webContents.executeJavaScript("document.querySelector('.browser-approval .button.primary').click()");
+    await submitting;
+    const after = await call('read');
+    steps.submitted = after.page.url.startsWith(`${base}/submitted?name=Smoke+Test`) && after.text.includes('Thanks Smoke Test') && after.text.includes('Referral');
+    const shot = await call('screenshot');
+    steps.screenshot = shot.image.length > 1000;
+    fs.writeFileSync(smokeOutput.replace(/\.json$/i, '') + '-browser.jpg', Buffer.from(shot.image, 'base64'));
+  } catch (error) {
+    steps.error = error.message;
+  } finally {
+    site.close();
+  }
+  steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot'].every(step => steps[step] === true);
+  return steps;
 }
 
 async function runSmoke() {
@@ -176,8 +266,9 @@ async function runSmoke() {
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
-  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath);
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  const browserCheck = await smokeBrowser(state.csrfToken);
+  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath) && browserCheck.ok;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath }, null, 2));
   if (!ok) throw new Error('Desktop smoke assertions failed.');
   app.quit();
@@ -187,7 +278,8 @@ async function boot() {
   await app.whenReady();
   const { createApp } = await import(pathToFileURL(path.join(app.getAppPath(), 'server', 'app.mjs')).href);
   service = await createApp({ dataDir, distDir: path.join(app.getAppPath(), 'dist'), notify: desktopNotification,
-    allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language) });
+    allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
+    browser: { run: (action, input) => (browser ? browser.agent(action, input) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
   language = service.repo.getSettings().language;
   origin = await service.listen(port);
   const bridge = path.join(app.getAppPath(), 'integrations', 'mcp-server.mjs');
