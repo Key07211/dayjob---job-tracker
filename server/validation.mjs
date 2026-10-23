@@ -5,6 +5,7 @@ import { SITE_IDS } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
 import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
 import { posting } from './jobs/normalize.mjs';
+import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
 const PROVIDERS = ['claude-cli', 'anthropic-api'];
@@ -183,6 +184,38 @@ export function manualPosting(input) {
     if (error instanceof HttpError) throw error;
     fail(error.message);
   }
+}
+
+export function monthParam(value, { optional = true } = {}) {
+  if ((value === undefined || value === null || value === '') && optional) return null;
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) fail('Month must look like 2026-10.');
+  return value;
+}
+function goalItem(item, { allowZero = false } = {}) {
+  if (!item || typeof item !== 'object') fail('Each goal needs a metric and a target.');
+  const metric = oneOf(item.metric, GOAL_METRICS, 'Goal');
+  return {
+    ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),
+    metric,
+    name: metric === 'custom' ? text(item.name, 'Goal name', { min: 1, max: 60 }) : '',
+    target: integer(item.target, 'Monthly target', allowZero ? 0 : 1, 1000),
+  };
+}
+// The whole set of a month's goals, as the goal editor saves it.
+export function goalsInput(input) {
+  if (!Array.isArray(input.goals) || input.goals.length > MAX_GOALS) fail(`Goals must be a list of up to ${MAX_GOALS}.`);
+  const goals = input.goals.map(item => goalItem(item));
+  const keys = goals.map(goal => (goal.metric === 'custom' ? `custom:${goal.name.toLowerCase()}` : goal.metric));
+  if (new Set(keys).size !== keys.length) fail('Each goal can appear only once in a month.');
+  return { month: monthParam(input.month, { optional: false }), goals };
+}
+export function goalInput(input) {
+  return { month: monthParam(input.month), goal: goalItem(input, { allowZero: true }) };
+}
+export function goalLogInput(input) {
+  const amount = input.amount ?? 1;
+  if (!Number.isInteger(amount) || amount === 0 || Math.abs(amount) > 100) fail('Amount must be a whole number from -100 to 100, not 0.');
+  return { amount };
 }
 
 // What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).

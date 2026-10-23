@@ -26,11 +26,12 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 过滤 | 每个搜索可设关键词（逗号分隔表示“或”）、地点、发布时间范围、职位类型、只要远程、排除词；跨站重复的岗位自动合并。 |
 | AI 打分 | 上传最多 3 份 PDF / Word / 文本简历（比如分别针对数据和软件岗位），每个岗位自动用关键词重合度最高的那份打 0–100 分，列出匹配点、差距和可以补进简历的关键词。默认用本机已登录的 Claude Code（`claude -p`，不需要 API key），也可以填自己的 Anthropic API key。 |
 | 按简历推荐 | “搜索与公司”里点“让 Claude 推荐”，Claude 读你的简历，推荐每天要抓的搜索和值得关注的公司（招聘页会先核实存在），选中的一键添加。 |
+| 每月目标 | 设定每月投递、面试 / OA 和自己的目标（比如刷题），自动分成每周任务；今日岗位顶部用图表显示本周任务、本月进度和每周完成情况。 |
 | 投递追踪 | 点“我已投递”记下日期和备注，自动进入“投递追踪”。状态：已投递 → 在线测评 → 面试中 → Offer / 已接受 / 未通过 / 已撤回 / 无回音，每次变化都记在时间线上。也可以手动添加不在 Dayjob 里的投递。 |
 | 自动追踪 | 投递或状态变化后 N 天（默认 7）提醒跟进；“已投递”超过 N 天（默认 21）没有变化时提示可能无回音；每天检查已投递和已收藏的岗位是否已关闭。 |
 | 通知 | 每日汇总（新岗位数、高匹配岗位）、跟进提醒、岗位关闭提醒，Windows 桌面通知 + 应用内通知。 |
 | 内置浏览器 | 桌面版自带浏览器（左侧“浏览器”）：多标签页，登录状态只存在本机。看到岗位点“加入 Dayjob”就能收藏、打分、追踪。Claude 也能通过 MCP 打开和阅读网页、帮你填申请表，提交或发送前会先请你点“允许”。 |
-| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器，共 29 个工具。 |
+| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器、查看和设置每月目标，共 32 个工具。 |
 | 自动更新 | 安装版每天从 GitHub Releases 检查一次新版本（可在设置里关掉），左侧栏“检查更新”也能随时手动检查。有新版本时它会变成圆形下载按钮，下载完点“重启并更新”。 |
 | 中文 / English | 左上角的 EN / 中 按钮或“设置 → 界面语言”随时切换。通知和托盘菜单跟着切换；AI 分析的语言单独在“简历与 AI”里选。 |
 
@@ -112,6 +113,24 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 推荐不会自动加入，点 **添加** / **关注** 的才会；也可以先编辑再添加。最近一次推荐会保存下来，下次打开页面还在。
 
+## 每月目标
+
+**今日岗位** 顶部是本月目标。点 **设定目标**，填这个月想完成的数量：
+
+| 目标 | 怎么计数 |
+| --- | --- |
+| 投递 | 自动：点“我已投递”或手动添加投递时，按投递日期计入。 |
+| 面试 / OA | 自动：投递追踪里状态改为“在线测评”或“面试中”时计入，同一份投递的测评和面试各算一次。 |
+| 自定义（比如刷题、联系校友） | 手动：在“本周任务”里点 **+1** 打卡，点错了点 **−1**。 |
+
+每周从周一到周日，月初和月底不满一周的按天数算。每周任务等于月目标乘以这一周在本月的天数占比，四舍五入后各周加起来正好等于月目标。比如 2026 年 10 月投递 40 份，每周任务是 5 · 9 · 9 · 9 · 8。
+
+- **本周任务**：每个目标这周完成了几个、还差几个。
+- **本月进度**：完成数和月目标，橙色竖线是按天数今天应该到的位置；落后时会提示之后每周大约要完成多少才能追上。
+- **每周完成**：柱子是每周完成数，虚线框是每周任务。
+
+左右箭头可以查看上个月或提前设定下个月。新的一个月开始时会自动沿用上个月的目标（进度从 0 开始），改掉或清空都可以。不想占地方时点右上角收起。
+
 ## 连接 Claude（MCP）
 
 桌面安装版：**设置 → 连接 Claude**，一键写入 Claude Code（`~/.claude.json`）和 Claude Desktop 的配置，写入前会备份原文件，只增加或更新 `dayjob` 这一项。
@@ -141,6 +160,7 @@ Claude 需要 Dayjob 保持运行。连接后可以这样说：
 | `dayjob_list_applications` / `dayjob_get_application` / `dayjob_update_application` | 查看和更新投递状态、备注、跟进日期 |
 | `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | 管理搜索、关注公司、立即抓取 |
 | `dayjob_list_notifications` | 最近的提醒 |
+| `dayjob_get_goals` / `dayjob_set_goal` / `dayjob_log_goal_progress` | 查看每月目标和每周任务、设定目标、给自定义目标打卡 |
 
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | 在 Dayjob 浏览器里打开网页、读文字和可操作的元素、截图 |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | 点击、输入、选择下拉项、按键 |
@@ -222,7 +242,7 @@ DAYJOB_DATA_DIR=./demo-data npm start
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.3.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.4.0
 ```
 
 ## 目录
@@ -231,7 +251,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Versi
 server/            本机 HTTP 服务（只监听 127.0.0.1）
   jobs/scrapers/   LinkedIn、Indeed、公司招聘页、JobSpy 桥接
   jobs/scoring/    Claude Code / Claude API 打分
-  jobs/            SQLite、搜索、追踪、每日调度、简历匹配、Claude 推荐
+  jobs/            SQLite、搜索、追踪、每日调度、简历匹配、Claude 推荐、每月目标
 integrations/      Claude MCP 服务器
 desktop/           Electron 主进程、托盘、Claude 一键连接、内置浏览器、自动更新
 src/               React 界面

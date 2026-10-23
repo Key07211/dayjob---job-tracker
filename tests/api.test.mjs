@@ -215,6 +215,31 @@ test('jobs, applications and company boards through the API', async () => {
   } finally { await app.close(); }
 });
 
+test('monthly goals are validated and saved per month', async () => {
+  const { app, call } = await start();
+  try {
+    assert.equal((await call('/api/goals?month=2026-13')).status, 400);
+    const bad = [
+      { month: '2026-10', goals: [{ metric: 'applications', target: 10 }, { metric: 'applications', target: 5 }] },
+      { month: '2026-10', goals: [{ metric: 'custom', name: '', target: 5 }] },
+      { month: '2026-10', goals: [{ metric: 'offers', target: 1 }] },
+      { month: '2026-10', goals: [{ metric: 'applications', target: 0 }] },
+      { month: 'October', goals: [] },
+      { month: '2026-10', goals: Array.from({ length: 9 }, (_, index) => ({ metric: 'custom', name: `g${index}`, target: 1 })) },
+    ];
+    for (const body of bad) assert.equal((await call('/api/goals', { method: 'PUT', body })).status, 400, JSON.stringify(body));
+    const saved = await call('/api/goals', { method: 'PUT', body: { month: '2027-02', goals: [{ metric: 'applications', target: 28 }, { metric: 'custom', name: 'LeetCode', target: 20 }] } });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.body.goals[0].weeks.map(week => week.target), [7, 7, 7, 7]);
+    assert.equal((await call('/api/goals?month=2027-02')).body.goals.length, 2);
+    assert.equal((await call('/api/goals/nope/log', { method: 'POST', body: {} })).status, 404);
+    assert.equal((await call(`/api/goals/${saved.body.goals[0].id}/log`, { method: 'POST', body: {} })).status, 409, 'applications are counted, not logged');
+    assert.equal((await call(`/api/goals/${saved.body.goals[1].id}/log`, { method: 'POST', body: { amount: 0 } })).status, 400);
+    const logged = await call(`/api/goals/${saved.body.goals[1].id}/log`, { method: 'POST', body: { amount: 2 } });
+    assert.equal(logged.body.goals[1].done, 2, 'a log for a later month lands in that month');
+  } finally { await app.close(); }
+});
+
 test('the MCP bridge exposes Dayjob to Claude', async () => {
   assert.throws(() => localBaseUrl('https://example.com'), /local HTTP origin/);
   const { app, url } = await start();
@@ -229,8 +254,14 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 29);
+    assert.equal(tools.length, 32);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
+    const goals = await call('dayjob_set_goal', { metric: 'custom', name: 'Coffee chats', target: 8 });
+    assert.deepEqual(goals.goals.map(goal => [goal.name, goal.target]), [['Coffee chats', 8]]);
+    assert.match((await call('dayjob_set_goal', { metric: 'custom', target: 8 })).error, /Goal name is required/);
+    const logged = await call('dayjob_log_goal_progress', { id: goals.goals[0].id });
+    assert.equal(logged.goals[0].done, 1);
+    assert.equal((await call('dayjob_get_goals')).goals[0].thisWeek.done, 1);
     const added = await call('dayjob_add_posting', { title: 'ML Engineer', company: 'Nimbus', jobUrl: 'https://nimbus.example/jobs/7', description: 'PyTorch, Python, SQL and forecasting models.' });
     assert.match((await call('dayjob_save_analysis', { id: added.id, score: 82, verdict: 'good', summary: 's', strengths: [], gaps: [] })).error, /resume/i);
     await call('dayjob_get_resume').then(result => assert.match(result.error, /No resume/));

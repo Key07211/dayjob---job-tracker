@@ -23,8 +23,9 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Application tracking | "I applied" records the date and a note and moves the job to Applications. Stages: Applied → Assessment → Interviewing → Offer / Accepted / Rejected / Withdrawn / Ghosted, each change on a timeline. Applications made elsewhere can be added by hand. |
 | Automatic follow-through | A follow-up reminder N days (7 by default) after applying or a status change; a "possibly ghosted" flag after N days (21) at Applied; a daily check whether applied and saved jobs have closed. |
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
+| Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week at the top of Today. |
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar) with tabs, and its sign-ins stay on this computer. "Add to Dayjob" saves the job you are looking at so it can be scored and tracked. Claude can open and read pages through MCP and help fill in applications; anything that submits or sends waits for you to click Allow. |
-| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications and use the Dayjob browser, with 29 tools. |
+| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser and read or set monthly goals, with 32 tools. |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
 
@@ -106,6 +107,24 @@ On **Searches**, click **Ask Claude** (optionally with preferences such as "Bay 
 
 Nothing is added until you click **Add** or **Follow**; you can also edit a search before adding it. The latest suggestions are kept for the next time you open the page.
 
+## Monthly goals
+
+The top of **Today** shows this month's goals. Click **Set goals** and fill in how many you want this month:
+
+| Goal | How it is counted |
+| --- | --- |
+| Applications | Automatically, by applied date, when you mark a job applied or add an application by hand. |
+| Interviews / OAs | Automatically, when an application moves to Assessment or Interviewing; an application's assessment and interview count once each. |
+| Custom (practice problems, coffee chats…) | By you: click **+1** under This week, or **−1** to take a mistake back. |
+
+Weeks run Monday to Sunday; the partial weeks at the start and end of the month count by their days. Each week's task is the monthly target times that week's share of the month's days, rounded so the weeks add up to the target exactly. For 40 applications in October 2026, the weekly tasks are 5 · 9 · 9 · 9 · 8.
+
+- **This week**: how many each goal has this week, and how many are left.
+- **This month**: done against the target; the orange line is where you would be today at an even pace. When you are behind it says about how many a week catch up.
+- **By week**: bars are what you did each week, dashed boxes are the weekly tasks.
+
+The arrows show the previous month or let you set next month's goals early. A new month starts with last month's goals (progress starts at 0); change or clear them as you like. Hide the panel with the arrow at its top right.
+
 ## Connect Claude (MCP)
 
 Desktop installer: **Settings → Connect Claude** adds Dayjob to Claude Code (`~/.claude.json`) and Claude Desktop, backing up each file first and touching only the `dayjob` entry.
@@ -135,6 +154,7 @@ Dayjob needs to be running. Then try:
 | `dayjob_list_applications` / `dayjob_get_application` / `dayjob_update_application` | Read and update stages, notes and follow-up dates |
 | `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | Manage searches, follow companies, search now |
 | `dayjob_list_notifications` | Recent reminders |
+| `dayjob_get_goals` / `dayjob_set_goal` / `dayjob_log_goal_progress` | Read monthly goals and weekly tasks, set a goal, log a custom goal |
 
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
@@ -216,7 +236,7 @@ To check a build on your own computer:
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.3.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.4.0
 ```
 
 ## License notes

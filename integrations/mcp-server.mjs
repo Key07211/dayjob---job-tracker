@@ -239,6 +239,21 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
     limit: z.number().int().min(1).max(200).optional(),
   }, input => request(`/api/notifications${query({ limit: input.limit })}`), readOnly);
 
+  const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('YYYY-MM, local time; this month when omitted.');
+  tool('dayjob_get_goals', 'Read the user\'s monthly goals and their weekly tasks: each goal\'s monthly target, progress so far, the pace expected by today, and every week\'s target and count (weeks run Monday to Sunday). Applications and interviews (OA or interview stages reached) are counted automatically; custom goals count what the user logged.', {
+    month,
+  }, input => request(`/api/goals${query({ month: input.month })}`), readOnly);
+  tool('dayjob_set_goal', 'Set one monthly goal for the user, or remove it with target 0. Each month\'s target is split into weekly tasks by the days each week has in the month. Only when the user asks for a goal.', {
+    month,
+    metric: z.enum(['applications', 'interviews', 'custom']).describe('applications and interviews are counted from Dayjob; custom is logged by the user (for example practice problems or coffee chats).'),
+    name: z.string().min(1).max(60).optional().describe('Required for custom goals; matched without case.'),
+    target: z.number().int().min(0).max(1000).describe('Monthly target; 0 removes the goal.'),
+  }, input => mutate('/api/goals/goal', 'POST', input));
+  tool('dayjob_log_goal_progress', 'Log progress on a custom goal (from dayjob_get_goals), for example one finished practice problem. A negative amount takes back a mistaken entry.', {
+    id: z.string().min(1).max(100),
+    amount: z.number().int().min(-100).max(100).optional().describe('Defaults to 1.'),
+  }, ({ id: goalId, amount }) => mutate(`/api/goals/${encodeURIComponent(goalId)}/log`, 'POST', { amount: amount ?? 1 }));
+
   const ref = z.string().regex(/^e\d{1,7}$/).describe('An element ref from dayjob_browser_read, such as e12.');
   const browser = (action, input = {}) => mutate(`/api/browser/${action}`, 'POST', input);
   const web = { openWorldHint: true };
