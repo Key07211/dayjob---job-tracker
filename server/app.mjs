@@ -19,6 +19,7 @@ import { createScheduler } from './jobs/scheduler.mjs';
 import { recommend } from './jobs/recommend.mjs';
 import { createGoals } from './jobs/goals.mjs';
 import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
+import { contactFromResume } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -158,6 +159,21 @@ export async function createApp(options = {}) {
         includeDuplicates: flag(params.get('includeDuplicates')), includeClosed: params.get('includeClosed') !== '0' && params.get('includeClosed') !== 'false',
         unscored: flag(params.get('unscored')), sinceDays: number(params.get('sinceDays')),
         limit: Math.min(number(params.get('limit')) || 100, 500), offset: Math.max(number(params.get('offset')) || 0, 0) });
+    }
+    if (pathname === '/api/postings/lookup') {
+      const found = repo.findPostingByUrl(params.get('url') || '');
+      if (!found) return { posting: null };
+      const application = repo.applicationForPosting(found.id);
+      return { posting: { id: found.id, title: found.title, company: found.company, site: found.site, status: found.status, score: found.score?.score ?? null,
+        application: application && { id: application.id, status: application.status, appliedAt: application.appliedAt } } };
+    }
+    // Contact details read from the resumes, to start the application profile.
+    if (pathname === '/api/applicant/from-resume') {
+      const found = {};
+      for (const resume of repo.listResumes()) {
+        for (const [key, item] of Object.entries(contactFromResume(repo.getResume(resume.id, true)?.text))) found[key] ??= item;
+      }
+      return found;
     }
     let match = pathname.match(/^\/api\/postings\/([^/]+)$/);
     if (match) return need(repo.getPosting(match[1]), 'Posting');

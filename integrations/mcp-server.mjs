@@ -276,7 +276,7 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
     return { mcpContent: [{ type: 'image', data: shot.image, mimeType: shot.mimeType }, { type: 'text', text: JSON.stringify({ page: shot.page }) }] };
   }, webRead);
 
-  tool('dayjob_browser_click', 'Click a link, button, checkbox, radio button or option by its ref. A click that submits or sends something (for example "Submit application") waits until the user allows it in the Dayjob window.', {
+  tool('dayjob_browser_click', 'Click a link, button, checkbox, radio button or option by its ref. A click that submits or sends something (for example "Submit application") waits until the user allows it in the Dayjob window, unless the user has turned on auto-submit there.', {
     ref,
   }, input => browser('click', input), web);
 
@@ -300,6 +300,9 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
   tool('dayjob_browser_navigate', 'Go back, go forward or reload in the current tab of the Dayjob browser.', {
     action: z.enum(['back', 'forward', 'reload']),
   }, input => browser('navigate', input), web);
+
+  tool('dayjob_browser_autofill', 'Fill in the application form on the current page from the user\'s application profile (name, contact details, links, education, current job, work authorization, and so on), including forms embedded from another site. Only empty fields whose label clearly matches are filled; it never submits, uploads files or touches passwords. Returns the fields it filled and the required fields still empty (often the resume upload, which the user does). Call dayjob_browser_read again before clicking anything.', {
+  }, input => browser('autofill', input), web);
 
   tool('dayjob_browser_tabs', 'List the Dayjob browser\'s tabs, switch to one, or close one. Links that open a new tab make it the current tab.', {
     action: z.enum(['list', 'switch', 'close']).optional(), tabId: z.string().max(20).optional(),

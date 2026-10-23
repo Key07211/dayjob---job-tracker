@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, FileUp, LoaderCircle, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { CheckCircle2, FileUp, LoaderCircle, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -191,12 +191,105 @@ function AiSettings({ boot, reload, status }) {
   );
 }
 
-export function ResumeView({ boot, reload, status }) {
+// 申请资料: what 自动填写 in the Dayjob browser puts into application forms.
+const PROFILE_GROUPS = [
+  { title: ['基本信息', 'About you'], fields: [
+    ['firstName', '名', 'First name', 80], ['lastName', '姓', 'Last name', 80], ['preferredName', '常用名（可选）', 'Preferred name (optional)', 80],
+    ['email', '邮箱', 'Email', 200, 'email'], ['phone', '电话', 'Phone', 40, 'tel'],
+  ] },
+  { title: ['地址', 'Address'], fields: [
+    ['address', '街道地址', 'Street address', 200], ['city', '城市', 'City', 100], ['state', '州 / 省', 'State / province', 100],
+    ['postalCode', '邮编', 'ZIP / postal code', 20], ['country', '国家', 'Country', 100],
+  ] },
+  { title: ['链接', 'Links'], fields: [['linkedin', 'LinkedIn', 'LinkedIn', 300, 'url'], ['github', 'GitHub', 'GitHub', 300, 'url'], ['website', '个人网站 / 作品集', 'Website / portfolio', 300, 'url']] },
+  { title: ['教育', 'Education'], fields: [
+    ['school', '学校', 'School', 160], ['degree', '学位', 'Degree', 100], ['major', '专业', 'Major', 160], ['graduation', '毕业时间', 'Graduation', 20],
+  ] },
+  { title: ['工作', 'Work'], fields: [
+    ['company', '现在 / 最近的公司', 'Current or last company', 160], ['title', '职位', 'Job title', 160], ['yearsExperience', '工作年限', 'Years of experience', 10],
+  ] },
+  { title: ['常见问题', 'Common questions'], fields: [
+    ['workAuthorized', '在岗位所在国家有工作许可', 'Authorized to work in the job’s country', 'yes-no'], ['needsSponsorship', '需要签证担保', 'Need visa sponsorship', 'yes-no'],
+    ['willingToRelocate', '愿意搬迁', 'Willing to relocate', 'yes-no'], ['salary', '期望薪资', 'Expected salary', 100],
+    ['startDate', '最早入职时间', 'Earliest start date', 100], ['heardFrom', '从哪里看到岗位（如 LinkedIn）', 'Where you found jobs (e.g. LinkedIn)', 100],
+  ] },
+];
+
+function ApplicantProfile({ boot, reload, focused }) {
+  const { t } = useI18n();
+  const card = useRef(null);
+  const [form, setForm] = useState(boot.settings.applicant);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  useEffect(() => { if (focused) card.current?.scrollIntoView({ block: 'start' }); }, [focused]);
+  const set = (key, value) => { setForm(current => ({ ...current, [key]: value })); setMessage(''); };
+  async function fromResume() {
+    setError('');
+    setMessage('');
+    try {
+      const found = await api('/api/applicant/from-resume');
+      const empty = Object.entries(found).filter(([key, value]) => value && !String(form[key] || '').trim());
+      setForm(current => ({ ...current, ...Object.fromEntries(empty) }));
+      setMessage(empty.length ? t(`已从简历填入 ${empty.length} 项，检查后点保存。`, `Filled ${empty.length} fields from your resume. Check them, then save.`)
+        : t('简历里没有找到还没填的联系方式。', 'Your resume has no contact details that are not already filled in.'));
+    } catch (failure) { setError(serverText(failure.message)); }
+  }
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const saved = await api('/api/settings', { method: 'PATCH', body: { applicant: form } });
+      setForm(saved.applicant);
+      await reload();
+      setMessage(t('已保存。', 'Saved.'));
+    } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); }
+  }
+  return (
+    <form className="card-section" id="applicant" ref={card} onSubmit={save}>
+      <h2><UserRound size={18} />{t('申请资料', 'Application profile')}</h2>
+      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。只保存在这台电脑上；上传简历、密码和提交前的检查始终由你来。',
+        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. They stay on this computer; uploading your resume, passwords and the final check are always yours.')}</p>
+      {PROFILE_GROUPS.map(group => (
+        <fieldset key={group.title[0]} className="profile-group">
+          <legend>{t(...group.title)}</legend>
+          <div className="form-grid">
+            {group.fields.map(([key, zh, en, rule, type]) => (
+              <label key={key}>{t(zh, en)}
+                {rule === 'yes-no' ? (
+                  <select value={form[key]} onChange={event => set(key, event.target.value)}>
+                    <option value="">{t('不填', 'Leave blank')}</option><option value="yes">{t('是', 'Yes')}</option><option value="no">{t('否', 'No')}</option>
+                  </select>
+                ) : <input type={type || 'text'} value={form[key]} maxLength={rule} onChange={event => set(key, event.target.value)} />}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ))}
+      <label className="profile-letter">{t('求职信（只填进求职信文本框）', 'Cover letter (only goes into cover-letter boxes)')}
+        <textarea rows={4} maxLength={5000} value={form.coverLetter} onChange={event => set('coverLetter', event.target.value)} />
+      </label>
+      <label className="check"><input type="checkbox" checked={form.declineEeo} onChange={event => set('declineEeo', event.target.checked)} />
+        {t('性别、种族、退伍军人、残障等自愿填写的问题，选“不愿透露”', 'Answer voluntary self-identification questions (gender, race, veteran, disability) with “decline to answer”')}</label>
+      {error ? <p className="notice error">{error}</p> : null}
+      {message ? <p className="notice">{message}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="button" onClick={fromResume} disabled={!boot.resumes.length}><FileUp size={15} />{t('从简历读取', 'Read from my resume')}</button>
+        <button type="submit" className="button primary" disabled={busy}>{t('保存', 'Save')}</button>
+      </div>
+    </form>
+  );
+}
+
+export function ResumeView({ boot, reload, status, focus }) {
   const { t } = useI18n();
   return (
     <section className="settings-page">
       <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1><p>{t('AI 会对照最匹配的那份简历给每个岗位打 0–100 分，并列出匹配点、差距和可补充的关键词。', 'AI rates each job 0–100 against your best-matching resume and lists strengths, gaps and keywords to add.')}</p></div></header>
       <Resumes resumes={boot.resumes} reload={reload} />
+      <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
       <AiSettings boot={boot} reload={reload} status={status} />
     </section>
   );

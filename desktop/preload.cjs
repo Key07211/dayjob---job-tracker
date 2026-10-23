@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     command: (name, id) => ipcRenderer.invoke('dayjob:browser-command', name, id),
     answer: (id, allowed) => ipcRenderer.invoke('dayjob:browser-answer', id, allowed),
     setAgentControl: value => ipcRenderer.invoke('dayjob:browser-agent-control', value),
+    setAutoSubmit: value => ipcRenderer.invoke('dayjob:browser-auto-submit', value),
+    autofill: options => ipcRenderer.invoke('dayjob:browser-autofill', options),
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
   }),

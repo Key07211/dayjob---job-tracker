@@ -33,6 +33,7 @@ test('browser requests are checked before they reach the desktop browser', () =>
   assert.throws(() => browserInput('key', { key: 'F12' }), /key must be one of/);
   assert.deepEqual(browserInput('scroll', {}), { direction: 'down', ref: null });
   assert.deepEqual(browserInput('tabs', {}), { action: 'list', tabId: null });
+  assert.deepEqual(browserInput('autofill', { submit: true }), {}, 'Claude cannot ask autofill to submit');
   assert.throws(() => browserInput('tabs', { action: 'close' }), /tabId/);
 });
 
@@ -85,16 +86,17 @@ test('Claude drives the Dayjob browser through MCP, screenshots included', async
     const { tools } = await client.listTools();
     const names = tools.map(tool => tool.name).filter(name => name.startsWith('dayjob_browser_'));
     assert.deepEqual(names, ['dayjob_browser_open', 'dayjob_browser_read', 'dayjob_browser_screenshot', 'dayjob_browser_click', 'dayjob_browser_type',
-      'dayjob_browser_select', 'dayjob_browser_press_key', 'dayjob_browser_scroll', 'dayjob_browser_navigate', 'dayjob_browser_tabs']);
+      'dayjob_browser_select', 'dayjob_browser_press_key', 'dayjob_browser_scroll', 'dayjob_browser_navigate', 'dayjob_browser_autofill', 'dayjob_browser_tabs']);
     assert.ok(tools.find(tool => tool.name === 'dayjob_browser_read').annotations.readOnlyHint);
     const read = await client.callTool({ name: 'dayjob_browser_read', arguments: { query: 'submit' } });
     assert.equal(JSON.parse(read.content[0].text).elements[0].ref, 'e1');
     const shot = await client.callTool({ name: 'dayjob_browser_screenshot', arguments: {} });
     assert.deepEqual(shot.content[0], { type: 'image', data: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg' });
     await client.callTool({ name: 'dayjob_browser_press_key', arguments: { key: 'Escape' } });
+    await client.callTool({ name: 'dayjob_browser_autofill', arguments: {} });
     const bad = await client.callTool({ name: 'dayjob_browser_click', arguments: { ref: '#submit' } });
     assert.ok(bad.isError);
-    assert.deepEqual(calls.map(([action]) => action), ['read', 'screenshot', 'key']);
+    assert.deepEqual(calls.map(([action]) => action), ['read', 'screenshot', 'key', 'autofill']);
     assert.deepEqual(calls[0][1], { query: 'submit', maxChars: 15000 });
   } finally {
     await client.close();

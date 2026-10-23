@@ -6,6 +6,7 @@ import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
 import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
 import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
+import { APPLICANT_FIELDS, LINK_FIELDS } from './jobs/applicant.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
 const PROVIDERS = ['claude-cli', 'anthropic-api'];
@@ -79,6 +80,15 @@ export function searchInput(input, current = null) {
   };
 }
 
+const LINK_LABELS = { linkedin: 'LinkedIn link', github: 'GitHub link', website: 'Website link' };
+// A profile link may be typed without https://.
+function profileLink(value, label) {
+  const link = text(value, label, { max: 300, optional: true });
+  if (!link) return '';
+  if (/^[a-z][\w+.-]*:/i.test(link) && !/^https?:\/\//i.test(link)) fail(`${label} must be a web link.`);
+  return httpUrl(/^https?:\/\//i.test(link) ? link : `https://${link}`, label);
+}
+
 export function settingsPatch(input) {
   const patch = {};
   const section = (key, build) => {
@@ -118,6 +128,19 @@ export function settingsPatch(input) {
     minScore: item => integer(item, 'High-match score', 0, 100),
   }));
   section('jobspy', value => pick(value, { pythonCommand: item => text(item, 'Python command', { max: 1024, optional: true }) }));
+  section('applicant', value => pick(value, {
+    ...Object.fromEntries(Object.entries(APPLICANT_FIELDS).map(([key, rule]) => [key, item => {
+      if (!Array.isArray(rule)) return LINK_FIELDS.includes(key) ? profileLink(item, LINK_LABELS[key]) : text(item, key, { max: rule, optional: true });
+      if (!rule.includes(item ?? '')) fail(`${key} must be yes, no or empty.`);
+      return item ?? '';
+    }])),
+    email: item => {
+      const email = text(item, 'email', { max: 200, optional: true });
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Email must look like name@example.com.');
+      return email;
+    },
+    declineEeo: item => boolean(item, 'Decline voluntary self-identification'),
+  }));
   if (has(input, 'language')) patch.language = oneOf(input.language, LANGUAGES, 'Language');
   if (has(input, 'retentionDays')) patch.retentionDays = integer(input.retentionDays, 'Keep postings (days)', 7, 365);
   if (!Object.keys(patch).length) fail('Provide at least one setting.');
@@ -219,7 +242,7 @@ export function goalLogInput(input) {
 }
 
 // What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).
-export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'tabs'];
+export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'tabs'];
 export const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
 
 export function browserInput(action, input) {
@@ -241,6 +264,7 @@ export function browserInput(action, input) {
     case 'key': return { key: oneOf(input.key, BROWSER_KEYS, 'key') };
     case 'scroll': return { direction: input.direction == null ? 'down' : oneOf(input.direction, ['up', 'down'], 'direction'), ref: input.ref == null ? null : ref() };
     case 'navigate': return { action: oneOf(input.action, ['back', 'forward', 'reload'], 'action') };
+    case 'autofill': return {};
     case 'tabs': {
       const chosen = input.action == null ? 'list' : oneOf(input.action, ['list', 'switch', 'close'], 'action');
       if (chosen !== 'list' && (typeof input.tabId !== 'string' || !/^tab-\d{1,6}$/.test(input.tabId))) fail('tabId is required; list the tabs to get it.');

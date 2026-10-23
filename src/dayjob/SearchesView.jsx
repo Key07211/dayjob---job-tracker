@@ -374,7 +374,7 @@ export function SearchesView({ boot, reload, status, setView }) {
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
-      <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); window.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
+      <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); for (const node of [document.querySelector('.main-view'), window]) node?.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
       <section className="card-section">
         <h2>{t('保存的搜索', 'Saved searches')}</h2>
         {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',

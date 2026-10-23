@@ -195,7 +195,7 @@ export function GoalsPanel({ version }) {
         </div>
         {collapsed && first && week && first.thisWeek ? <span className="goals-summary">{t(`本周${goalName(first)} ${first.thisWeek.done}/${first.thisWeek.target}`, `This week: ${goalName(first)} ${first.thisWeek.done}/${first.thisWeek.target}`)}</span> : null}
         <span className="spacer" />
-        {!collapsed && !editing ? <button className="button" onClick={() => setEditing(true)}><Pencil size={14} />{report.goals.length ? t('设置目标', 'Edit goals') : t('设定目标', 'Set goals')}</button> : null}
+        {!collapsed && !editing ? <button className="button" title={report.goals.length ? t('设置目标', 'Edit goals') : t('设定目标', 'Set goals')} onClick={() => setEditing(true)}><Pencil size={14} /><span className="goals-edit-label">{report.goals.length ? t('设置目标', 'Edit goals') : t('设定目标', 'Set goals')}</span></button> : null}
         <button className="icon-button" title={collapsed ? t('展开', 'Show') : t('收起', 'Hide')} onClick={toggle}>{collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button>
       </header>
       {error ? <p className="notice error">{error}</p> : null}

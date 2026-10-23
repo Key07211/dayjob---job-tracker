@@ -106,6 +106,8 @@ function setupIpc() {
   handle('dayjob:browser-command', (name, id) => browser.command(String(name), typeof id === 'string' ? id : undefined));
   handle('dayjob:browser-answer', (id, allowed) => browser.answer(String(id), allowed === true));
   handle('dayjob:browser-agent-control', value => browser.setAgentControl(value === true));
+  handle('dayjob:browser-auto-submit', value => browser.setAutoSubmit(value === true));
+  handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true }));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
   handle('dayjob:update-state', () => updates.state());
@@ -169,6 +171,7 @@ async function createWindow() {
   });
 
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
+    getProfile: () => service.repo.getSettings().applicant,
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
 
   tray = new Tray(image.resize({ width: 32, height: 32 }));
@@ -191,6 +194,16 @@ const SMOKE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
 <label for="source">How did you hear about us?</label> <select id="source" name="source"><option>LinkedIn</option><option>Referral</option></select>
 <button>Submit application</button></form></body></html>`;
 
+// An application form with part of it embedded from another site (another
+// port is another origin), for autofill.
+const APPLY_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Smoke Co</title></head>
+<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get">
+<label>First name <input name="first" required></label> <label>Last name <input name="last"></label> <label>Email <input name="email" type="email"></label>
+<label>Are you legally authorized to work in the United States?</label> <select name="auth"><option value="">Select…</option><option>Yes</option><option>No</option></select>
+<button>Submit application</button></form><iframe src="http://127.0.0.1:${embedPort}/embed" width="500" height="200"></iframe></body></html>`;
+const EMBED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head>
+<body><label>Phone <input name="phone" type="tel"></label> <label>LinkedIn profile <input name="linkedin" required></label> <label>Desired salary <input name="salary"></label></body></html>`;
+
 async function until(check, ms) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -202,10 +215,17 @@ async function until(check, ms) {
 
 async function smokeBrowser(token) {
   const escape = value => String(value ?? '').replace(/[<>&"]/g, character => `&#${character.charCodeAt(0)};`);
+  const embed = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(EMBED_PAGE);
+  });
+  await new Promise(resolve => embed.listen(0, '127.0.0.1', resolve));
   const site = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(url.pathname === '/submitted'
+    if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
+    if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
+    return response.end(url.pathname === '/submitted'
       ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
       : SMOKE_PAGE);
   });
@@ -239,12 +259,37 @@ async function smokeBrowser(token) {
     const shot = await call('screenshot');
     steps.screenshot = shot.image.length > 1000;
     fs.writeFileSync(smokeOutput.replace(/\.json$/i, '') + '-browser.jpg', Buffer.from(shot.image, 'base64'));
+
+    // 自动填写 fills the page and the embedded form from the application profile;
+    // with auto-submit on it sends the form, and Claude's submit click goes ahead
+    // without asking.
+    service.repo.updateSettings({ applicant: { firstName: 'Smoke', lastName: 'Tester', email: 'smoke@example.com', phone: '+1 510 555 0100',
+      linkedin: 'https://www.linkedin.com/in/smoke', workAuthorized: 'yes' } });
+    await call('open', { url: `${base}/apply` });
+    const filled = await browser.autofill({ submit: true });
+    steps.autofillKeys = filled.filled.map(item => item.key).sort().join(',');
+    const form = await call('read');
+    const valueOf = name => form.elements.find(item => item.name === name)?.value;
+    steps.autofilled = steps.autofillKeys === 'email,firstName,lastName,linkedin,phone,workAuthorized' && !filled.left.length && filled.optionalLeft === 1
+      && !filled.submitted && valueOf('First name') === 'Smoke' && valueOf('Email') === 'smoke@example.com';
+    steps.autofillRepeat = (await browser.autofill({})).filled.length === 0;
+    browser.setAutoSubmit(true);
+    const sent = await browser.autofill({ submit: true });
+    steps.autoSubmitted = sent.submitted && sent.confirmed && sent.page.url.startsWith(`${base}/applied?first=Smoke&last=Tester&email=smoke%40example.com&auth=Yes`);
+    await call('open', { url: `${base}/jobs/7` });
+    const job = await call('read');
+    await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
+    const clicked = await call('click', { ref: job.elements.find(item => item.name === 'Submit application').ref });
+    steps.autoAllowed = /Auto-submit is on/.test(clicked.note || '') && clicked.page.url.startsWith(`${base}/submitted?name=Auto+Submit`);
+    browser.setAutoSubmit(false);
   } catch (error) {
     steps.error = error.message;
   } finally {
     site.close();
+    embed.close();
   }
-  steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot'].every(step => steps[step] === true);
+  steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
+    'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed'].every(step => steps[step] === true);
   return steps;
 }
 

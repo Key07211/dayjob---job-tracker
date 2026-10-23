@@ -3,6 +3,7 @@ import { dedupeKey, postingId } from './normalize.mjs';
 import { transaction } from './db.mjs';
 import { rankResumes, resumeTerms } from './keywords.mjs';
 import { splitCompanyId } from './scrapers/company-boards.mjs';
+import { DEFAULT_APPLICANT } from './applicant.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS = {
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
   updates: { autoCheck: true },
+  applicant: DEFAULT_APPLICANT,
   retentionDays: 45,
 };
 
@@ -216,6 +218,26 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     item.searches = q('SELECT s.id, s.name FROM posting_searches ps JOIN searches s ON s.id = ps.search_id WHERE ps.posting_id = ?').all(id)
       .map(entry => ({ id: entry.id, name: entry.name }));
     return item;
+  }
+  // The posting a web page belongs to: the same link (its query may carry
+  // more than the stored one), or the job a LinkedIn search page has open.
+  function findPostingByUrl(value) {
+    let url;
+    try { url = new URL(value); } catch { return null; }
+    url.hash = '';
+    const linkedInJob = /(^|\.)linkedin\.com$/.test(url.hostname) && (url.searchParams.get('currentJobId') || /\/jobs\/view\/(?:[^/]*-)?(\d+)/.exec(url.pathname)?.[1]);
+    const wanted = linkedInJob ? new URL(`https://www.linkedin.com/jobs/view/${linkedInJob}`) : url;
+    const base = `${wanted.origin}${wanted.pathname.replace(/\/+$/, '')}`;
+    const rows = q(`SELECT id, duplicate_of, job_url, apply_url FROM postings WHERE job_url LIKE ? ESCAPE '\\' OR apply_url LIKE ? ESCAPE '\\' LIMIT 50`)
+      .all(...Array(2).fill(`${base.replace(/[\\%_]/g, '\\$&')}%`));
+    const fits = stored => {
+      let link;
+      try { link = new URL(stored); } catch { return false; }
+      if (`${link.origin}${link.pathname.replace(/\/+$/, '')}` !== base) return false;
+      return [...link.searchParams].every(([key, item]) => wanted.searchParams.get(key) === item);
+    };
+    const row = rows.find(item => fits(item.job_url) || (item.apply_url && fits(item.apply_url)));
+    return row ? getPosting(row.duplicate_of || row.id) : null;
   }
   function postingForScoring(id) {
     const row = q('SELECT * FROM postings WHERE id = ?').get(id);
@@ -459,7 +481,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     getSettings, updateSettings, saveSettings, getMeta, setMeta,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
-    upsertPosting, listPostings, getPosting, postingForScoring, setPostingStatus, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
+    upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds,
