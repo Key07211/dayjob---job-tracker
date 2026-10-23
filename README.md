@@ -31,6 +31,7 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 投递追踪 | 点“我已投递”记下日期和备注，自动进入“投递追踪”。状态：已投递 → 在线测评 → 面试中 → Offer / 已接受 / 未通过 / 已撤回 / 无回音，每次变化都记在时间线上。也可以手动添加不在 Dayjob 里的投递。 |
 | 自动追踪 | 投递或状态变化后 N 天（默认 7）提醒跟进；“已投递”超过 N 天（默认 21）没有变化时提示可能无回音；每天检查已投递和已收藏的岗位是否已关闭。 |
 | 通知 | 每日汇总（新岗位数、高匹配岗位）、跟进提醒、岗位关闭提醒，Windows 桌面通知 + 应用内通知。 |
+| 后台运行 | 关掉窗口后 Dayjob 默认留在托盘里，按时抓取、提醒，Claude 也随时能用；从托盘菜单“退出 Dayjob”才完全关闭。不想让它在后台运行，就在“设置 → 关闭窗口时”取消勾选“关闭窗口后继续在后台运行”，之后关窗口就直接退出，错过的每日抓取在当天下次打开时补上。 |
 | 内置浏览器 | 桌面版自带浏览器（左侧“浏览器”），在右侧打开，和主页、投递追踪等页面并排；可以拖动调宽，也可以铺满窗口。多标签页，登录状态只存在本机。右边的助手栏显示这个岗位在 Dayjob 里的状态，可以一键加入 Dayjob、标记已投递。 |
 | 自动填写 / 自动提交 | 在“简历与 AI → 申请资料”里填一次姓名、邮箱、电话、链接和常见问题（可以从简历读取），之后在申请表上点 **自动填写**，Dayjob 按每个问题把空着的格子填好，并列出还需要你自己填的必填项。打开 **自动提交** 后，必填项都填好就直接提交（只在这次打开 Dayjob 时有效）。 |
 | Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器（包括自动填写）、查看和设置每月目标、读取主页统计，共 34 个工具。 |
@@ -275,7 +276,7 @@ DAYJOB_DATA_DIR=./demo-data npm start
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.6.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.6.1
 ```
 
 ## 目录

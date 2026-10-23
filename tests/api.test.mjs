@@ -103,6 +103,9 @@ test('settings and searches are validated; the API key never comes back', async 
     assert.ok(!JSON.stringify(saved.body).includes('sk-secret'));
     assert.ok(!JSON.stringify((await call('/api/bootstrap')).body).includes('sk-secret'));
     assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { apiKey: null } } })).body.ai.hasApiKey, false);
+    assert.equal(boot.settings.desktop.closeToTray, true, 'closing the window keeps Dayjob in the tray by default');
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: 'no' } } })).status, 400);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: false } } })).body.desktop.closeToTray, false);
 
     assert.equal((await call('/api/searches', { method: 'POST', body: { keywords: 'data', sites: [] } })).status, 400);
     assert.equal((await call('/api/searches', { method: 'POST', body: { keywords: 'data', sites: ['monster'] } })).status, 400);

@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
   updates: { autoCheck: true },
+  desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,
   retentionDays: 45,
 };

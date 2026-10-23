@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, Power, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -70,6 +70,28 @@ function BrowserData() {
       </div>
       {state === 'done' ? <p className="notice">{t('已清除。', 'Cleared.')}</p> : null}
       {state === 'error' ? <p className="notice error">{t('没能清除，请重试。', 'Could not clear it. Try again.')}</p> : null}
+    </section>
+  );
+}
+
+function Background({ boot, reload }) {
+  const { t } = useI18n();
+  const [error, setError] = useState('');
+  if (!desktop) return null;
+  async function toggle(event) {
+    setError('');
+    try { await api('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: event.target.checked } } }); await reload(); }
+    catch (failure) { setError(serverText(failure.message)); }
+  }
+  return (
+    <section className="card-section">
+      <h2><Power size={18} />{t('关闭窗口时', 'Closing the window')}</h2>
+      <p className="hint">{t('开着这一项，关掉窗口后 Dayjob 留在任务栏右下角的托盘里，按时做每日抓取、发提醒，Claude 也能随时通过 MCP 使用它；要完全退出，在托盘图标的菜单里点“退出 Dayjob”。关掉这一项，关窗口就完全退出，不在后台运行；错过的每日抓取会在当天下次打开 Dayjob 时补上。',
+        'With this on, closing the window leaves Dayjob in the tray at the bottom right of the taskbar, so the daily search and reminders still run and Claude can use it through MCP at any time; to quit completely, choose “Quit Dayjob” from the tray icon\'s menu. With it off, closing the window quits Dayjob and nothing keeps running; a daily search it missed runs when you next open Dayjob that day.')}</p>
+      <div className="form-grid">
+        <label className="check-line"><input type="checkbox" checked={boot.settings.desktop.closeToTray} onChange={toggle} />{t('关闭窗口后继续在后台运行', 'Keep running in the tray')}</label>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
     </section>
   );
 }
@@ -187,6 +209,7 @@ export function SettingsView({ boot, reload, update }) {
       </form>
       <ClaudeConnection />
       <BrowserData />
+      <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />
       <section className="card-section">
         <h2>{t('语言、外观与数据', 'Language, look and data')}</h2>
