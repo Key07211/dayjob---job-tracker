@@ -168,6 +168,26 @@ const migrations = [
   ALTER TABLE postings ADD COLUMN resume_id TEXT;
   ALTER TABLE postings ADD COLUMN resume_overlap REAL;
   `,
+  // Monthly goals (month is local YYYY-MM); custom goals count goal_logs.
+  `
+  CREATE TABLE goals (
+    id TEXT PRIMARY KEY,
+    month TEXT NOT NULL,
+    metric TEXT NOT NULL CHECK (metric IN ('applications', 'interviews', 'custom')),
+    name TEXT NOT NULL DEFAULT '',
+    target INTEGER NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX goals_month ON goals (month, position);
+  CREATE TABLE goal_logs (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL REFERENCES goals (id) ON DELETE CASCADE,
+    at TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  );
+  CREATE INDEX goal_logs_goal ON goal_logs (goal_id, at);
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

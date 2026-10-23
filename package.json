@@ -1,6 +1,6 @@
 {
   "name": "dayjob",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Dayjob · 本地岗位抓取、AI 简历匹配与投递追踪",

@@ -17,11 +17,12 @@ import { createScorer } from './jobs/scoring/index.mjs';
 import { createTracker } from './jobs/tracker.mjs';
 import { createScheduler } from './jobs/scheduler.mjs';
 import { recommend } from './jobs/recommend.mjs';
+import { createGoals } from './jobs/goals.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
-import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, manualApplication, manualPosting, postingStatus, publicSettings, recommendInput, searchInput,
-  settingsPatch } from './validation.mjs';
+import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
+  postingStatus, publicSettings, recommendInput, searchInput, settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -38,6 +39,7 @@ export async function createApp(options = {}) {
   const now = options.now || (() => new Date());
   const { db, filename } = openDatabase(options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data'));
   const repo = createRepository(db, { now });
+  const goals = createGoals({ db, repo, now });
   repo.abandonRunningRuns();
   // Databases from before multiple resumes have postings with no matched resume.
   if (repo.countResumes()) repo.rematchPostings({ missingOnly: true });
@@ -163,6 +165,7 @@ export async function createApp(options = {}) {
     match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
     if (match) return need(repo.getResume(match[1], true), 'Resume');
     if (pathname === '/api/recommendations') return { result: repo.getMeta('recommendations'), running: Boolean(recommending) };
+    if (pathname === '/api/goals') return goals.report(monthParam(params.get('month')));
     if (pathname === '/api/runs') return repo.listRuns(Math.min(number(params.get('limit')) || 20, 100));
     match = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (match) return need(repo.listRuns(100).find(run => run.id === match[1]), 'Run');
@@ -308,6 +311,20 @@ export async function createApp(options = {}) {
         throw new HttpError(error.status || 502, error.message);
       } finally { recommending = null; }
     }
+    if (pathname === '/api/goals' && method === 'PUT') {
+      const { month, goals: items } = goalsInput(input);
+      return goals.save(month, items);
+    }
+    if (pathname === '/api/goals/goal' && method === 'POST') {
+      const { month, goal } = goalInput(input);
+      try { return goals.set(month, goal); } catch (error) { throw new HttpError(409, error.message); }
+    }
+    match = pathname.match(/^\/api\/goals\/([^/]+)\/log$/);
+    if (match && method === 'POST') {
+      const { amount } = goalLogInput(input);
+      need(goals.find(match[1]), 'Goal');
+      try { return goals.log(match[1], amount); } catch (error) { throw new HttpError(409, error.message); }
+    }
     match = pathname.match(/^\/api\/browser\/([a-z]+)$/);
     if (match && method === 'POST' && BROWSER_ACTIONS.includes(match[1])) {
       // options.browser is the desktop app's browser; plain `npm start` has none.
@@ -330,12 +347,12 @@ export async function createApp(options = {}) {
       const pathname = decodeURIComponent(url.pathname);
       const method = request.method;
       if (method === 'OPTIONS') {
-        response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Dayjob-Token, X-Dayjob-Client' });
+        response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Dayjob-Token, X-Dayjob-Client' });
         return response.end();
       }
       if (!pathname.startsWith('/api/')) return serveStatic(request, response, pathname);
       if (method === 'GET') return respond(response, 200, await get(pathname, url));
-      if (!['POST', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
+      if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
       const supplied = Buffer.from(request.headers['x-dayjob-token'] || '');
       const expected = Buffer.from(csrfToken);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new HttpError(403, 'Missing or invalid Dayjob token. Reload the app and try again.');

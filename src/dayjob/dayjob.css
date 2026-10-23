@@ -420,3 +420,73 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .option-row > span { min-width: 72px; font-size: 14px; }
 .option-row > small { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+
+/* ---------- goals (top of Today) ---------- */
+.goals-panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px 14px; margin-bottom: 14px; }
+.goals-panel.collapsed { padding-bottom: 12px; }
+.goals-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goals-head h2 { font-size: 15px; display: flex; align-items: center; gap: 7px; }
+.goals-head h2 svg { color: var(--green); }
+.goals-head .spacer, .goal-editor .spacer { flex: 1; }
+.month-switch { display: inline-flex; align-items: center; }
+.month-switch .link { margin: 0 4px; font-size: 13px; }
+.goals-summary { color: var(--muted); font-size: 13px; }
+.goals-empty { display: flex; align-items: center; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+.goals-empty p { flex: 1 1 320px; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+.goal-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; margin-top: 12px; }
+.goal-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.goal-card h3 { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.goal-card h3 span { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+.goal-card h3 select { margin-left: auto; font-size: 12.5px; padding: 3px 8px; min-height: 0; }
+.goal-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.goal-tasks li { display: flex; align-items: center; gap: 10px; }
+.goal-tasks li > div:not(.goal-log) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.goal-tasks strong { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-tasks span { color: var(--muted); font-size: 12.5px; }
+.goal-log { display: inline-flex; gap: 2px; }
+.goal-log .icon-button { width: 26px; height: 26px; border: 1px solid var(--line); }
+.goal-ring { width: 38px; height: 38px; flex-shrink: 0; }
+.goal-ring circle { fill: none; stroke-width: 5; }
+.goal-ring .track { stroke: var(--line); }
+.goal-ring .bar { stroke: var(--green); stroke-linecap: round; transition: stroke-dashoffset 0.3s; }
+.goal-ring.done .bar { stroke: var(--green); }
+.goal-ring.done .track { stroke: var(--green-soft); }
+.goal-bar { display: flex; flex-direction: column; gap: 4px; }
+.goal-bar-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.goal-bar-head span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.goal-track { position: relative; height: 8px; border-radius: 4px; background: var(--soft); border: 1px solid var(--line); }
+.goal-fill { position: absolute; inset: -1px auto -1px -1px; border-radius: 4px; background: var(--green); min-width: 0; }
+.goal-pace { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--orange); border-radius: 1px; }
+.goal-bar small { font-size: 12px; color: var(--muted); }
+.goal-bar small.ahead { color: var(--green); }
+.goal-bar small.behind { color: var(--orange); }
+.week-chart { width: 100%; height: auto; max-height: 170px; display: block; }
+.week-chart .axis { stroke: var(--line-strong); stroke-width: 1; }
+.week-chart .target { fill: none; stroke: var(--line-strong); stroke-width: 1.2; stroke-dasharray: 3 3; }
+.week-chart .done { fill: color-mix(in srgb, var(--green) 55%, var(--card)); }
+.week-chart .current .done, .week-chart .met .done { fill: var(--green); }
+.week-chart .current .target { stroke: var(--green); }
+.week-chart .future .target { stroke: var(--line); }
+.week-chart text { font-size: 11px; text-anchor: middle; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.week-chart .current text { fill: var(--text); font-weight: 600; }
+.chart-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: -4px; }
+.chart-legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; }
+.chart-legend i.done { background: var(--green); }
+.chart-legend i.target { border: 1.2px dashed var(--line-strong); margin-left: 8px; }
+.goal-editor { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.goal-rows { display: flex; flex-direction: column; gap: 8px; }
+.goal-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) 96px minmax(0, 1fr) 30px; gap: 4px 12px; align-items: center; }
+.goal-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.goal-row > span small { color: var(--muted); font-size: 12px; }
+.goal-row strong { font-size: 13.5px; }
+.goal-row em { font-style: normal; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+@media (max-width: 1200px) {
+  .goal-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .goal-card.chart { grid-column: 1 / -1; }
+  .goal-card.chart .week-chart { max-height: 140px; }
+}
+@media (max-width: 760px) {
+  .goal-grid { grid-template-columns: minmax(0, 1fr); }
+  .goal-row { grid-template-columns: minmax(0, 1fr) 80px 30px; }
+  .goal-row em { grid-column: 1 / -1; grid-row: 2; }
+}
