@@ -31,6 +31,7 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} update={6} version={7} executable={8}" -f
     $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok, $report.version, $report.executable)
+  if ($report.timings) { Write-Output "${Name} timings (ms since the window loaded): $($report.timings | ConvertTo-Json -Compress)" }
   if ($report.error) { Write-Output "${Name} error: $($report.error)" }
   foreach ($line in @($report.log)) { if ($line) { Write-Output "${Name} renderer: $line" } }
   if (-not $report.ok -and $report.content) {

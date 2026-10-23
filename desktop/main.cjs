@@ -295,11 +295,12 @@ async function smokeUpdate() {
 }
 
 async function runSmoke() {
+  const started = Date.now();
+  const timings = {};
+  // A freshly built app on a cold Windows runner can take over ten seconds to draw.
   const ready = "['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (await window.webContents.executeJavaScript(ready)) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
+  await until(() => window.webContents.executeJavaScript(ready), 45000);
+  timings.ready = Date.now() - started;
   const renderer = await window.webContents.executeJavaScript(`(async () => ({
     title: document.title,
     content: document.body.innerText.slice(0, 2000),
@@ -326,12 +327,15 @@ async function runSmoke() {
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
+  timings.english = Date.now() - started;
   const browserCheck = await smokeBrowser(state.csrfToken);
+  timings.browser = Date.now() - started;
   const updateCheck = await smokeUpdate();
+  timings.update = Date.now() - started;
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && browserCheck.ok && updateCheck.ok;
   fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
-    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, log: smokeLog }, null, 2));
+    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   app.quit();
 }
