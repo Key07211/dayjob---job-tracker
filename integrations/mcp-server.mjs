@@ -249,6 +249,9 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
     name: z.string().min(1).max(60).optional().describe('Required for custom goals; matched without case.'),
     target: z.number().int().min(0).max(1000).describe('Monthly target; 0 removes the goal.'),
   }, input => mutate('/api/goals/goal', 'POST', input));
+  tool('dayjob_get_dashboard', 'Read the statistics on Dayjob\'s home page: applications this week and month (with last week and the same point last month), open applications, reply rate and median days to a first reply, how many reached an OA or interview and an offer, applications and interviews for each recent Monday-to-Sunday week with the weekly goal, applications per day, current statuses, results by job board, applications that need a follow-up, recent status changes, and the best-scoring jobs not applied to yet. Good for a weekly review.', {
+    weeks: z.number().int().min(4).max(26).optional().describe('How many recent weeks to include; 12 when omitted.'),
+  }, input => request(`/api/dashboard${query({ weeks: input.weeks })}`), readOnly);
   tool('dayjob_log_goal_progress', 'Log progress on a custom goal (from dayjob_get_goals), for example one finished practice problem. A negative amount takes back a mistaken entry.', {
     id: z.string().min(1).max(100),
     amount: z.number().int().min(-100).max(100).optional().describe('Defaults to 1.'),

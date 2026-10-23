@@ -237,6 +237,10 @@ test('monthly goals are validated and saved per month', async () => {
     assert.equal((await call(`/api/goals/${saved.body.goals[1].id}/log`, { method: 'POST', body: { amount: 0 } })).status, 400);
     const logged = await call(`/api/goals/${saved.body.goals[1].id}/log`, { method: 'POST', body: { amount: 2 } });
     assert.equal(logged.body.goals[1].done, 2, 'a log for a later month lands in that month');
+    const home = await call('/api/dashboard');
+    assert.equal(home.status, 200);
+    assert.equal(home.body.weeks.length, 12);
+    assert.deepEqual([(await call('/api/dashboard?weeks=99')).body.weeks.length, (await call('/api/dashboard?weeks=1')).body.weeks.length, (await call('/api/dashboard?weeks=x')).body.weeks.length], [26, 4, 12]);
   } finally { await app.close(); }
 });
 
@@ -254,7 +258,7 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 32);
+    assert.equal(tools.length, 33);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
     const goals = await call('dayjob_set_goal', { metric: 'custom', name: 'Coffee chats', target: 8 });
     assert.deepEqual(goals.goals.map(goal => [goal.name, goal.target]), [['Coffee chats', 8]]);
@@ -283,6 +287,9 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
     assert.match((await call('dayjob_update_application', { id: application.id })).error, /at least one/);
     const status = await call('dayjob_status');
     assert.equal(status.stats.applications.interview, 1);
+    const home = await call('dayjob_get_dashboard', { weeks: 6 });
+    assert.equal(home.weeks.length, 6);
+    assert.deepEqual([home.funnel.applied, home.funnel.interview, home.sources[0].site], [1, 1, 'manual']);
   } finally {
     await client.close();
     await app.close();

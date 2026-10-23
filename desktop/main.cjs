@@ -287,7 +287,7 @@ async function smokeUpdate() {
 }
 
 async function runSmoke() {
-  const ready = "['今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
+  const ready = "['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (await window.webContents.executeJavaScript(ready)) break;
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -301,12 +301,12 @@ async function runSmoke() {
   }))()`);
   const response = await fetch(`${origin}/api/bootstrap`);
   const state = await response.json();
-  const rendererLoaded = ['今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
+  const rendererLoaded = ['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
   await window.webContents.executeJavaScript("document.querySelector('.language-toggle').click()");
   let english = false;
   for (let attempt = 0; attempt < 50 && !english; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 100));
-    english = await window.webContents.executeJavaScript("['Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en' && document.title === 'Dayjob · Job tracker'");
+    english = await window.webContents.executeJavaScript("['Home', 'Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en' && document.title === 'Dayjob · Job tracker'");
   }
   const englishTitle = window.getTitle();
   let languageSaved = false;
