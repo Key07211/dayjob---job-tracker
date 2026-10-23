@@ -14,7 +14,7 @@ export function createApiProvider({ getSettings, createClient = options => new A
       return { available: Boolean(key), detail: key ? `Claude API · ${ai.model || DEFAULT_API_MODEL}` : 'Add an Anthropic API key in Settings.' };
     },
     // One prompt in, one JSON object (matching schema) out.
-    async ask({ system, prompt, schema }) {
+    async ask({ system, prompt, schema, signal }) {
       const { ai } = getSettings();
       const apiKey = ai.apiKey || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new Error('No Anthropic API key is set.');
@@ -30,8 +30,9 @@ export function createApiProvider({ getSettings, createClient = options => new A
           system,
           output_config: { effort: ai.effort || 'medium', format: { type: 'json_schema', schema } },
           messages: [{ role: 'user', content: prompt }],
-        });
+        }, { signal });
       } catch (error) {
+        if (signal?.aborted) throw error;
         if (error instanceof Anthropic.AuthenticationError) throw new Error('The Anthropic API key was rejected.');
         if (error instanceof Anthropic.RateLimitError) throw new Error('The Claude API is rate limiting requests; scoring will resume on the next run.');
         if (error instanceof Anthropic.APIError) throw new Error(`Claude API error ${error.status}: ${error.message}`);
@@ -42,9 +43,9 @@ export function createApiProvider({ getSettings, createClient = options => new A
       const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('');
       return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || model };
     },
-    async score({ resume, posting }) {
+    async score({ resume, posting, signal }) {
       const { ai } = getSettings();
-      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA });
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
       return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
     },
   };

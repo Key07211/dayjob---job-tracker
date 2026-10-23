@@ -27,6 +27,7 @@ const EXACT = {
   'The Anthropic API key was rejected.': 'API key 无效，请检查后重新填写。',
   'The Claude API is rate limiting requests; scoring will resume on the next run.': 'Claude API 正在限流，下次抓取时会继续打分。',
   'Claude declined this request.': 'Claude 拒绝了这次请求。',
+  'AI scoring is paused. Resume it in Dayjob first.': 'AI 打分已暂停。点左下角的“继续打分”后，会接着给这个岗位打分。',
   'The Claude reply was cut off.': 'AI 回复被截断了，请重试。',
   'You can keep up to 3 resumes. Delete one before adding another.': '最多保存 3 份简历。请先删除一份再上传。',
   'Claude is already suggesting searches; wait for it to finish.': 'Claude 正在推荐，请等它完成。',

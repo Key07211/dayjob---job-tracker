@@ -85,6 +85,7 @@ export async function createApp(options = {}) {
     if (!scoringBatch) {
       scoringBatch = scorer.scoreBatch(ids, { limit }).then(result => {
         const language = repo.getSettings().language;
+        if (result.paused && !result.scored) return result;
         if (result.scored) notify({ kind: 'scored', ...message(language, 'scored', result) });
         else if (result.reason && result.reason !== 'no-resume') notify({ kind: 'error', ...message(language, 'scoringFailed', result) });
         return result;
@@ -251,13 +252,29 @@ export async function createApp(options = {}) {
       scheduler.track().catch(error => log(`[dayjob] tracking: ${error.message}`));
       return [202, { started: true }];
     }
+    if (pathname === '/api/scoring/pause' && method === 'POST') return scorer.pause();
+    if (pathname === '/api/scoring/resume' && method === 'POST') {
+      const ids = await scorer.resume();
+      if (scoringBatch) await scoringBatch;
+      if (ids.length) void startScoring(ids, ids.length);
+      return { resumed: ids.length };
+    }
+    if (pathname === '/api/postings/dismiss-low' && method === 'POST') {
+      const below = Number.isInteger(input.below) && input.below >= 1 && input.below <= 100 ? input.below : null;
+      if (below === null) throw new HttpError(400, 'below must be a whole number from 1 to 100.');
+      return { dismissed: repo.dismissBelowScore(below) };
+    }
+    if (pathname === '/api/postings/restore' && method === 'POST') {
+      const ids = Array.isArray(input.ids) ? input.ids.filter(id => typeof id === 'string').slice(0, 2000) : [];
+      return { restored: repo.restoreDismissed(ids) };
+    }
     if (pathname === '/api/scores' && method === 'POST') {
       if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
       const ids = Array.isArray(input.postingIds) ? input.postingIds.filter(id => typeof id === 'string').slice(0, 200) : undefined;
       const limit = Number.isInteger(input.limit) ? Math.min(Math.max(input.limit, 1), 200) : undefined;
       const already = Boolean(scoringBatch);
       void startScoring(ids, limit);
-      return [202, { started: !already }];
+      return [202, { started: !already, paused: scorer.paused }];
     }
     if (pathname === '/api/postings' && method === 'POST') {
       const item = manualPosting(input);

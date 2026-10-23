@@ -249,6 +249,17 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     q('UPDATE postings SET status = ? WHERE duplicate_of = ? AND status <> ?').run(status === 'applied' ? 'applied' : status, id, 'applied');
     return getPosting(id);
   }
+  // "Not interested" for every new job scored under the line; saved and
+  // applied jobs stay. Returns the ids so the change can be undone.
+  function dismissBelowScore(score) {
+    const ids = q(`SELECT p.id FROM postings p JOIN scores s ON s.posting_id = p.id AND s.resume_id = p.resume_id
+      WHERE p.status = 'new' AND p.duplicate_of IS NULL AND s.score < ?`).all(score).map(row => row.id);
+    for (const id of ids) setPostingStatus(id, 'dismissed');
+    return ids;
+  }
+  function restoreDismissed(ids) {
+    return ids.filter(id => q("SELECT status FROM postings WHERE id = ?").get(id)?.status === 'dismissed' && setPostingStatus(id, 'new'));
+  }
   function markChecked(id, open) {
     const at = iso();
     const row = q('SELECT closed_at FROM postings WHERE id = ?').get(id);
@@ -482,7 +493,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     getSettings, updateSettings, saveSettings, getMeta, setMeta,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
-    upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
+    upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds,

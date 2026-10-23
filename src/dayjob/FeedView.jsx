@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bookmark, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
+import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { api, query } from '../api.js';
 import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -8,6 +8,8 @@ import { PostingDetail } from './PostingDetail.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
+// "Remove low matches" moves new jobs scoring under this to Not interested.
+const LOW_SCORE = 60;
 const SCORES = [{ id: '', label: ['任意匹配度', 'Any match'] }, { id: '65', label: ['≥ 65', '≥ 65'] }, { id: '75', label: ['≥ 75', '≥ 75'] }, { id: '85', label: ['≥ 85', '≥ 85'] }];
 
 function useDebounced(value, delay) {
@@ -29,6 +31,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const [reloadKey, setReloadKey] = useState(0);
   const [scoringMessage, setScoringMessage] = useState('');
   const [picked, setPicked] = useState(() => new Set());
+  const [removed, setRemoved] = useState(null);
   const text = useDebounced(filters.q, 250);
   const scoreMode = boot.settings.ai.scoreMode || 'auto';
   const hasResume = boot.resumes.length > 0;
@@ -53,8 +56,11 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     return () => { cancelled = true; };
   }, [mode, text, filters.site, filters.minScore, filters.sort, filters.sinceDays, filters.searchId, filters.includeClosed, dataVersion, reloadKey]);
 
+  // A finished or paused batch refreshes the data; its "scoring started" note is then out of date.
+  useEffect(() => { setScoringMessage(''); }, [dataVersion]);
   const sites = useMemo(() => [...new Set(result.items.map(item => item.site))], [result.items]);
   const unscored = result.items.filter(item => !item.score).length;
+  const low = mode === 'active' ? result.items.filter(item => item.status === 'new' && item.score && item.score.score < LOW_SCORE).length : 0;
   useEffect(() => {
     setPicked(current => {
       const still = new Set(result.items.filter(item => current.has(item.id) && !item.score).map(item => item.id));
@@ -82,13 +88,36 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   async function scoreJobs(ids) {
     setScoringMessage('');
     try {
-      const { started } = await api('/api/scores', { method: 'POST', body: { postingIds: ids } });
+      const { started, paused } = await api('/api/scores', { method: 'POST', body: { postingIds: ids } });
+      if (paused) {
+        setScoringMessage(t('AI 打分已暂停。点左下角的“继续打分”后，会给这些岗位打分。', 'AI scoring is paused. These jobs are scored once you click “Resume scoring” at the bottom left.'));
+        setPicked(new Set());
+        void refreshStatus();
+        return;
+      }
       if (!started) {
         setScoringMessage(t('正在给别的岗位打分，完成后再试。', 'Other jobs are being scored. Try again when that is done.'));
         return;
       }
       setScoringMessage(t('已开始为这些岗位打分，完成后会自动刷新。', 'Scoring started. The list refreshes when it is done.'));
       setPicked(new Set());
+      void refreshStatus();
+    } catch (failure) { setScoringMessage(failure.message); }
+  }
+  async function removeLow() {
+    setScoringMessage('');
+    try {
+      const { dismissed } = await api('/api/postings/dismiss-low', { method: 'POST', body: { below: LOW_SCORE } });
+      setRemoved(dismissed);
+      setReloadKey(key => key + 1);
+      void refreshStatus();
+    } catch (failure) { setScoringMessage(failure.message); }
+  }
+  async function undoRemove() {
+    try {
+      await api('/api/postings/restore', { method: 'POST', body: { ids: removed } });
+      setRemoved(null);
+      setReloadKey(key => key + 1);
       void refreshStatus();
     } catch (failure) { setScoringMessage(failure.message); }
   }
@@ -109,10 +138,20 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
         <div className="header-actions">
           {picked.size ? <button className="button primary" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t(`给选中的 ${picked.size} 个岗位打分`, `Score ${picked.size} picked ${picked.size === 1 ? 'job' : 'jobs'}`)}</button>
             : unscored && hasResume && scoreAllShown ? <button className="button" onClick={scoreAll}><Sparkles size={15} />{t(`给 ${unscored} 个岗位打分`, `Score ${unscored} ${unscored === 1 ? 'job' : 'jobs'}`)}</button> : null}
+          {low ? <button className="button" onClick={removeLow} title={t(`把所有低于 ${LOW_SCORE} 分的新岗位移到“不感兴趣”，已收藏的不动`, `Move every new job scoring under ${LOW_SCORE} to Not interested; saved jobs stay`)}>
+            <EyeOff size={15} />{t(`剔除低于 ${LOW_SCORE} 分的岗位`, `Remove jobs under ${LOW_SCORE}`)}</button> : null}
           <button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button>
         </div>
       </header>
       {scoringMessage ? <p className="notice">{scoringMessage}</p> : null}
+      {removed ? (
+        <p className="notice">
+          {removed.length ? t(`已把 ${removed.length} 个低于 ${LOW_SCORE} 分的岗位移到“不感兴趣”。`, `Moved ${removed.length} ${removed.length === 1 ? 'job' : 'jobs'} under ${LOW_SCORE} to Not interested.`)
+            : t(`没有低于 ${LOW_SCORE} 分的新岗位。`, `No new jobs score under ${LOW_SCORE}.`)}
+          {removed.length ? <button className="link" onClick={undoRemove}>{t('撤销', 'Undo')}</button> : null}
+          <button className="link" onClick={() => setRemoved(null)}>{t('知道了', 'OK')}</button>
+        </p>
+      ) : null}
       {!hasResume && mode === 'active' ? (
         <p className="notice">{t('还没有上传简历，岗位不会被打分。', 'No resume yet, so jobs are not scored.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : null}

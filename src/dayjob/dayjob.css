@@ -94,6 +94,8 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .run-card p { color: var(--muted); }
 .run-phase { display: flex; align-items: center; gap: 6px; color: var(--green) !important; }
 .run-message { color: var(--text) !important; }
+.run-paused { display: flex; align-items: flex-start; gap: 6px; color: var(--orange) !important; line-height: 1.45; }
+.run-paused svg { flex: none; margin-top: 2px; }
 .main { margin-left: 216px; flex: 1; min-width: 0; padding: 26px 28px 28px; }
 
 /* ---------- common ---------- */
