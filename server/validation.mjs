@@ -162,6 +162,10 @@ export function recommendInput(input) {
   return { preference: text(input.preference, 'Preferences', { max: 500, optional: true }) };
 }
 
+export function recommendView(input) {
+  return { hidden: boolean(input.hidden, 'Hidden') };
+}
+
 export function postingStatus(input) {
   return oneOf(input.status, POSTING_STATUSES.filter(status => status !== 'applied'), 'Status');
 }

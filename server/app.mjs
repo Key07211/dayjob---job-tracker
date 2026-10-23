@@ -24,7 +24,7 @@ import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
 import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
-  postingStatus, publicSettings, recommendInput, searchInput, settingsPatch } from './validation.mjs';
+  postingStatus, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -349,6 +349,14 @@ export async function createApp(options = {}) {
       } catch (error) {
         throw new HttpError(error.status || 502, error.message);
       } finally { recommending = null; }
+    }
+    // Closing the suggestions keeps them, so they can be shown again; the
+    // next suggestions start open.
+    if (pathname === '/api/recommendations' && method === 'PATCH') {
+      const { hidden } = recommendView(input);
+      const result = need(repo.getMeta('recommendations'), 'Suggestion');
+      repo.setMeta('recommendations', { ...result, hidden });
+      return { result: { ...result, hidden }, running: Boolean(recommending) };
     }
     if (pathname === '/api/goals' && method === 'PUT') {
       const { month, goals: items } = goalsInput(input);

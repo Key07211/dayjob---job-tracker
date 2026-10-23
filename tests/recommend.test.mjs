@@ -88,6 +88,7 @@ test('suggestions through the API are stored until asked again', async () => {
   };
   try {
     assert.deepEqual((await call('GET')).body, { result: null, running: false });
+    assert.equal((await call('PATCH', { hidden: true })).status, 404, 'nothing to close yet');
     assert.equal((await call('POST', {})).status, 409, 'needs a resume');
     app.repo.addResume({ name: 'cv.txt', mime: 'text/plain', size: 1, text: RESUME });
     assert.equal((await call('POST', { preference: 'x'.repeat(501) })).status, 400);
@@ -101,5 +102,13 @@ test('suggestions through the API are stored until asked again', async () => {
     assert.match(asked[0].prompt, /<preferences>\nBay Area/);
     assert.equal(asked[0].schema, RECOMMEND_SCHEMA);
     assert.equal((await call('GET')).body.result.createdAt, made.body.result.createdAt);
+    // Closing keeps the suggestions; asking again opens the new ones.
+    assert.equal((await call('PATCH', { hidden: 'yes' })).status, 400);
+    assert.equal((await call('PATCH', { hidden: true })).body.result.hidden, true);
+    const closed = (await call('GET')).body.result;
+    assert.deepEqual([closed.hidden, closed.searches.length], [true, 2]);
+    assert.equal((await call('PATCH', { hidden: false })).body.result.hidden, false);
+    await call('PATCH', { hidden: true });
+    assert.equal((await call('POST', {})).body.result.hidden, undefined);
   } finally { await app.close(); }
 });

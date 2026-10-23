@@ -127,7 +127,7 @@ On **Searches**, click **Ask the AI** (optionally with preferences such as "Bay 
 - up to 6 searches: job-title keywords, location, level words to exclude (Senior and Staff for a new-grad resume, for example) and which resume each fits;
 - up to 10 companies, only ones that hire through Greenhouse, Lever or Ashby. Dayjob requests each board, drops those that do not exist and shows how many jobs are open.
 
-Nothing is added until you click **Add** or **Follow**; you can also edit a search before adding it. The latest suggestions are kept for the next time you open the page.
+Nothing is added until you click **Add** or **Follow**; you can also edit a search before adding it. When you are done, click **Done, close the suggestions** at the bottom (or the ✕ at the top) to put them away. The latest suggestions are kept: click **Show them again** to bring them back, and new suggestions open on their own.
 
 ## Home
 
