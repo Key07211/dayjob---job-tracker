@@ -22,7 +22,8 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Application tracking | "I applied" records the date and a note and moves the job to Applications. Stages: Applied → Assessment → Interviewing → Offer / Accepted / Rejected / Withdrawn / Ghosted, each change on a timeline. Applications made elsewhere can be added by hand. |
 | Automatic follow-through | A follow-up reminder N days (7 by default) after applying or a status change; a "possibly ghosted" flag after N days (21) at Applied; a daily check whether applied and saved jobs have closed. |
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
-| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis and update applications, with 18 tools. |
+| Built-in browser | The desktop app has its own browser (Browser in the sidebar) with tabs, and its sign-ins stay on this computer. "Add to Dayjob" saves the job you are looking at so it can be scored and tracked. Claude can open and read pages through MCP and help fill in applications; anything that submits or sends waits for you to click Allow. |
+| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications and use the Dayjob browser, with 28 tools. |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
 
 ![Applications: funnel, stages and timeline](docs/media/applications-en.webp)
@@ -113,7 +114,32 @@ Dayjob needs to be running. Then try:
 | `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | Manage searches, follow companies, search now |
 | `dayjob_list_notifications` | Recent reminders |
 
+| `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
+| `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
+| `dayjob_browser_scroll` / `dayjob_browser_navigate` / `dayjob_browser_tabs` | Scroll, go back, forward or reload, switch and close tabs |
+
 Changes made through MCP show as "Claude" on the timeline.
+
+## Built-in browser
+
+**Browser** in the desktop app's sidebar is Dayjob's own browser, separate from Chrome and Edge:
+
+- Sign in to LinkedIn, Indeed, Handshake or company career sites there. Sign-ins and cookies stay in Dayjob's data on this computer (**Settings → Dayjob browser** clears them).
+- "Open on LinkedIn" and "Company apply page" in a job's details open there; the arrow at the right of the toolbar opens the page in your own browser.
+- For a job Dayjob did not find, click **Add to Dayjob**. It reads the page's standard job data (schema.org JobPosting, which most job sites publish) or its text, and saves the job so it can be scored and tracked.
+
+With Claude connected, try:
+
+> Open this job's application page in the Dayjob browser, fill in the form from my resume, and show me before you submit.
+
+What Claude can and cannot do there:
+
+- It can open pages, read them, take screenshots, click, type, pick dropdown options and switch tabs. You see it happen in the Dayjob window ("Claude is working" in the toolbar).
+- Clicking a button such as Submit, Send, Confirm or Delete, or pressing Enter in a multi-field form, first asks you in Dayjob. Nothing happens until you click **Allow**, and the request is dropped after 2 minutes.
+- It never types passwords, card numbers or one-time codes, and it does not upload files; you choose the resume yourself. Text on web pages is treated as data, never as instructions.
+- Untick **Let Claude use it** in the toolbar and Claude can no longer open or use the browser.
+
+Some sites do not allow signing in with Google inside an app's browser. Sign in with email and password there, or use the toolbar arrow to switch to your own browser.
 
 ## JobSpy (optional)
 
@@ -148,6 +174,8 @@ npm test
 ```
 
 The tests never touch a real site: scrapers read saved pages (`tests/fixtures/`), scoring uses fake providers and MCP an in-memory connection.
+
+The desktop smoke test (`electron . --smoke-test <result.json>`, run on every Windows build) also opens a local application form in the built-in browser, fills it in, picks an option, and checks that clicking Submit asks the user first.
 
 To try the interface without scraping, generate made-up data:
 

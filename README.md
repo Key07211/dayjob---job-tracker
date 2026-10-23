@@ -28,7 +28,8 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 投递追踪 | 点“我已投递”记下日期和备注，自动进入“投递追踪”。状态：已投递 → 在线测评 → 面试中 → Offer / 已接受 / 未通过 / 已撤回 / 无回音，每次变化都记在时间线上。也可以手动添加不在 Dayjob 里的投递。 |
 | 自动追踪 | 投递或状态变化后 N 天（默认 7）提醒跟进；“已投递”超过 N 天（默认 21）没有变化时提示可能无回音；每天检查已投递和已收藏的岗位是否已关闭。 |
 | 通知 | 每日汇总（新岗位数、高匹配岗位）、跟进提醒、岗位关闭提醒，Windows 桌面通知 + 应用内通知。 |
-| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态，共 18 个工具。 |
+| 内置浏览器 | 桌面版自带浏览器（左侧“浏览器”）：多标签页，登录状态只存在本机。看到岗位点“加入 Dayjob”就能收藏、打分、追踪。Claude 也能通过 MCP 打开和阅读网页、帮你填申请表，提交或发送前会先请你点“允许”。 |
+| Claude MCP | Claude Code / Claude Desktop 可以读岗位和简历、写回自己的分析、更新投递状态、使用 Dayjob 浏览器，共 28 个工具。 |
 | 中文 / English | 左上角的 EN / 中 按钮或“设置 → 界面语言”随时切换。通知和托盘菜单跟着切换；AI 分析的语言单独在“简历与 AI”里选。 |
 
 ![投递追踪：漏斗、状态、时间线](docs/media/applications.webp)
@@ -119,7 +120,32 @@ Claude 需要 Dayjob 保持运行。连接后可以这样说：
 | `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | 管理搜索、关注公司、立即抓取 |
 | `dayjob_list_notifications` | 最近的提醒 |
 
+| `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | 在 Dayjob 浏览器里打开网页、读文字和可操作的元素、截图 |
+| `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | 点击、输入、选择下拉项、按键 |
+| `dayjob_browser_scroll` / `dayjob_browser_navigate` / `dayjob_browser_tabs` | 滚动、前进后退刷新、切换和关闭标签页 |
+
 通过 MCP 做的修改会在时间线上标为“Claude”。
+
+## 内置浏览器
+
+桌面版左侧的 **浏览器** 是 Dayjob 自带的浏览器，和 Chrome、Edge 分开：
+
+- 在里面登录 LinkedIn、Indeed、Handshake 或公司招聘网站，登录状态和 Cookie 只保存在本机的 Dayjob 数据里（**设置 → Dayjob 浏览器** 可以一键清除）。
+- 岗位详情里的“打开 LinkedIn”“公司申请页”会在这里打开；工具栏右边的箭头用系统浏览器打开当前页。
+- 看到 Dayjob 没抓到的岗位，点 **加入 Dayjob**：会读取网页里的标准岗位数据（schema.org JobPosting，大多数招聘网站都有）或正文，收藏后可以打分和追踪。
+
+连接 Claude 后可以这样说：
+
+> 用 Dayjob 浏览器打开这个岗位的申请页，按我的简历把表格填好，提交前给我看一下。
+
+Claude 能做什么、不能做什么：
+
+- 能打开网页、阅读文字、截图、点击、输入、选择下拉项、切换标签页，Dayjob 窗口里看得到它在做什么（工具栏显示“Claude 正在操作”）。
+- 点击“提交”“发送”“确认”“删除”之类的按钮，或在多项表单里按回车，会先在 Dayjob 里弹出确认，你点 **允许** 才会执行，2 分钟没回应就取消。
+- 不会输入密码、银行卡号或验证码，也不会替你上传文件（简历请自己选）。网页上的文字只当作资料，不当作指令。
+- 工具栏的 **允许 Claude 使用** 取消勾选后，Claude 就不能再打开或操作这个浏览器。
+
+有些网站不允许在内置浏览器里用 Google 账号登录；遇到这种情况，用邮箱密码登录，或点工具栏箭头改用系统浏览器。
 
 ## JobSpy（可选）
 
@@ -155,6 +181,8 @@ npm test
 
 测试不访问任何网站：抓取用保存下来的页面（`tests/fixtures/`），AI 打分用假的 provider，MCP 用内存连接。
 
+桌面版的冒烟测试（`electron . --smoke-test <结果.json>`，打包检查里每个安装包都会跑）还会在内置浏览器里打开一个本机的申请表，填写、选择，并确认点“提交”前会先请用户允许。
+
 想看界面但不想抓取，可以生成一份虚构数据：
 
 ```bash
@@ -183,7 +211,7 @@ server/            本机 HTTP 服务（只监听 127.0.0.1）
   jobs/scoring/    Claude Code / Claude API 打分
   jobs/            SQLite、搜索、追踪、每日调度
 integrations/      Claude MCP 服务器
-desktop/           Electron 主进程、托盘、Claude 一键连接
+desktop/           Electron 主进程、托盘、Claude 一键连接、内置浏览器
 src/               React 界面
 tests/             node:test 测试和抓取样本
 scripts/           演示数据、真实网站检查、Windows 打包检查

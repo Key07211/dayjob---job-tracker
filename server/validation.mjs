@@ -177,3 +177,35 @@ export function manualPosting(input) {
     fail(error.message);
   }
 }
+
+// What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).
+export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'tabs'];
+export const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
+
+export function browserInput(action, input) {
+  const flag = key => (has(input, key) && input[key] !== null ? boolean(input[key], key) : false);
+  const ref = () => {
+    if (typeof input.ref !== 'string' || !/^e\d{1,7}$/.test(input.ref)) fail('ref must be an element ref from dayjob_browser_read, such as e12.');
+    return input.ref;
+  };
+  switch (action) {
+    case 'open': return { url: httpUrl(input.url, 'url'), newTab: flag('newTab') };
+    case 'read': return { query: text(input.query, 'query', { max: 200, optional: true }),
+      maxChars: has(input, 'maxChars') && input.maxChars !== null ? integer(input.maxChars, 'maxChars', 500, 60000) : 15000 };
+    case 'screenshot': return {};
+    case 'click': return { ref: ref() };
+    case 'type':
+      if (typeof input.text !== 'string' || input.text.length > 10000) fail('text must be text of up to 10000 characters.');
+      return { ref: ref(), text: input.text, append: flag('append'), pressEnter: flag('pressEnter') };
+    case 'select': return { ref: ref(), option: text(input.option, 'option', { min: 1, max: 200 }) };
+    case 'key': return { key: oneOf(input.key, BROWSER_KEYS, 'key') };
+    case 'scroll': return { direction: input.direction == null ? 'down' : oneOf(input.direction, ['up', 'down'], 'direction'), ref: input.ref == null ? null : ref() };
+    case 'navigate': return { action: oneOf(input.action, ['back', 'forward', 'reload'], 'action') };
+    case 'tabs': {
+      const chosen = input.action == null ? 'list' : oneOf(input.action, ['list', 'switch', 'close'], 'action');
+      if (chosen !== 'list' && (typeof input.tabId !== 'string' || !/^tab-\d{1,6}$/.test(input.tabId))) fail('tabId is required; list the tabs to get it.');
+      return { action: chosen, tabId: chosen === 'list' ? null : input.tabId };
+    }
+    default: return fail('Unknown browser action.');
+  }
+}
