@@ -161,6 +161,14 @@ test('settings merge with defaults and runs record results', () => {
   assert.equal(repo.getSettings().tracking.followUpDays, 7);
   repo.updateSettings({ tracking: { ghostDays: 30 } });
   assert.deepEqual([repo.getSettings().tracking.followUpDays, repo.getSettings().tracking.ghostDays], [7, 30]);
+  assert.equal(repo.getSettings().ai.scoreMode, 'auto');
+  // Up to 0.2.0 the whole settings object was stored with an on/off switch.
+  const { scoreMode: _mode, ...ai } = repo.getSettings().ai;
+  repo.saveSettings({ ...repo.getSettings(), ai: { ...ai, autoScore: false } });
+  assert.equal(repo.getSettings().ai.scoreMode, 'manual', 'switched off means only when asked');
+  assert.ok(!('autoScore' in repo.getSettings().ai));
+  repo.saveSettings({ ...repo.getSettings(), ai: { ...ai, autoScore: true } });
+  assert.equal(repo.getSettings().ai.scoreMode, 'auto');
   const run = repo.startRun('search', 'manual');
   repo.abandonRunningRuns();
   assert.equal(repo.listRuns()[0].status, 'failed');

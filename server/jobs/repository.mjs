@@ -10,11 +10,13 @@ export const OPEN_APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer']
 // Set by the tracker; a status change by the user clears them.
 export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
 export const MAX_RESUMES = 3;
+// auto: after each search; saved: the jobs the user saves; manual: only on request.
+export const SCORE_MODES = ['auto', 'saved', 'manual'];
 
 export const DEFAULT_SETTINGS = {
   language: 'zh',
   schedule: { enabled: true, time: '08:30' },
-  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', autoScore: true, language: 'zh', maxPerRun: 40, effort: 'medium' },
+  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', scoreMode: 'auto', language: 'zh', maxPerRun: 40, effort: 'medium' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
@@ -45,7 +47,13 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   // ---------- settings ----------
   function getSettings() {
     const row = q("SELECT value FROM settings WHERE key = 'app'").get();
-    return merge(DEFAULT_SETTINGS, json(row?.value, {}));
+    const stored = json(row?.value, {});
+    // Up to 0.2.0 scoring was an on/off switch; off now means "only when I ask".
+    if (stored.ai && typeof stored.ai === 'object') {
+      if (stored.ai.scoreMode === undefined && stored.ai.autoScore === false) stored.ai.scoreMode = 'manual';
+      delete stored.ai.autoScore;
+    }
+    return merge(DEFAULT_SETTINGS, stored);
   }
   function saveSettings(settings) {
     q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings));
@@ -328,8 +336,8 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     return getScore(postingIdValue, resumeId);
   }
   function getScore(postingIdValue, resumeId) { return scoreRow(q('SELECT * FROM scores WHERE posting_id = ? AND resume_id = ?').get(postingIdValue, resumeId)) ?? null; }
-  function unscoredPostingIds(limit) {
-    return q(`SELECT p.id FROM postings p WHERE p.status IN ('new', 'saved') AND p.duplicate_of IS NULL AND p.closed_at IS NULL
+  function unscoredPostingIds(limit, { savedOnly = false } = {}) {
+    return q(`SELECT p.id FROM postings p WHERE p.status IN (${savedOnly ? "'saved'" : "'new', 'saved'"}) AND p.duplicate_of IS NULL AND p.closed_at IS NULL
       AND p.resume_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.posting_id = p.id AND s.resume_id = p.resume_id)
       ORDER BY p.first_seen_at DESC LIMIT ?`).all(limit).map(row => row.id);
   }

@@ -19,7 +19,7 @@ export function createScorer({ repo, providers, log = console.warn }) {
 
   async function status(refresh = false) {
     const current = provider();
-    return { provider: current.id, ...(await current.status(refresh)), resumes: repo.countResumes(), pending };
+    return { provider: current.id, ...(await current.status(refresh)), mode: getSettings().ai.scoreMode, resumes: repo.countResumes(), pending };
   }
 
   // Each posting is scored against the resume it was matched to by keywords.

@@ -45,13 +45,16 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
     phase = 'search';
     const { run, newIds } = await runner.run({ trigger, searchIds });
     let scoring = { scored: 0, results: [] };
-    if (settings.ai.autoScore) {
+    const mode = settings.ai.scoreMode;
+    if (mode === 'auto' || mode === 'saved') {
       phase = 'score';
       try {
-        // Today's new postings first, then any older ones still unscored.
-        const backlog = repo.unscoredPostingIds(settings.ai.maxPerRun);
-        const ids = [...new Set([...newIds, ...backlog])];
-        scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun });
+        // auto: today's new postings first, then any older ones still unscored.
+        // saved: only the saved jobs that are still unscored.
+        const backlog = repo.unscoredPostingIds(settings.ai.maxPerRun, { savedOnly: mode === 'saved' });
+        const ids = mode === 'auto' ? [...new Set([...newIds, ...backlog])] : backlog;
+        // An empty list would make scoreBatch fall back to every unscored job.
+        if (ids.length) scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun });
         if (scoring.reason && scoring.reason !== 'no-resume') {
           run.detail.push({ source: 'AI', warning: scoring.reason });
           if (run.status === 'succeeded') run.status = 'partial';

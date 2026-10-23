@@ -74,7 +74,7 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 
 1. **Resume & AI**: upload your resume (up to 3). To score with Claude Code, install it, run `claude` in a terminal and type `/login`. If it is not signed in, the Resume & AI page says so; click "Check again" after signing in.
 2. **Searches**: click **Ask Claude** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
-3. Click **Search now** at the bottom left. Jobs are scored when the search finishes.
+3. Click **Search now** at the bottom left. By default jobs are scored when the search finishes; to save Claude allowance, switch Resume & AI to score only the jobs you save, or only when you ask.
 4. Browse **Today**, save jobs or mark them not interested. After applying, click **I applied**; everything after that happens in **Applications**.
 
 ## AI scoring
@@ -85,7 +85,15 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 | Claude API | Your own API key, default model `claude-opus-5-5`, billed by usage. Server-side fallback is on: if the chosen model declines a request, Anthropic retries it once with a fallback model. |
 | Claude through MCP | Ask Claude Code or Claude Desktop to "analyse this job against my resume"; Claude reads both and saves the result with `dayjob_save_analysis`. |
 
-Each run scores up to 40 jobs (adjustable): new jobs first, then older unscored ones.
+Each scored job is one Claude call and uses your Claude Code allowance (or API credit). Pick when it happens under **When to score** in Resume & AI:
+
+| Option | When jobs are scored |
+| --- | --- |
+| After every search (default) | Each run scores up to 40 jobs (adjustable): new jobs first, then older unscored ones. |
+| Only jobs I save | A job is scored when you save it; searches only catch up on saved jobs that are still unscored. |
+| Only when I ask | Click **Score with AI** on a job, or tick a few in Today and click **Score N picked jobs** at the top right. |
+
+If you had turned off "Score after each search" in 0.2.0 or earlier, you get "Only when I ask" after updating.
 
 With several resumes, Dayjob first compares each job's keywords with each resume on your computer (title words count more; words every posting has, such as "experience", "team" and equal-opportunity text, are ignored) and sends the best-matching resume to the AI. A job's details show which resume was used, the shared keywords and every resume's overlap. After you add or delete a resume, jobs pick their resume again, and a job whose resume changed is scored again.
 

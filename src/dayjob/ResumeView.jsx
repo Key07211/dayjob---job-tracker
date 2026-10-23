@@ -72,11 +72,20 @@ function Resumes({ resumes, reload }) {
   );
 }
 
+const SCORE_MODES = [
+  { id: 'auto', label: ['每次抓取后自动打分', 'After every search'],
+    detail: ['新岗位一抓到就打分（每次最多按上面的上限）。最省事，用量最多。', 'New jobs are scored as they arrive, up to the limit above. Easiest, and uses the most.'] },
+  { id: 'saved', label: ['只给收藏的岗位打分', 'Only jobs I save'],
+    detail: ['收藏一个岗位时才给它打分，抓取时不打分。', 'A job is scored when you save it. Searches score nothing.'] },
+  { id: 'manual', label: ['只在我点的时候打分', 'Only when I ask'],
+    detail: ['在岗位详情点“AI 打分”，或在列表里勾选几个一起打分。', 'Click “Score with AI” on a job, or tick a few in the list and score them together.'] },
+];
+
 function AiSettings({ boot, reload, status }) {
   const { t } = useI18n();
   const ai = boot.settings.ai;
   const [form, setForm] = useState({ provider: ai.provider, claudeCommand: ai.claudeCommand, model: ai.model, effort: ai.effort || 'medium',
-    language: ai.language, autoScore: ai.autoScore, maxPerRun: ai.maxPerRun, apiKey: '' });
+    language: ai.language, scoreMode: ai.scoreMode, maxPerRun: ai.maxPerRun, apiKey: '' });
   const [scoring, setScoring] = useState(boot.scoring);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
@@ -94,7 +103,7 @@ function AiSettings({ boot, reload, status }) {
     setError('');
     setMessage('');
     const body = { provider: form.provider, claudeCommand: form.claudeCommand, model: form.model, effort: form.effort, language: form.language,
-      autoScore: form.autoScore, maxPerRun: Number(form.maxPerRun), ...(form.apiKey ? { apiKey: form.apiKey } : {}) };
+      scoreMode: form.scoreMode, maxPerRun: Number(form.maxPerRun), ...(form.apiKey ? { apiKey: form.apiKey } : {}) };
     try {
       await api('/api/settings', { method: 'PATCH', body: { ai: body } });
       set('apiKey', '');
@@ -155,9 +164,19 @@ function AiSettings({ boot, reload, status }) {
             <option value="zh">中文</option><option value="en">English</option>
           </select>
         </label>
-        <label>{t('每次最多打分', 'Scores per run')}<input type="number" min={1} max={200} value={form.maxPerRun} onChange={event => set('maxPerRun', event.target.value)} /><small>{t('每日抓取后按这个上限自动打分。', 'The daily search scores up to this many jobs.')}</small></label>
-        <label className="check-line"><input type="checkbox" checked={form.autoScore} onChange={event => set('autoScore', event.target.checked)} />{t('抓取后自动打分', 'Score after each search')}</label>
+        <label>{t('每次最多打分', 'Scores per run')}<input type="number" min={1} max={200} value={form.maxPerRun} onChange={event => set('maxPerRun', event.target.value)} /><small>{t('一次抓取或一次批量打分最多打这么多个。', 'The most jobs scored by one search or one batch.')}</small></label>
       </div>
+      <h3 className="choice-title">{t('什么时候打分', 'When to score')}</h3>
+      <div className="choice-row three">
+        {SCORE_MODES.map(mode => (
+          <label key={mode.id} className={form.scoreMode === mode.id ? 'selected' : ''}>
+            <input type="radio" name="scoreMode" checked={form.scoreMode === mode.id} onChange={() => set('scoreMode', mode.id)} />
+            <strong>{t(...mode.label)}</strong><span>{t(...mode.detail)}</span>
+          </label>
+        ))}
+      </div>
+      <p className="hint">{t('每打一个岗位调用一次 Claude，会用掉 Claude Code 额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
+        'Each scored job is one Claude call and uses your Claude Code allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
       {form.provider === 'anthropic-api' ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',
         'Server-side fallback is on for the Claude API: if the chosen model declines a request, Anthropic retries it once with a fallback model.')}</p> : null}
       <p className="hint">{t('也可以在 Claude Code / Claude Desktop 里通过 Dayjob MCP 让 Claude 读取岗位和简历、直接写回分析（设置 → 连接 Claude）。',

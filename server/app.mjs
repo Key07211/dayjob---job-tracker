@@ -87,6 +87,13 @@ export async function createApp(options = {}) {
     }
     return scoringBatch;
   }
+  // In the "saved jobs" scoring mode, saving a job is the request to score it.
+  function scoreIfSaved(postingId) {
+    if (repo.getSettings().ai.scoreMode !== 'saved') return;
+    const posting = repo.getPosting(postingId);
+    if (posting?.status !== 'saved' || !posting.resumeId || posting.score) return;
+    scorer.score(postingId).catch(error => log(`[dayjob] scoring ${postingId}: ${error.message}`));
+  }
   function need(value, label) {
     if (!value) throw new HttpError(404, `${label} not found.`);
     return value;
@@ -230,7 +237,10 @@ export async function createApp(options = {}) {
     if (pathname === '/api/postings' && method === 'POST') {
       const item = manualPosting(input);
       const stored = repo.upsertPosting(item);
-      if (input.status === 'saved') repo.setPostingStatus(stored.id, 'saved');
+      if (input.status === 'saved') {
+        repo.setPostingStatus(stored.id, 'saved');
+        scoreIfSaved(stored.id);
+      }
       return [201, repo.getPosting(stored.id)];
     }
     match = pathname.match(/^\/api\/postings\/([^/]+)(\/score|\/apply)?$/);
@@ -238,7 +248,9 @@ export async function createApp(options = {}) {
       const posting = need(repo.getPosting(match[1]), 'Posting');
       if (!match[2] && method === 'PATCH') {
         if (posting.status === 'applied') throw new HttpError(409, 'This job is already tracked as an application.');
-        return repo.setPostingStatus(posting.id, postingStatus(input));
+        const updated = repo.setPostingStatus(posting.id, postingStatus(input));
+        scoreIfSaved(posting.id);
+        return updated;
       }
       if (match[2] === '/score' && method === 'POST') {
         if (input.result !== undefined) {

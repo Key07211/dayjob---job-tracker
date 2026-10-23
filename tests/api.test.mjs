@@ -116,6 +116,43 @@ test('settings and searches are validated; the API key never comes back', async 
   } finally { await app.close(); }
 });
 
+test('saving a job scores it only when the user chose to score saved jobs', async () => {
+  const scored = [];
+  const { app, call } = await start({ providers: { 'claude-cli': { id: 'claude-cli', status: async () => ({ available: true, detail: 'test' }),
+    score: async ({ posting }) => {
+      scored.push(posting.title);
+      return { score: 70, verdict: 'good', summary: 'ok', strengths: [], gaps: [], missingKeywords: [], provider: 'claude-cli' };
+    } } } });
+  const add = title => call('/api/postings', { method: 'POST', body: { title, company: 'Acme', jobUrl: `https://acme.example/jobs/${title.length}` } });
+  const settle = () => app.scorer.score('none').catch(() => {});
+  try {
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'sometimes' } } })).status, 400);
+    await call('/api/resumes', { method: 'POST', body: { name: 'cv.txt', mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } });
+    const first = await add('Data Analyst');
+    await call(`/api/postings/${first.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await settle();
+    assert.deepEqual(scored, [], 'the default mode leaves scoring to the daily run');
+
+    const mode = await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'saved' } } });
+    assert.equal(mode.body.ai.scoreMode, 'saved');
+    assert.equal((await call('/api/scoring/status')).body.mode, 'saved');
+    const second = await add('Data Scientist');
+    await call(`/api/postings/${second.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await call('/api/postings', { method: 'POST', body: { title: 'ML Engineer', company: 'Acme', jobUrl: 'https://acme.example/jobs/ml', status: 'saved' } });
+    await settle();
+    assert.deepEqual(scored, ['Data Scientist', 'ML Engineer'], 'saving, in the app or from the browser, scores the job');
+    const again = await call(`/api/postings/${second.body.id}/score`, { method: 'POST', body: {} });
+    assert.equal(again.body.score.score, 70);
+    assert.equal(scored.length, 2, 'the app waiting for that score does not score it twice');
+
+    await call('/api/settings', { method: 'PATCH', body: { ai: { scoreMode: 'manual' } } });
+    const third = await add('Analytics Engineer');
+    await call(`/api/postings/${third.body.id}`, { method: 'PATCH', body: { status: 'saved' } });
+    await settle();
+    assert.equal(scored.length, 2);
+  } finally { await app.close(); }
+});
+
 test('resumes are read from PDF, Word and text files', async () => {
   const pdf = await extractResumeText({ name: 'cv.pdf', mime: 'application/pdf', data: makePdf(RESUME.replace('—', '-').replace(/\n/g, ' ')) });
   assert.match(pdf.text, /Jane Doe/);

@@ -13,8 +13,9 @@ const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 
 
 // Shown to the model by Claude Code and Claude Desktop.
 export const INSTRUCTIONS = [
-  'Dayjob is the user\'s local job-search tracker: it fetches postings every day from LinkedIn, Indeed and company career boards, scores each against the user\'s resume, and tracks applications.',
+  'Dayjob is the user\'s local job-search tracker: it fetches postings every day from LinkedIn, Indeed and company career boards, scores them against the user\'s resume, and tracks applications.',
   'The user can keep up to three resumes. Each posting is matched to the resume that shares the most keywords with it and is scored against that one.',
+  'Scoring uses the user\'s Claude allowance, so the user picks when it happens (scoring.mode in dayjob_status): auto scores new postings after each search, saved scores the jobs they save, manual scores only the jobs they ask for. Outside auto, do not score postings in bulk unless the user asks.',
   'To analyse fit yourself, read the posting (dayjob_get_posting) and its matched resume (dayjob_get_resume with postingId), then store your verdict with dayjob_save_analysis so it shows in the app.',
   'Only call dayjob_mark_applied when the user says they have actually applied. Never invent application dates.',
   'When the user asks you to update applications from email (for example Gmail), match each message to an application by company and title, then call dayjob_update_application with a short note naming the email (sender, date, subject). Ask the user when the match is unclear.',

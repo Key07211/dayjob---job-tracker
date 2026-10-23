@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { HttpError } from './http.mjs';
 import { SITE_IDS } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
-import { APPLICATION_STATUSES, POSTING_STATUSES } from './jobs/repository.mjs';
+import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
 import { posting } from './jobs/normalize.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
@@ -99,7 +99,7 @@ export function settingsPatch(input) {
       return model;
     },
     apiKey: item => (item === null ? '' : text(item, 'API key', { max: 400 })),
-    autoScore: item => boolean(item, 'Auto score'),
+    scoreMode: item => oneOf(item, SCORE_MODES, 'Scoring mode'),
     language: item => oneOf(item, ['zh', 'en'], 'Language'),
     maxPerRun: item => integer(item, 'Scores per run', 1, 200),
     effort: item => oneOf(item, EFFORTS, 'Effort'),
