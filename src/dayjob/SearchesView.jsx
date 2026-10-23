@@ -152,21 +152,21 @@ function Suggestions({ boot, reload, onEdit, setView }) {
 
   return (
     <section className="card-section suggestions">
-      <h2><Sparkles size={18} />{t('Claude 按简历推荐', 'Suggestions from your resumes')}</h2>
-      <p className="hint">{t('Claude 读你的简历，推荐每天要抓的搜索和值得关注的公司；公司招聘页会先检查确实存在。推荐不会自动加入，点“添加”或“关注”的才会。使用“简历与 AI”里设置的 Claude（本机 Claude Code 会用你的 Claude 额度）。',
-        'Claude reads your resumes and suggests daily searches and companies worth following; Dayjob checks that each company board exists. Nothing is added until you click Add or Follow. Uses the Claude set under Resume & AI (Claude Code on this computer uses your Claude allowance).')}</p>
+      <h2><Sparkles size={18} />{t('AI 按简历推荐', 'Suggestions from your resumes')}</h2>
+      <p className="hint">{t('AI 读你的简历，推荐每天要抓的搜索和值得关注的公司；公司招聘页会先检查确实存在。推荐不会自动加入，点“添加”或“关注”的才会。使用“简历与 AI”里选的 AI 和模型（本机 Claude Code 或 Codex 会用你的额度）。',
+        'The AI reads your resumes and suggests daily searches and companies worth following; Dayjob checks that each company board exists. Nothing is added until you click Add or Follow. Uses the AI and model chosen under Resume & AI (Claude Code or Codex on this computer uses your allowance).')}</p>
       {!boot.resumes.length ? (
-        <p className="notice">{t('先上传简历，Claude 才能推荐。', 'Upload a resume first so Claude has something to read.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
+        <p className="notice">{t('先上传简历，AI 才能推荐。', 'Upload a resume first so the AI has something to read.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : (
         <form className="inline-form" onSubmit={ask}>
           <input value={preference} onChange={event => setPreference(event.target.value)} maxLength={500}
             placeholder={t('补充偏好（可选），例如：只看湾区和远程、需要 H-1B 担保、New Grad', 'Preferences (optional), e.g. Bay Area or remote only, needs H-1B sponsorship, new grad')} />
           <button className="button primary" type="submit" disabled={state.running}>
-            {state.running ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{result ? t('重新推荐', 'Suggest again') : t('让 Claude 推荐', 'Ask Claude')}
+            {state.running ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{result ? t('重新推荐', 'Suggest again') : t('让 AI 推荐', 'Ask the AI')}
           </button>
         </form>
       )}
-      {state.running ? <p className="notice"><LoaderCircle size={14} className="spin" />{t('Claude 正在读简历并检查公司招聘页，大约需要一分钟…', 'Claude is reading your resumes and Dayjob is checking the company boards. This takes about a minute…')}</p> : null}
+      {state.running ? <p className="notice"><LoaderCircle size={14} className="spin" />{t('AI 正在读简历，Dayjob 在检查公司招聘页，大约需要一分钟…', 'The AI is reading your resumes and Dayjob is checking the company boards. This takes about a minute…')}</p> : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       {result && !state.running ? (

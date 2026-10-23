@@ -340,7 +340,7 @@ export async function createApp(options = {}) {
     if (pathname === '/api/recommendations' && method === 'POST') {
       const { preference } = recommendInput(input);
       if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
-      if (recommending) throw new HttpError(409, 'Claude is already suggesting searches; wait for it to finish.');
+      if (recommending) throw new HttpError(409, 'The AI is already suggesting searches; wait for it to finish.');
       recommending = recommend({ repo, scorer, http: httpClient, preference, now, log });
       try {
         const result = await recommending;

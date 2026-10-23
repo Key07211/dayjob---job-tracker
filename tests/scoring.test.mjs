@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import Anthropic from '@anthropic-ai/sdk';
@@ -8,11 +9,14 @@ import { memoryRepo } from './helpers.mjs';
 import { posting } from '../server/jobs/normalize.mjs';
 import { buildUserPrompt, normalizeScore, parseScoreText, SCORE_SCHEMA } from '../server/jobs/scoring/prompt.mjs';
 import { claudeCandidates, cliArgs, createClaudeCliProvider, detectClaude, parseCliOutput, stopProcess } from '../server/jobs/scoring/claude-cli.mjs';
-import { createApiProvider } from '../server/jobs/scoring/anthropic-api.mjs';
+import { apiRequest, createApiProvider } from '../server/jobs/scoring/anthropic-api.mjs';
+import { codexArgs, codexCandidates, createCodexCliProvider } from '../server/jobs/scoring/codex-cli.mjs';
+import { createOpenAiProvider, openAiRequest } from '../server/jobs/scoring/openai-api.mjs';
+import { PROVIDERS, effortFor, modelInfo } from '../server/jobs/scoring/models.mjs';
 import { createScorer } from '../server/jobs/scoring/index.mjs';
 
 const RESULT = { score: 78, verdict: 'good', summary: '匹配大部分要求。', strengths: ['Python'], gaps: ['No Spark'], missing_keywords: ['Spark'] };
-const settings = (ai = {}) => () => ({ ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', language: 'zh', maxPerRun: 40, effort: 'medium', ...ai } });
+const settings = (ai = {}) => () => ({ ai: { provider: 'claude-cli', claudeCommand: '', codexCommand: '', model: '', apiKey: '', openaiApiKey: '', language: 'zh', maxPerRun: 40, effort: 'medium', ...ai } });
 
 test('score replies are validated and clamped', () => {
   assert.deepEqual(normalizeScore(RESULT), { score: 78, verdict: 'good', summary: '匹配大部分要求。', strengths: ['Python'], gaps: ['No Spark'], missingKeywords: ['Spark'] });
@@ -59,7 +63,9 @@ function fakeSpawn(replies) {
     child.kill = () => {};
     child.stdin = new Writable({ write(chunk, _encoding, done) { stdin += chunk; done(); } });
     child.stdin.on('finish', () => {
-      calls.push({ command, args, options, stdin });
+      const files = Object.fromEntries(fs.readdirSync(options.cwd).map(name => [name, fs.readFileSync(path.join(options.cwd, name), 'utf8')]));
+      if (reply.file) fs.writeFileSync(path.join(options.cwd, 'reply.txt'), reply.file);
+      calls.push({ command, args, options, stdin, files });
       setImmediate(() => { child.stdout.end(reply.stdout || ''); child.stderr.end(reply.stderr || ''); setImmediate(() => child.emit('close', reply.code ?? 0)); });
     });
     return child;
@@ -124,6 +130,118 @@ test('Claude API provider uses structured output with server-side fallback', asy
   delete process.env.ANTHROPIC_API_KEY;
   assert.equal(createApiProvider({ getSettings: settings() }).status().available, false);
   if (previous !== undefined) process.env.ANTHROPIC_API_KEY = previous;
+});
+
+test('the model list knows which efforts each model takes', () => {
+  for (const [id, provider] of Object.entries(PROVIDERS)) {
+    assert.ok(!provider.defaultModel || provider.models.some(item => item.id === provider.defaultModel), `${id} defaults to a listed model`);
+    assert.equal(new Set(provider.models.map(item => item.id)).size, provider.models.length);
+  }
+  assert.equal(effortFor('anthropic-api', '', 'max'), 'max', 'Claude Opus 5.5 takes every level');
+  assert.equal(effortFor('anthropic-api', 'claude-opus-4-6', 'xhigh'), '', 'a level the model lacks becomes its default');
+  assert.equal(effortFor('claude-cli', 'claude-haiku-4-5', 'low'), '');
+  assert.equal(effortFor('openai-api', 'gpt-5-mini', 'max'), '');
+  assert.equal(effortFor('codex-cli', '', 'high'), 'high', 'the CLI\'s own model is left to accept or refuse');
+  assert.equal(effortFor('openai-api', 'gpt-7-preview', 'max'), 'max', 'typed-in ids pass through');
+  assert.equal(effortFor('claude-cli', 'claude-opus-5-5', ''), '');
+  assert.equal(modelInfo('codex-cli', 'gpt-6-luna').name, 'GPT-6 Luna');
+});
+
+test('Claude Code gets the chosen model and effort', async () => {
+  assert.deepEqual(cliArgs({ model: 'claude-sonnet-5-5', effort: 'high' }).slice(-4), ['--effort', 'high', '--model', 'claude-sonnet-5-5']);
+  assert.ok(!cliArgs({ basic: true, effort: 'high' }).includes('--effort'), 'older releases get no --effort');
+  const { spawn, calls } = fakeSpawn([{ stdout: JSON.stringify({ result: JSON.stringify(RESULT) }) }]);
+  const haiku = createClaudeCliProvider({ getSettings: settings({ model: 'claude-haiku-4-5', effort: 'high' }), spawn, detect: async () => ({ available: true, command: 'claude', version: 'x' }) });
+  await haiku.score({ resume: 'r', posting: { title: 'x' } });
+  assert.ok(!calls[0].args.includes('--effort'), 'Haiku 4.5 has no effort setting');
+  assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'claude-haiku-4-5');
+  assert.match((await haiku.status()).detail, /claude-haiku-4-5/);
+});
+
+test('Claude API requests follow the chosen model', () => {
+  const base = { system: 's', prompt: 'p', schema: SCORE_SCHEMA };
+  const opus = apiRequest({ ai: { model: '', effort: '' }, ...base });
+  assert.equal(opus.model, 'claude-opus-5-5');
+  assert.equal(opus.output_config.effort, undefined, 'no effort sent means the model default');
+  assert.equal(opus.fallbacks, 'default');
+  const deep = apiRequest({ ai: { model: 'claude-fable-5-1', effort: 'max' }, ...base });
+  assert.deepEqual([deep.output_config.effort, deep.max_tokens], ['max', 32000]);
+  const haiku = apiRequest({ ai: { model: 'claude-haiku-5-5', effort: 'low' }, ...base });
+  assert.equal(haiku.fallbacks, undefined, 'Haiku 5.5 has no server-side fallback');
+  assert.equal(haiku.betas, undefined);
+  assert.equal(haiku.output_config.effort, 'low');
+  assert.equal(apiRequest({ ai: { model: 'claude-haiku-4-5', effort: 'high' }, ...base }).output_config.effort, undefined);
+});
+
+test('Codex scores through codex exec with the schema in its folder', async () => {
+  const args = codexArgs({ model: 'gpt-6.1-sol', effort: 'high' });
+  assert.deepEqual(args.slice(0, 4), ['exec', '--skip-git-repo-check', '--sandbox', 'read-only']);
+  assert.deepEqual(args.slice(-5), ['--model', 'gpt-6.1-sol', '-c', 'model_reasoning_effort=high', '-']);
+  assert.ok(args.every(arg => !/\s/.test(arg)), 'no argument needs quoting for cmd.exe');
+  assert.ok(codexCandidates('', { USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, 'win32').includes('C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd'));
+
+  const run = (_command, _args, _options, done) => done(null, 'Logged in using ChatGPT', '');
+  const { spawn, calls } = fakeSpawn([{ stdout: 'working…', file: `\`\`\`json\n${JSON.stringify(RESULT)}\n\`\`\`` }]);
+  const provider = createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli', model: 'gpt-6-luna', effort: 'xhigh' }), spawn, run,
+    detect: async () => ({ available: true, command: 'C:\\npm\\codex.cmd', version: 'codex-cli 0.60.1' }) });
+  assert.equal((await provider.status()).detail, 'Codex 0.60.1 · gpt-6-luna');
+  const result = await provider.score({ resume: 'My resume', posting: { title: 'DS', company: 'Acme', description: 'Python' } });
+  assert.deepEqual([result.score, result.provider, result.model], [78, 'codex-cli', 'gpt-6-luna']);
+  assert.match(calls[0].stdin, /career advisor[\s\S]*Do not run commands[\s\S]*My resume/);
+  assert.deepEqual(JSON.parse(calls[0].files['schema.json']), SCORE_SCHEMA);
+  assert.equal(calls[0].options.shell, true);
+  assert.ok(calls[0].args.includes('model_reasoning_effort=xhigh'));
+  assert.equal(fs.existsSync(calls[0].options.cwd), false, 'the temporary folder is removed');
+});
+
+test('Codex falls back for older releases and reports a missing sign-in', async () => {
+  const detect = async () => ({ available: true, command: 'codex', version: 'codex-cli 0.30.0' });
+  const ok = (_command, _args, _options, done) => done(null, 'Logged in', '');
+  const older = fakeSpawn([{ code: 2, stderr: "error: unexpected argument '--ignore-user-config' found" }, { file: JSON.stringify(RESULT) }]);
+  const provider = createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli' }), spawn: older.spawn, run: ok, detect });
+  assert.equal((await provider.score({ resume: 'r', posting: { title: 'x' } })).score, 78);
+  assert.ok(!older.calls[1].args.includes('--ignore-user-config'));
+  assert.ok(!older.calls[0].args.includes('--model'), 'no model chosen leaves Codex on its own');
+
+  const signedOut = fakeSpawn([{ code: 1, stderr: 'Error: Not logged in. Run `codex login` first.' }]);
+  const broken = createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli' }), spawn: signedOut.spawn, run: ok, detect });
+  await assert.rejects(broken.score({ resume: 'r', posting: { title: 'x' } }), /Codex is not signed in/);
+  assert.equal((await broken.status()).available, false);
+
+  const loggedOut = (_command, _args, _options, done) => done(Object.assign(new Error('exit 1'), { code: 1 }), '', 'Not logged in');
+  const checked = createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli' }), spawn: signedOut.spawn, run: loggedOut, detect });
+  assert.match((await checked.status()).detail, /not signed in/, '`codex login status` is checked up front');
+  const missing = createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli' }), detect: async () => ({ available: false }) });
+  await assert.rejects(missing.score({ resume: 'r', posting: { title: 'x' } }), /Codex was not found/);
+});
+
+test('OpenAI API provider uses strict structured output on the Responses API', async () => {
+  let sent;
+  const reply = (status, body) => ({ ok: status < 400, status, statusText: '', json: async () => body });
+  const fetch = async (url, options) => {
+    sent = { url, options, body: JSON.parse(options.body) };
+    return reply(200, { model: 'gpt-6.1-sol-2026-09-29', status: 'completed', output: [{ type: 'reasoning', summary: [] },
+      { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(RESULT) }] }] });
+  };
+  const provider = createOpenAiProvider({ getSettings: settings({ provider: 'openai-api', openaiApiKey: 'sk-test', effort: 'high' }), fetch });
+  const result = await provider.score({ resume: 'r', posting: { title: 'DS' } });
+  assert.deepEqual([result.score, result.provider, result.model], [78, 'openai-api', 'gpt-6.1-sol-2026-09-29']);
+  assert.equal(sent.url, 'https://api.openai.com/v1/responses');
+  assert.equal(sent.options.headers.authorization, 'Bearer sk-test');
+  assert.deepEqual([sent.body.model, sent.body.reasoning, sent.body.store], ['gpt-6.1-sol', { effort: 'high' }, false]);
+  assert.match(sent.body.instructions, /career advisor/);
+  assert.equal(sent.body.text.format.strict, true);
+  assert.equal(openAiRequest({ ai: { model: 'gpt-5-mini', effort: 'max' }, system: 's', prompt: 'p', schema: SCORE_SCHEMA }).reasoning, undefined);
+
+  const failing = body => createOpenAiProvider({ getSettings: settings({ openaiApiKey: 'k' }), fetch: async () => body });
+  await assert.rejects(failing(reply(401, { error: { message: 'Incorrect API key' } })).score({ resume: 'r', posting: { title: 'x' } }), /OpenAI API key was rejected/);
+  await assert.rejects(failing(reply(400, { error: { message: 'Unsupported value' } })).score({ resume: 'r', posting: { title: 'x' } }), /OpenAI API error 400: Unsupported value/);
+  await assert.rejects(failing(reply(200, { status: 'completed', output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }] })).score({ resume: 'r', posting: { title: 'x' } }), /declined/);
+  await assert.rejects(failing(reply(200, { status: 'incomplete', output: [] })).score({ resume: 'r', posting: { title: 'x' } }), /cut off/);
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  assert.equal(createOpenAiProvider({ getSettings: settings() }).status().available, false);
+  if (previous !== undefined) process.env.OPENAI_API_KEY = previous;
 });
 
 test('the scorer stores results and stops a batch on a provider-wide failure', async () => {

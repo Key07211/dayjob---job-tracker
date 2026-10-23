@@ -169,6 +169,14 @@ test('settings merge with defaults and runs record results', () => {
   assert.ok(!('autoScore' in repo.getSettings().ai));
   repo.saveSettings({ ...repo.getSettings(), ai: { ...ai, autoScore: true } });
   assert.equal(repo.getSettings().ai.scoreMode, 'auto');
+  // Up to 0.7.0 effort was saved as medium but only used by the Claude API.
+  const { codexCommand: _codex, ...older } = repo.getSettings().ai;
+  repo.saveSettings({ ...repo.getSettings(), ai: { ...older, effort: 'medium' } });
+  assert.equal(repo.getSettings().ai.effort, '', 'Claude Code keeps its own effort after the upgrade');
+  repo.saveSettings({ ...repo.getSettings(), ai: { ...older, provider: 'anthropic-api', effort: 'medium' } });
+  assert.equal(repo.getSettings().ai.effort, 'medium', 'the Claude API keeps the level it had');
+  repo.updateSettings({ ai: { provider: 'claude-cli', effort: 'medium' } });
+  assert.equal(repo.getSettings().ai.effort, 'medium', 'a level chosen from 0.8.0 on stays');
   const run = repo.startRun('search', 'manual');
   repo.abandonRunningRuns();
   assert.equal(repo.listRuns()[0].status, 'failed');
