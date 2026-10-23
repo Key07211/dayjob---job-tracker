@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { OPEN_STATUSES, dateInputToIso, daysSince, formatDay, formatTime, label, labels, localDateInput, relativeDay } from './format.js';
@@ -179,7 +179,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
   );
 }
 
-export function ApplicationsView({ dataVersion, refreshStatus, setView }) {
+export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = null }) {
   const { t } = useI18n();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -193,8 +193,17 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView }) {
 
   const visible = useMemo(() => (items || []).filter(TABS.find(entry => entry.id === tab).match), [items, tab]);
   useEffect(() => {
-    if (!visible.some(item => item.id === selected)) setSelected(visible[0]?.id || null);
-  }, [visible, selected]);
+    if (items && !visible.some(item => item.id === selected)) setSelected(visible[0]?.id || null);
+  }, [items, visible, selected]);
+  // Opened from Home: show the application in the tab it belongs to. Runs after
+  // the effect above, so its selection wins.
+  const focused = useRef(focus);
+  useEffect(() => {
+    if (!items || !focused.current) return;
+    const item = items.find(entry => entry.id === focused.current);
+    focused.current = null;
+    if (item) { setTab(OPEN_STATUSES.includes(item.status) ? 'open' : 'closed'); setSelected(item.id); }
+  }, [items]);
 
   function changed(updated) {
     setItems(current => current.map(item => (item.id === updated.id ? { ...item, ...updated } : item)));

@@ -18,6 +18,7 @@ import { createTracker } from './jobs/tracker.mjs';
 import { createScheduler } from './jobs/scheduler.mjs';
 import { recommend } from './jobs/recommend.mjs';
 import { createGoals } from './jobs/goals.mjs';
+import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -40,6 +41,7 @@ export async function createApp(options = {}) {
   const { db, filename } = openDatabase(options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data'));
   const repo = createRepository(db, { now });
   const goals = createGoals({ db, repo, now });
+  const dashboard = createDashboard({ db, now });
   repo.abandonRunningRuns();
   // Databases from before multiple resumes have postings with no matched resume.
   if (repo.countResumes()) repo.rematchPostings({ missingOnly: true });
@@ -166,6 +168,10 @@ export async function createApp(options = {}) {
     if (match) return need(repo.getResume(match[1], true), 'Resume');
     if (pathname === '/api/recommendations') return { result: repo.getMeta('recommendations'), running: Boolean(recommending) };
     if (pathname === '/api/goals') return goals.report(monthParam(params.get('month')));
+    if (pathname === '/api/dashboard') {
+      const weeks = number(params.get('weeks')) || DASHBOARD_WEEKS.default;
+      return dashboard.report({ weeks: Math.min(DASHBOARD_WEEKS.max, Math.max(DASHBOARD_WEEKS.min, Math.round(weeks))) });
+    }
     if (pathname === '/api/runs') return repo.listRuns(Math.min(number(params.get('limit')) || 20, 100));
     match = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (match) return need(repo.listRuns(100).find(run => run.id === match[1]), 'Run');

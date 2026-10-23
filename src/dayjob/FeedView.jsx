@@ -5,7 +5,6 @@ import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
-import { GoalsPanel } from './GoalsPanel.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -20,17 +19,16 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
   const { t } = useI18n();
-  const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
+  const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
   const [result, setResult] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(focus);
   const [reloadKey, setReloadKey] = useState(0);
   const [scoringMessage, setScoringMessage] = useState('');
   const [picked, setPicked] = useState(() => new Set());
-  const [goalsVersion, setGoalsVersion] = useState(0);
   const text = useDebounced(filters.q, 250);
   const scoreMode = boot.settings.ai.scoreMode || 'auto';
   const hasResume = boot.resumes.length > 0;
@@ -70,8 +68,6 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
   });
 
   function onChanged(updated, { removed } = {}) {
-    // Marking a job applied counts toward the goals.
-    if (updated.status === 'applied') setGoalsVersion(value => value + 1);
     if (removed) {
       const index = result.items.findIndex(item => item.id === updated.id);
       const items = result.items.filter(item => item.id !== updated.id);
@@ -116,7 +112,6 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus }) {
           <button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button>
         </div>
       </header>
-      {mode === 'active' ? <GoalsPanel version={dataVersion + goalsVersion} /> : null}
       {scoringMessage ? <p className="notice">{scoringMessage}</p> : null}
       {!hasResume && mode === 'active' ? (
         <p className="notice">{t('还没有上传简历，岗位不会被打分。', 'No resume yet, so jobs are not scored.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>

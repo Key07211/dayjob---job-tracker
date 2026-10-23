@@ -32,6 +32,8 @@ let updates;
 let quitting = false;
 let shutdownStarted = false;
 let language = null;
+// Renderer errors during a smoke test, so a failed check says what broke.
+const smokeLog = [];
 
 // Desktop copy follows the interface language (a Dayjob setting); before the
 // service starts, the system language decides.
@@ -144,6 +146,12 @@ async function createWindow() {
     },
   });
   window.removeMenu();
+  if (smoke) {
+    window.webContents.on('console-message', event => {
+      if (event.level === 'error' && smokeLog.length < 20) smokeLog.push(`${event.message} (${event.sourceId}:${event.lineNumber})`);
+    });
+    window.webContents.on('render-process-gone', (_event, details) => smokeLog.push(`renderer gone: ${details.reason}`));
+  }
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalLink(url)) shell.openExternal(url).catch(console.error);
     return { action: 'deny' };
@@ -287,11 +295,12 @@ async function smokeUpdate() {
 }
 
 async function runSmoke() {
-  const ready = "['今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (await window.webContents.executeJavaScript(ready)) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
+  const started = Date.now();
+  const timings = {};
+  // A freshly built app on a cold Windows runner can take over ten seconds to draw.
+  const ready = "['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
+  await until(() => window.webContents.executeJavaScript(ready), 45000);
+  timings.ready = Date.now() - started;
   const renderer = await window.webContents.executeJavaScript(`(async () => ({
     title: document.title,
     content: document.body.innerText.slice(0, 2000),
@@ -301,12 +310,12 @@ async function runSmoke() {
   }))()`);
   const response = await fetch(`${origin}/api/bootstrap`);
   const state = await response.json();
-  const rendererLoaded = ['今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
+  const rendererLoaded = ['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
   await window.webContents.executeJavaScript("document.querySelector('.language-toggle').click()");
   let english = false;
   for (let attempt = 0; attempt < 50 && !english; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 100));
-    english = await window.webContents.executeJavaScript("['Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en' && document.title === 'Dayjob · Job tracker'");
+    english = await window.webContents.executeJavaScript("['Home', 'Today', 'Applications', 'Searches'].every(item => document.body.innerText.includes(item)) && document.documentElement.lang === 'en' && document.title === 'Dayjob · Job tracker'");
   }
   const englishTitle = window.getTitle();
   let languageSaved = false;
@@ -318,13 +327,16 @@ async function runSmoke() {
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
+  timings.english = Date.now() - started;
   const browserCheck = await smokeBrowser(state.csrfToken);
+  timings.browser = Date.now() - started;
   const updateCheck = await smokeUpdate();
+  timings.update = Date.now() - started;
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && browserCheck.ok && updateCheck.ok;
   fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
-    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath }, null, 2));
-  if (!ok) throw new Error('Desktop smoke assertions failed.');
+    windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
+  if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   app.quit();
 }
 
@@ -386,8 +398,10 @@ if (!app.requestSingleInstanceLock()) {
   boot().catch(async error => {
     const copy = text();
     const message = error.code === 'EADDRINUSE' ? copy.portInUse(port) : copy.failed(error.message);
-    if (smoke) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message }, null, 2));
-    else dialog.showErrorBox(copy.cannotStart, message);
+    // A failed assertion already wrote the full report; keep it.
+    if (smoke) {
+      if (!error.reported) fs.writeFileSync(smokeOutput, JSON.stringify({ ok: false, error: message, log: smokeLog }, null, 2));
+    } else dialog.showErrorBox(copy.cannotStart, message);
     await service?.close().catch(() => {});
     quitting = true;
     app.exit(1);

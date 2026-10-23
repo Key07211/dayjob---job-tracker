@@ -31,6 +31,14 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
   Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} update={6} version={7} executable={8}" -f
     $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok, $report.version, $report.executable)
+  if ($report.timings) { Write-Output "${Name} timings (ms since the window loaded): $($report.timings | ConvertTo-Json -Compress)" }
+  if ($report.error) { Write-Output "${Name} error: $($report.error)" }
+  foreach ($line in @($report.log)) { if ($line) { Write-Output "${Name} renderer: $line" } }
+  if (-not $report.ok -and $report.content) {
+    $text = $report.content -replace '\s+', ' '
+    Write-Output "${Name} window text: $($text.Substring(0, [Math]::Min(400, $text.Length)))"
+  }
+  if (-not $report.ok -and $report.browser) { Write-Output "${Name} browser steps: $($report.browser | ConvertTo-Json -Compress)" }
   if ($report.browser.error) { Write-Output "${Name} browser check: $($report.browser.error)" }
   if ($report.update.error) { Write-Output "${Name} update check: $($report.update.error)" }
   if ($env:DAYJOB_SMOKE_UPDATE_FEED -and $report.update.downloaded -ne $true) { throw "$Name did not download the test update" }

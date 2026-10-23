@@ -23,9 +23,10 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Application tracking | "I applied" records the date and a note and moves the job to Applications. Stages: Applied → Assessment → Interviewing → Offer / Accepted / Rejected / Withdrawn / Ghosted, each change on a timeline. Applications made elsewhere can be added by hand. |
 | Automatic follow-through | A follow-up reminder N days (7 by default) after applying or a status change; a "possibly ghosted" flag after N days (21) at Applied; a daily check whether applied and saved jobs have closed. |
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
-| Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week at the top of Today. |
+| Home | Dayjob opens on a statistics page: applications this week and month, reply rate, OA / interview rate, the monthly and weekly goals, the last 12 weeks, the funnel, a daily heatmap, where applications stand, results by job board, and what needs a follow-up, recent changes and the best matches not applied to yet. |
+| Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week on Home. |
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar) with tabs, and its sign-ins stay on this computer. "Add to Dayjob" saves the job you are looking at so it can be scored and tracked. Claude can open and read pages through MCP and help fill in applications; anything that submits or sends waits for you to click Allow. |
-| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser and read or set monthly goals, with 32 tools. |
+| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser, read or set monthly goals and read the Home statistics, with 33 tools. |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
 
@@ -77,6 +78,7 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 2. **Searches**: click **Ask Claude** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
 3. Click **Search now** at the bottom left. By default jobs are scored when the search finishes; to save Claude allowance, switch Resume & AI to score only the jobs you save, or only when you ask.
 4. Browse **Today**, save jobs or mark them not interested. After applying, click **I applied**; everything after that happens in **Applications**.
+5. Come back to **Home** for the overall picture: how much you have applied, what needs a follow-up and which strong matches are still waiting.
 
 ## AI scoring
 
@@ -107,9 +109,26 @@ On **Searches**, click **Ask Claude** (optionally with preferences such as "Bay 
 
 Nothing is added until you click **Add** or **Follow**; you can also edit a search before adding it. The latest suggestions are kept for the next time you open the page.
 
+## Home
+
+Dayjob opens on **Home**, which puts applications, tracking and goals on one page:
+
+![Home: application statistics, monthly goals, the trend and the funnel](docs/media/home-en.webp)
+
+| Part | What it shows |
+| --- | --- |
+| Numbers at the top | Applied this week (and last week), this month (and the same point last month), active applications, reply rate and the typical days to a reply, the share that reached an OA or interview and the offers, and new jobs to look at. |
+| Monthly goals | This week's tasks, the month so far and every week; see the next section. |
+| Last 12 weeks | Applications each week (green) and OAs / interviews reached (orange); the dashed boxes are the weekly application goal. Hover a week for its numbers, or switch to a table at the top right. |
+| Funnel | The furthest stage each application reached: applied → assessment → interview → offer, with each step's conversion. An application rejected later still counts at the stage it reached. |
+| Daily applications | How many you sent each day over 12 weeks (darker is more), and your current streak. |
+| Where they stand | How many applications are active or closed, and in which status. |
+| By job board | How many you applied to through LinkedIn, Indeed, company boards and so on, how many reached an OA or interview, and the offers. Applications added by hand get their own row. |
+| Needs a follow-up / Recent changes / Best matches | Click a row to open that application or job. |
+
 ## Monthly goals
 
-The top of **Today** shows this month's goals. Click **Set goals** and fill in how many you want this month:
+**Home** shows this month's goals. Click **Set goals** and fill in how many you want this month:
 
 | Goal | How it is counted |
 | --- | --- |
@@ -155,6 +174,7 @@ Dayjob needs to be running. Then try:
 | `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | Manage searches, follow companies, search now |
 | `dayjob_list_notifications` | Recent reminders |
 | `dayjob_get_goals` / `dayjob_set_goal` / `dayjob_log_goal_progress` | Read monthly goals and weekly tasks, set a goal, log a custom goal |
+| `dayjob_get_dashboard` | Read the Home statistics (weekly applications, the funnel, reply rate, results by board, applications that need a follow-up…), handy for a weekly review with Claude |
 
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
@@ -236,7 +256,7 @@ To check a build on your own computer:
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.4.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.5.0
 ```
 
 ## License notes

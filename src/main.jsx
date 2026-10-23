@@ -1,9 +1,10 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LoaderCircle, Play, Search, Settings } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Play, Search, Settings } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
+import { HomeView } from './dayjob/HomeView.jsx';
 import { FeedView } from './dayjob/FeedView.jsx';
 import { ApplicationsView } from './dayjob/ApplicationsView.jsx';
 import { SearchesView } from './dayjob/SearchesView.jsx';
@@ -15,6 +16,7 @@ import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import './dayjob/dayjob.css';
 
 const VIEWS = [
+  { id: 'home', label: ['主页', 'Home'], icon: LayoutDashboard },
   { id: 'feed', label: ['今日岗位', 'Today'], icon: Inbox },
   { id: 'saved', label: ['已收藏', 'Saved'], icon: Bookmark },
   { id: 'applications', label: ['投递追踪', 'Applications'], icon: BriefcaseBusiness },
@@ -44,15 +46,19 @@ function App() {
   const [boot, setBoot] = useState(null);
   const [error, setError] = useState('');
   const [view, setView] = useState(() => {
-    try { const saved = sessionStorage.getItem('dayjob-view'); return VIEWS.some(item => item.id === saved) ? saved : 'feed'; } catch { return 'feed'; }
+    try { const saved = sessionStorage.getItem('dayjob-view'); return VIEWS.some(item => item.id === saved) ? saved : 'home'; } catch { return 'home'; }
   });
+  // A job or application picked on Home, for its view to open with; any other
+  // way of changing views clears it.
+  const [focus, setFocus] = useState(null);
+  const goTo = useCallback(target => { setFocus(null); setView(target); }, []);
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
   const [dataVersion, setDataVersion] = useState(0);
   const wasRunning = useRef(false);
   const adopted = useRef(false);
-  const browser = useBrowserState(setView);
+  const browser = useBrowserState(goTo);
   const update = useUpdateState();
 
   const reload = useCallback(async () => {
@@ -110,7 +116,9 @@ function App() {
   const scheduler = status?.scheduler || boot.scheduler;
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
-  const shared = { boot, reload, setView, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
+  const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
+  const openItem = (target, id) => { setFocus({ view: target, id }); setView(target); };
+  const focusFor = target => (focus?.view === target ? focus.id : null);
 
   return (
     <div className="app-shell">
@@ -122,7 +130,7 @@ function App() {
         </div>
         <nav>
           {VIEWS.map(item => (
-            <button key={item.id} className={`nav-item${view === item.id ? ' active' : ''}`} onClick={() => setView(item.id)}>
+            <button key={item.id} className={`nav-item${view === item.id ? ' active' : ''}`} onClick={() => goTo(item.id)}>
               <item.icon size={18} />
               <span>{t(...item.label)}</span>
               {badges[item.id] ? <em className={item.id === 'browser' ? 'alert' : undefined}>{badges[item.id] > 999 ? '999+' : badges[item.id]}</em> : null}
@@ -145,12 +153,13 @@ function App() {
           </div>
         </div>
       </aside>
-      {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={setView} /> : null}
+      {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
       <main className={`main${view === 'browser' ? ' flush' : ''}`}>
-        {view === 'feed' ? <FeedView key="feed" mode="active" {...shared} /> : null}
+        {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
+        {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
         {view === 'saved' ? <FeedView key="saved" mode="saved" {...shared} /> : null}
-        {view === 'applications' ? <ApplicationsView {...shared} /> : null}
-        {view === 'browser' && hasBrowser ? <BrowserView state={browser} covered={showNotifications} setView={setView} /> : null}
+        {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
+        {view === 'browser' && hasBrowser ? <BrowserView state={browser} covered={showNotifications} setView={goTo} /> : null}
         {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
         {view === 'resume' ? <ResumeView {...shared} status={status} /> : null}
         {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
