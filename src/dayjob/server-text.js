@@ -59,7 +59,7 @@ const EXACT = {
   'Email must look like name@example.com.': '邮箱格式不对，例如 name@example.com。',
 };
 
-const FOUND = { Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
+const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
 
 const PATTERNS = [
   [/^(\d+) of (\d+) could not be scored: (.*)$/s, (all, failed, total, reason) => `${total} 个岗位中有 ${failed} 个没能打分：${serverText(reason)}`],

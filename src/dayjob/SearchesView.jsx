@@ -148,6 +148,14 @@ function Suggestions({ boot, reload, onEdit, setView }) {
         : t(`已关注 ${company.name}。`, `Following ${company.name}.`));
     } catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
   }
+  // Closed suggestions stay saved and can be opened again.
+  async function setHidden(hidden) {
+    setError('');
+    setMessage('');
+    setState(current => ({ ...current, result: { ...current.result, hidden } }));
+    try { setState(await api('/api/recommendations', { method: 'PATCH', body: { hidden } })); }
+    catch (failure) { setError(serverText(failure.message)); setState(current => ({ ...current, result: { ...current.result, hidden: !hidden } })); }
+  }
   const resumeName = id => boot.resumes.find(resume => resume.id === id)?.name;
 
   return (
@@ -169,8 +177,18 @@ function Suggestions({ boot, reload, onEdit, setView }) {
       {state.running ? <p className="notice"><LoaderCircle size={14} className="spin" />{t('AI 正在读简历，Dayjob 在检查公司招聘页，大约需要一分钟…', 'The AI is reading your resumes and Dayjob is checking the company boards. This takes about a minute…')}</p> : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
-      {result && !state.running ? (
+      {result?.hidden && !state.running ? (
+        <p className="hint suggestion-closed">
+          {t(`${formatTime(result.createdAt)} 的推荐已关闭。`, `The suggestions from ${formatTime(result.createdAt)} are closed.`)}
+          <button type="button" className="link" onClick={() => setHidden(false)}>{t('重新打开', 'Show them again')}</button>
+        </p>
+      ) : null}
+      {result && !result.hidden && !state.running ? (
         <div className="suggestion-result">
+          <div className="suggestion-bar">
+            <strong>{t('推荐结果', 'Suggestions')}</strong>
+            <button type="button" className="icon-button" title={t('关闭推荐', 'Close the suggestions')} aria-label={t('关闭推荐', 'Close the suggestions')} onClick={() => setHidden(true)}><X size={16} /></button>
+          </div>
           {result.summary ? <p className="suggestion-summary">{result.summary}</p> : null}
           {result.searches.length ? (
             <>
@@ -228,11 +246,14 @@ function Suggestions({ boot, reload, onEdit, setView }) {
               </ul>
             </>
           ) : null}
-          <p className="hint">
-            {t(`${formatTime(result.createdAt)} 推荐`, `Suggested ${formatTime(result.createdAt)}`)}
-            {result.dropped ? t(`；另有 ${result.dropped} 家公司的招聘页不存在，已去掉`, `; ${result.dropped} more ${result.dropped === 1 ? 'company was' : 'companies were'} dropped because their board does not exist`) : ''}
-            {t('。', '.')}
-          </p>
+          <div className="suggestion-foot">
+            <p className="hint">
+              {t(`${formatTime(result.createdAt)} 推荐`, `Suggested ${formatTime(result.createdAt)}`)}
+              {result.dropped ? t(`；另有 ${result.dropped} 家公司的招聘页不存在，已去掉`, `; ${result.dropped} more ${result.dropped === 1 ? 'company was' : 'companies were'} dropped because their board does not exist`) : ''}
+              {t('。', '.')}
+            </p>
+            <button type="button" className="button small" onClick={() => setHidden(true)}><X size={14} />{t('选好了，关闭推荐', 'Done, close the suggestions')}</button>
+          </div>
         </div>
       ) : null}
     </section>
@@ -362,7 +383,7 @@ export function SearchesView({ boot, reload, status, setView }) {
   }
 
   return (
-    <section className="settings-page">
+    <section className="settings-page searches-page">
       <header className="view-header">
         <div><h1>{t('搜索与公司', 'Searches & companies')}</h1><p>{t('每天按这些条件抓取。抓取在你的电脑上进行，会放慢请求节奏，避免被网站限流。',
           'Dayjob searches for these every day, from your computer, at a slow pace so the sites do not rate limit it.')}</p></div>
@@ -374,37 +395,44 @@ export function SearchesView({ boot, reload, status, setView }) {
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
-      <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); for (const node of [document.querySelector('.main-view'), window]) node?.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
-      <section className="card-section">
-        <h2>{t('保存的搜索', 'Saved searches')}</h2>
-        {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',
-          'No searches yet. Create one, for example keywords “Data Scientist, Data Analyst”, location “New York, NY”, posted in the past 3 days.')}</p> : null}
-        <ul className="search-list">
-          {boot.searches.map(search => (
-            <li key={search.id} className={search.enabled ? '' : 'disabled'}>
-              <div className="search-main">
-                <strong>{search.name}</strong>
-                <span>{search.keywords}{search.location ? ` · ${search.location}` : ''}{search.isRemote ? t(' · 远程', ' · remote') : ''}</span>
-                <span className="chips">
-                  {search.sites.map(site => <em key={site}>{label('site', site)}</em>)}
-                  {search.hoursOld ? <em>{t(...(POSTED.find(option => option.value === search.hoursOld)?.label || [`${search.hoursOld} 小时内`, `Past ${search.hoursOld} hours`]))}</em> : null}
-                  {search.jobType ? <em>{label('jobType', search.jobType)}</em> : null}
-                  {search.excludeKeywords.length ? <em>{t(`排除 ${search.excludeKeywords.join('、')}`, `Excludes ${search.excludeKeywords.join(', ')}`)}</em> : null}
-                </span>
-                <small>{search.lastRunAt ? t(`上次运行 ${relativeDay(search.lastRunAt)} ${lastTime(search.lastRunAt)}`, `Last run ${relativeDay(search.lastRunAt)} at ${lastTime(search.lastRunAt)}`) : t('还没有运行过', 'Not run yet')}</small>
-              </div>
-              <div className="search-actions">
-                <label className="switch"><input type="checkbox" checked={search.enabled} onChange={() => toggle(search)} />{search.enabled ? t('每日', 'Daily') : t('暂停', 'Paused')}</label>
-                <button className="icon-button" title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}><Play size={15} /></button>
-                <button className="icon-button" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
-                <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(search)}><Trash2 size={15} /></button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-      <Companies companies={boot.companies} onChange={reload} />
-      <Runs runs={runs} />
+      {/* Searches on the left and companies on the right once the page is wide. */}
+      <div className="searches-columns">
+        <div className="searches-column">
+          <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); for (const node of [document.querySelector('.main-view'), window]) node?.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
+          <section className="card-section">
+            <h2>{t('保存的搜索', 'Saved searches')}</h2>
+            {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',
+              'No searches yet. Create one, for example keywords “Data Scientist, Data Analyst”, location “New York, NY”, posted in the past 3 days.')}</p> : null}
+            <ul className="search-list">
+              {boot.searches.map(search => (
+                <li key={search.id} className={search.enabled ? '' : 'disabled'}>
+                  <div className="search-main">
+                    <strong>{search.name}</strong>
+                    <span>{search.keywords}{search.location ? ` · ${search.location}` : ''}{search.isRemote ? t(' · 远程', ' · remote') : ''}</span>
+                    <span className="chips">
+                      {search.sites.map(site => <em key={site}>{label('site', site)}</em>)}
+                      {search.hoursOld ? <em>{t(...(POSTED.find(option => option.value === search.hoursOld)?.label || [`${search.hoursOld} 小时内`, `Past ${search.hoursOld} hours`]))}</em> : null}
+                      {search.jobType ? <em>{label('jobType', search.jobType)}</em> : null}
+                      {search.excludeKeywords.length ? <em>{t(`排除 ${search.excludeKeywords.join('、')}`, `Excludes ${search.excludeKeywords.join(', ')}`)}</em> : null}
+                    </span>
+                    <small>{search.lastRunAt ? t(`上次运行 ${relativeDay(search.lastRunAt)} ${lastTime(search.lastRunAt)}`, `Last run ${relativeDay(search.lastRunAt)} at ${lastTime(search.lastRunAt)}`) : t('还没有运行过', 'Not run yet')}</small>
+                  </div>
+                  <div className="search-actions">
+                    <label className="switch"><input type="checkbox" checked={search.enabled} onChange={() => toggle(search)} />{search.enabled ? t('每日', 'Daily') : t('暂停', 'Paused')}</label>
+                    <button className="icon-button" title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}><Play size={15} /></button>
+                    <button className="icon-button" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
+                    <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(search)}><Trash2 size={15} /></button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+        <div className="searches-column">
+          <Companies companies={boot.companies} onChange={reload} />
+          <Runs runs={runs} />
+        </div>
+      </div>
     </section>
   );
 }

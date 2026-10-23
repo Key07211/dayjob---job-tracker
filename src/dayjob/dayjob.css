@@ -275,6 +275,11 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 /* ---------- settings-like pages ---------- */
 .settings-page { max-width: 980px; display: flex; flex-direction: column; gap: 16px; }
 .settings-page > .view-header { margin-bottom: 0; }
+/* Searches use the whole width: one column, then two once there is room. */
+.settings-page.searches-page { max-width: none; }
+.searches-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.searches-column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@container view (min-width: 1240px) { .searches-columns { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 .card-section, .panel-form { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 .panel-form { margin-bottom: 14px; }
 .card-section h2 { font-size: 15.5px; display: flex; align-items: center; gap: 8px; }
@@ -305,6 +310,11 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .suggestion-result h3 { font-size: 13.5px; font-weight: 600; color: var(--muted); margin: 14px 0 2px; }
 .suggestion-summary { font-size: 14px; line-height: 1.6; margin: 4px 0 0; }
 .suggestion-result .company-list li { align-items: center; }
+.suggestion-result { border-top: 1px solid var(--line); padding-top: 10px; }
+.suggestion-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.suggestion-bar strong { font-size: 14px; }
+.suggestion-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-top: 10px; }
+.suggestion-closed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .company-list li > .added-tag, .added-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 13px; white-space: nowrap; }
 .company-list li strong { min-width: 120px; }
 .company-list li > span { flex: 1; color: var(--muted); font-size: 13px; }
