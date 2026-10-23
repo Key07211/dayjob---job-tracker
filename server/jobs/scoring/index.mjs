@@ -1,10 +1,12 @@
 import { createApiProvider } from './anthropic-api.mjs';
 import { createClaudeCliProvider } from './claude-cli.mjs';
+import { createCodexCliProvider } from './codex-cli.mjs';
+import { createOpenAiProvider } from './openai-api.mjs';
 
 // Picks the provider from settings and scores postings one at a time, so a
-// daily run never floods Claude. Failures are counted, not thrown, in batches.
+// daily run never floods the AI. Failures are counted, not thrown, in batches.
 // Failures that would repeat for every posting, so a batch stops at the first.
-const FATAL = /API key|Claude Code was not found|not logged in|\/login|rate limit/i;
+const FATAL = /API key|(Claude Code|Codex) was not found|not logged in|not signed in|\/login|rate limit/i;
 const pausedError = () => Object.assign(new Error('AI scoring is paused. Resume it in Dayjob first.'), { status: 409, paused: true });
 
 export function createScorer({ repo, providers, log = console.warn }) {
@@ -12,6 +14,8 @@ export function createScorer({ repo, providers, log = console.warn }) {
   const available = providers || {
     'claude-cli': createClaudeCliProvider({ getSettings }),
     'anthropic-api': createApiProvider({ getSettings }),
+    'codex-cli': createCodexCliProvider({ getSettings }),
+    'openai-api': createOpenAiProvider({ getSettings }),
   };
   let queue = Promise.resolve();
   let pending = 0;

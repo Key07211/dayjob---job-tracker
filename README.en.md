@@ -18,8 +18,8 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Sources | LinkedIn and Indeed, requested directly the way JobSpy does it (no Python needed). Greenhouse, Lever and Ashby company boards through their official public JSON. Glassdoor, ZipRecruiter and Google Jobs through the optional Python JobSpy. |
 | Job details | Title, company, location, remote, pay, job type and level, the full description, and the dates: **posted / opened**, first found by Dayjob, last seen in a search, last checked open. |
 | Filters | Each search has keywords (comma-separated means any of them), location, a posted-within window, job type, remote only and words to exclude. The same job on several boards is merged. |
-| AI scoring | Upload up to 3 PDF, Word or text resumes (one for data roles and one for software roles, say). Each job is scored 0–100 against the resume that shares the most keywords with it, with strengths, gaps and keywords you could add. It uses your signed-in Claude Code (`claude -p`, no API key) by default, or your own Anthropic API key. Pause scoring at any time and resume later; remove every job under 60 in one click. |
-| Suggestions | Under Searches, "Ask Claude" reads your resumes and suggests daily searches and companies worth following (each company board is checked first); add the ones you like in one click. |
+| AI scoring | Upload up to 3 PDF, Word or text resumes (one for data roles and one for software roles, say). Each job is scored 0–100 against the resume that shares the most keywords with it, with strengths, gaps and keywords you could add. It uses your signed-in Claude Code (`claude -p`, no API key) by default, or Codex signed in with your ChatGPT account, or your own Anthropic or OpenAI API key; you pick the model and the reasoning effort. Pause scoring at any time and resume later; remove every job under 60 in one click. |
+| Suggestions | Under Searches, "Ask the AI" reads your resumes and suggests daily searches and companies worth following (each company board is checked first); add the ones you like in one click. |
 | Application tracking | "I applied" records the date and a note and moves the job to Applications. Stages: Applied → Assessment → Interviewing → Offer / Accepted / Rejected / Withdrawn / Ghosted, each change on a timeline. Applications made elsewhere can be added by hand. |
 | Automatic follow-through | A follow-up reminder N days (7 by default) after applying or a status change; a "possibly ghosted" flag after N days (21) at Applied; a daily check whether applied and saved jobs have closed. |
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
@@ -77,7 +77,7 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 ## First steps
 
 1. **Resume & AI**: upload your resume (up to 3), then click **Read from my resume** under **Application profile** below and fill in what it missed; autofill uses it. To score with Claude Code, install it, run `claude` in a terminal and type `/login`. If it is not signed in, the Resume & AI page says so; click "Check again" after signing in.
-2. **Searches**: click **Ask Claude** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
+2. **Searches**: click **Ask the AI** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
 3. Click **Search now** at the bottom left. By default jobs are scored when the search finishes; to save Claude allowance, switch Resume & AI to score only the jobs you save, or only when you ask.
 4. Browse **Today**, save jobs or mark them not interested. To apply, click "Company apply page" in a job's details; it opens in the browser on the right, where **Autofill** fills in the application form. After applying, click **I applied** (or **Mark applied** in the browser's assistant panel); everything after that happens in **Applications**.
 5. Come back to **Home** for the overall picture: how much you have applied, what needs a follow-up and which strong matches are still waiting.
@@ -87,10 +87,24 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 | Option | Notes |
 | --- | --- |
 | Claude Code on this computer (default) | Runs `claude -p` on your Claude plan; no API key. If `claude` is not found, enter its full path under Resume & AI. |
-| Claude API | Your own API key, default model `claude-opus-5-5`, billed by usage. Server-side fallback is on: if the chosen model declines a request, Anthropic retries it once with a fallback model. |
+| Claude API | Your own Anthropic API key, default model `claude-opus-5-5`, billed by usage. Server-side fallback is on for models that have it, such as Opus, Fable and Sonnet 5.5: if the chosen model declines a request, Anthropic retries it once with a fallback model. |
+| Codex on this computer (ChatGPT) | Runs `codex exec` on the Codex allowance of your ChatGPT plan; no API key. Install Codex, run `codex` in a terminal and choose Sign in with ChatGPT. Codex runs in a read-only sandbox from an empty folder, without your Codex config or MCP servers. |
+| OpenAI API | Your own OpenAI API key (Responses API), default model `gpt-6.1-sol`, billed by usage; requests are not stored by OpenAI. |
 | Claude through MCP | Ask Claude Code or Claude Desktop to "analyse this job against my resume"; Claude reads both and saves the result with `dayjob_save_analysis`. |
 
-Each scored job is one Claude call and uses your Claude Code allowance (or API credit). Pick when it happens under **When to score** in Resume & AI:
+### Model and reasoning effort
+
+Once you pick a provider under **AI scoring** in Resume & AI, the **Model** list shows that provider's models, and **Reasoning effort** lists only the levels the chosen model accepts:
+
+| Provider | Models |
+| --- | --- |
+| Claude Code / Claude API | Claude Opus 5.5 (recommended), Fable 5.1 (most capable), Sonnet 5.5, Haiku 5.5 (fast, cheap), and older Fable 5, Opus 5, Sonnet 5, Opus 4.8 / 4.7 / 4.6, Sonnet 4.6 and Haiku 4.5. Claude Code also offers "Claude Code's own setting" (the default). |
+| Codex | GPT-6.1 Sol (recommended), GPT-6 Astra (most capable), GPT-6 Sol, GPT-6 Luna (fast, cheap), or "Codex's own setting". On ChatGPT Free and Go, Codex offers GPT-6 Luna only. |
+| OpenAI API | The four GPT-6 models above, plus GPT-5.6 Sol / Terra / Luna, GPT-5.5 and GPT-5 mini. |
+
+For a model not in the list, choose "Other (type a model id)". Reasoning effort runs Low / Medium / High / Extra high / Max and starts at "Model default". Higher looks closer at each job, but is slower and uses more; Haiku 4.5 has no such setting. Switching models resets a level the new model lacks to "Model default". Upgrading changes nothing about how jobs are scored: Claude Code stays on its own model and effort, and the Claude API keeps its model and level.
+
+Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Pick when it happens under **When to score** in Resume & AI:
 
 | Option | When jobs are scored |
 | --- | --- |
@@ -100,7 +114,7 @@ Each scored job is one Claude call and uses your Claude Code allowance (or API c
 
 If you had turned off "Score after each search" in 0.2.0 or earlier, you get "Only when I ask" after updating.
 
-While scoring runs, the bottom left shows "AI is scoring 3/12" and a **Pause scoring** button. Pausing stops the job being scored at once (the Claude Code process ends too, so it uses no more allowance) and keeps the rest waiting; new jobs from searches and scores you ask for wait as well. **Resume scoring** carries on, skipping jobs you have since marked not interested or applied to. Dayjob stays paused after a restart.
+While scoring runs, the bottom left shows "AI is scoring 3/12" and a **Pause scoring** button. Pausing stops the job being scored at once (the Claude Code or Codex process ends too, so it uses no more allowance) and keeps the rest waiting; new jobs from searches and scores you ask for wait as well. **Resume scoring** carries on, skipping jobs you have since marked not interested or applied to. Dayjob stays paused after a restart.
 
 **Remove jobs under 60** at the top right of **Today** moves every new job scoring under 60 to Not interested in one go. Saved, applied and unscored jobs stay. Click **Undo** right after to bring them back.
 
@@ -108,7 +122,7 @@ With several resumes, Dayjob first compares each job's keywords with each resume
 
 ## Search and company suggestions
 
-On **Searches**, click **Ask Claude** (optionally with preferences such as "Bay Area or remote only, needs H-1B sponsorship"). Claude runs the way it is set up under Resume & AI (Claude Code on this computer uses your Claude allowance; it takes about a minute) and, after reading all your resumes, suggests:
+On **Searches**, click **Ask the AI** (optionally with preferences such as "Bay Area or remote only, needs H-1B sponsorship"). The AI runs with the provider and model chosen under Resume & AI (Claude Code or Codex on this computer uses your allowance; it takes about a minute) and, after reading all your resumes, suggests:
 
 - up to 6 searches: job-title keywords, location, level words to exclude (Senior and Staff for a new-grad resume, for example) and which resume each fits;
 - up to 10 companies, only ones that hire through Greenhouse, Lever or Ashby. Dayjob requests each board, drops those that do not exist and shows how many jobs are open.

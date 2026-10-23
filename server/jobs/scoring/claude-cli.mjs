@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
+import { detectCommand, needsShell, runInTempFolder, stopProcess } from './cli-process.mjs';
+import { effortFor } from './models.mjs';
 import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText } from './prompt.mjs';
+
+export { stopProcess };
 
 const TIMEOUT_MS = 4 * 60 * 1000;
 
@@ -21,43 +25,18 @@ export function claudeCandidates(configured, env = process.env, platform = proce
   return [...new Set(list)];
 }
 
-// .cmd shims only start through cmd.exe; arguments here are fixed flags, and
-// the prompt itself always travels over stdin.
-const needsShell = command => /\.(cmd|bat)$/i.test(command);
-
-// Through cmd.exe, killing the shell would leave Claude Code running, so on
-// Windows the whole process tree goes.
-export function stopProcess(child, { platform = process.platform, run = execFile } = {}) {
-  if (platform === 'win32' && child.pid) run('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
-  else child.kill();
-}
-
-function version(command, run = execFile) {
-  return new Promise(resolve => {
-    try {
-      run(command, ['--version'], { timeout: 10000, windowsHide: true, shell: needsShell(command) }, (error, stdout) => {
-        resolve(error ? null : String(stdout).trim().slice(0, 120));
-      });
-    } catch { resolve(null); }
-  });
-}
-
-export async function detectClaude(configured, { run = execFile, exists = fs.existsSync, env = process.env, platform = process.platform } = {}) {
-  for (const command of claudeCandidates(configured, env, platform)) {
-    if (path.isAbsolute(command) && !exists(command)) continue;
-    const found = await version(command, run);
-    if (found) return { available: true, command, version: found };
-  }
-  return { available: false, command: null, version: null };
+export function detectClaude(configured, { run = execFile, exists = fs.existsSync, env = process.env, platform = process.platform } = {}) {
+  return detectCommand(claudeCandidates(configured, env, platform), { run, exists });
 }
 
 // Through cmd.exe (a .cmd shim) arguments are not quoted for us, so long text
 // such as the system prompt goes over stdin and only plain flags stay here.
-export function cliArgs({ model, shell = false, basic = false, system = SYSTEM_PROMPT, schema = SCORE_SCHEMA }) {
+export function cliArgs({ model, effort = '', shell = false, basic = false, system = SYSTEM_PROMPT, schema = SCORE_SCHEMA }) {
   const args = ['-p', '--output-format', 'json'];
   if (!basic) {
     args.push('--tools', shell ? '""' : '', '--no-session-persistence');
     if (!shell) args.push('--system-prompt', system, '--json-schema', JSON.stringify(schema));
+    if (effort) args.push('--effort', effort);
   }
   if (model && /^[\w.:\[\]-]+$/.test(model)) args.push('--model', model);
   return args;
@@ -89,45 +68,15 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
     if (!cached || refresh || cached.configured !== configured) cached = { configured, result: await detect(configured) };
     return cached.result;
   }
-  function execute(command, args, input, signal) {
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) { reject(signal.reason); return; }
-      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-score-'));
-      const cleanup = () => { try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* still in use; the OS temp folder clears it */ } };
-      let stdout = '';
-      let stderr = '';
-      let child;
-      try {
-        child = spawn(command, args, { cwd, windowsHide: true, shell: needsShell(command) });
-      } catch (error) { cleanup(); reject(error); return; }
-      let settled = false;
-      const timer = setTimeout(() => stop(child), timeoutMs);
-      const finish = (settle, value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', abort);
-        settle(value);
-      };
-      // A paused score ends now: a child process of Claude Code can keep the
-      // output open for a while after it is stopped.
-      const abort = () => { stop(child); finish(reject, signal.reason); };
-      signal?.addEventListener('abort', abort, { once: true });
-      child.stdout.on('data', chunk => { stdout += chunk; });
-      child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
-      child.on('error', error => { cleanup(); finish(reject, error); });
-      child.on('close', code => { cleanup(); finish(resolve, { code, stdout, stderr }); });
-      child.stdin.on('error', () => {});
-      child.stdin.end(input);
-    });
-  }
+  const execute = (command, args, input, signal) => runInTempFolder({ spawn, stop, timeoutMs }, { command, args, input, signal });
   return {
     id: 'claude-cli',
     async status(refresh = false) {
       if (refresh) signedOut = 0;
       const found = await info(refresh);
       if (found.available && signedOut && Date.now() - signedOut < 30 * 60 * 1000) return { available: false, detail: SIGNED_OUT, signedOut: true };
-      return { available: found.available, detail: found.available ? `Claude Code ${found.version}` : 'Claude Code was not found. Install it and sign in, or set its path in Settings.' };
+      const { model } = getSettings().ai;
+      return { available: found.available, detail: found.available ? `Claude Code ${found.version}${model ? ` · ${model}` : ''}` : 'Claude Code was not found. Install it and sign in, or set its path in Settings.' };
     },
     // One prompt in, one JSON object (matching schema) out.
     async ask({ system, prompt, schema, signal }) {
@@ -136,8 +85,9 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
       const { ai } = getSettings();
       const shell = needsShell(found.command);
       const withSystem = `${system}\n\n${prompt}`;
-      let result = await execute(found.command, cliArgs({ model: ai.model, shell, system, schema }), shell ? withSystem : prompt, signal);
-      // Older Claude Code releases lack --json-schema or --tools; retry with the basics.
+      const effort = effortFor('claude-cli', ai.model, ai.effort);
+      let result = await execute(found.command, cliArgs({ model: ai.model, effort, shell, system, schema }), shell ? withSystem : prompt, signal);
+      // Older Claude Code releases lack --json-schema, --tools or --effort; retry with the basics.
       if (result.code !== 0 && /unknown option|unexpected argument/i.test(result.stderr)) {
         result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), withSystem, signal);
       }

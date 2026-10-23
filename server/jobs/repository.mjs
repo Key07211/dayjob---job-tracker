@@ -17,7 +17,8 @@ export const SCORE_MODES = ['auto', 'saved', 'manual'];
 export const DEFAULT_SETTINGS = {
   language: 'zh',
   schedule: { enabled: true, time: '08:30' },
-  ai: { provider: 'claude-cli', claudeCommand: '', model: '', apiKey: '', scoreMode: 'auto', language: 'zh', maxPerRun: 40, effort: 'medium' },
+  // effort '' is the model's own default.
+  ai: { provider: 'claude-cli', claudeCommand: '', codexCommand: '', model: '', apiKey: '', openaiApiKey: '', scoreMode: 'auto', language: 'zh', maxPerRun: 40, effort: '' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
   notifications: { desktop: true, minScore: 75 },
   jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
@@ -55,6 +56,9 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     if (stored.ai && typeof stored.ai === 'object') {
       if (stored.ai.scoreMode === undefined && stored.ai.autoScore === false) stored.ai.scoreMode = 'manual';
       delete stored.ai.autoScore;
+      // Up to 0.7.0 (saved without codexCommand) effort only reached the
+      // Claude API; Claude Code keeps running at its own default.
+      if (stored.ai.codexCommand === undefined && stored.ai.provider !== 'anthropic-api') stored.ai.effort = '';
     }
     return merge(DEFAULT_SETTINGS, stored);
   }

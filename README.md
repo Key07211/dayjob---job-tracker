@@ -24,8 +24,8 @@ Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，�
 | 岗位来源 | LinkedIn、Indeed（参照 JobSpy 的做法直接请求，不需要 Python）；Greenhouse、Lever、Ashby 公司招聘页（官方公开 JSON）；Glassdoor、ZipRecruiter、Google Jobs 通过可选的 Python 版 JobSpy。 |
 | 岗位信息 | 标题、公司、地点、远程、薪资、职位类型和级别、完整职位描述；**发布 / 开放时间**、Dayjob 首次抓取、最近一次出现在搜索中、最近一次检查是否关闭。 |
 | 过滤 | 每个搜索可设关键词（逗号分隔表示“或”）、地点、发布时间范围、职位类型、只要远程、排除词；跨站重复的岗位自动合并。 |
-| AI 打分 | 上传最多 3 份 PDF / Word / 文本简历（比如分别针对数据和软件岗位），每个岗位自动用关键词重合度最高的那份打 0–100 分，列出匹配点、差距和可以补进简历的关键词。默认用本机已登录的 Claude Code（`claude -p`，不需要 API key），也可以填自己的 Anthropic API key。打分时可以随时暂停、之后继续；低于 60 分的岗位可以一键剔除。 |
-| 按简历推荐 | “搜索与公司”里点“让 Claude 推荐”，Claude 读你的简历，推荐每天要抓的搜索和值得关注的公司（招聘页会先核实存在），选中的一键添加。 |
+| AI 打分 | 上传最多 3 份 PDF / Word / 文本简历（比如分别针对数据和软件岗位），每个岗位自动用关键词重合度最高的那份打 0–100 分，列出匹配点、差距和可以补进简历的关键词。默认用本机已登录的 Claude Code（`claude -p`，不需要 API key），也可以用以 ChatGPT 账号登录的 Codex，或自己的 Anthropic / OpenAI API key；模型和推理强度都可以选。打分时可以随时暂停、之后继续；低于 60 分的岗位可以一键剔除。 |
+| 按简历推荐 | “搜索与公司”里点“让 AI 推荐”，AI 读你的简历，推荐每天要抓的搜索和值得关注的公司（招聘页会先核实存在），选中的一键添加。 |
 | 主页 | 打开就是统计主页：本周 / 本月投递、回复率、测评 / 面试率，每月和每周目标，近 12 周投递趋势、投递漏斗、每日投递热力图、当前状态、各来源效果，以及需要跟进、最近动态和高分还没投的岗位。 |
 | 每月目标 | 设定每月投递、面试 / OA 和自己的目标（比如刷题），自动分成每周任务；主页上用图表显示本周任务、本月进度和每周完成情况。 |
 | 投递追踪 | 点“我已投递”记下日期和备注，自动进入“投递追踪”。状态：已投递 → 在线测评 → 面试中 → Offer / 已接受 / 未通过 / 已撤回 / 无回音，每次变化都记在时间线上。也可以手动添加不在 Dayjob 里的投递。 |
@@ -83,7 +83,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 ## 第一次使用
 
 1. **简历与 AI**：上传简历（最多 3 份），再在下面的 **申请资料** 里点 **从简历读取**，补上没读到的内容，自动填写会用到。用 Claude Code 打分时，先在终端里安装 Claude Code，运行 `claude` 并输入 `/login` 登录。没登录时“简历与 AI”页会提示，登录后点“重新检测”。
-2. **搜索与公司**：点 **让 Claude 推荐**，从推荐里挑搜索和公司添加；也可以自己添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）；关注公司里和搜索关键词、地点匹配的开放岗位都会保留，不受发布时间限制。
+2. **搜索与公司**：点 **让 AI 推荐**，从推荐里挑搜索和公司添加；也可以自己添加一个搜索，例如关键词 `data scientist, machine learning engineer`、地点 `San Francisco Bay Area`、来源 LinkedIn + Indeed、发布时间 3 天内。想盯的公司可以直接粘贴招聘页链接（`boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）；关注公司里和搜索关键词、地点匹配的开放岗位都会保留，不受发布时间限制。
 3. 点左下角 **立即抓取**。默认抓取完成后会自动打分；想省 Claude 额度，可以在“简历与 AI”里改成只给收藏的岗位打分，或者只在你点的时候打分。
 4. 在 **今日岗位** 里看岗位、收藏或标记不感兴趣。要投递时点岗位详情里的“公司申请页”，它会在右侧的浏览器里打开，在申请表上点 **自动填写**。投递后点 **我已投递**（或浏览器助手栏的 **标记已投递**），之后的跟进都在 **投递追踪** 里。
 5. 回到 **主页** 看整体进度：投递了多少、哪些该跟进、哪些高分岗位还没投。
@@ -93,10 +93,24 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 | 方式 | 说明 |
 | --- | --- |
 | 本机 Claude Code（默认） | 调用 `claude -p`，用你的 Claude 订阅额度，不需要 API key。找不到 `claude` 时可以在“简历与 AI”里填完整路径。 |
-| Claude API | 用你自己的 API key，默认模型 `claude-opus-5-5`，按用量计费。开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。 |
+| Claude API | 用你自己的 Anthropic API key，默认模型 `claude-opus-5-5`，按用量计费。Opus、Fable、Sonnet 5.5 等模型开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。 |
+| 本机 Codex（ChatGPT） | 调用 `codex exec`，用你 ChatGPT 方案里的 Codex 额度，不需要 API key。先安装 Codex，在终端运行 `codex` 并选择用 ChatGPT 登录。Codex 在只读沙盒和空文件夹里运行，不加载你的 Codex 配置和 MCP。 |
+| OpenAI API | 用你自己的 OpenAI API key（Responses API），默认模型 `gpt-6.1-sol`，按用量计费，请求不在 OpenAI 那边保存。 |
 | 通过 MCP 让 Claude 分析 | 在 Claude Code 或 Claude Desktop 里说“对照我的简历分析这个岗位”，Claude 读取岗位和简历后用 `dayjob_save_analysis` 把结果写回 Dayjob。 |
 
-每打一个岗位调用一次 Claude，会用掉 Claude Code 额度（或 API 费用）。在“简历与 AI”的 **什么时候打分** 里选：
+### 模型和推理强度
+
+在“简历与 AI”的 **AI 打分** 里选好方式后，**模型** 下拉列出这一方可用的模型，**推理强度** 下拉只列出所选模型支持的档位：
+
+| 方式 | 模型 |
+| --- | --- |
+| Claude Code / Claude API | Claude Opus 5.5（推荐）、Fable 5.1（最强）、Sonnet 5.5、Haiku 5.5（快、省），以及 Fable 5、Opus 5、Sonnet 5、Opus 4.8 / 4.7 / 4.6、Sonnet 4.6、Haiku 4.5 等旧版。Claude Code 还可以选“跟随 Claude Code 的设置”（默认）。 |
+| Codex | GPT-6.1 Sol（推荐）、GPT-6 Astra（最强）、GPT-6 Sol、GPT-6 Luna（快、省），或“跟随 Codex 的设置”。ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna。 |
+| OpenAI API | 上面四个 GPT-6 模型，以及 GPT-5.6 Sol / Terra / Luna、GPT-5.5、GPT-5 mini。 |
+
+列表里没有的模型可以选“其他（输入模型 ID）”。推理强度有 低 / 中 / 高 / 很高 / 最高 五档，默认“模型默认”。越高分析越细，但每个岗位更慢、用量更多；Haiku 4.5 没有这个设置。换模型时，新模型不支持的档位会回到“模型默认”。从旧版本升级后打分方式不变：本机 Claude Code 是“跟随 Claude Code 的设置”和“模型默认”，Claude API 保留原来的模型和档位。
+
+每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。在“简历与 AI”的 **什么时候打分** 里选：
 
 | 选项 | 什么时候打分 |
 | --- | --- |
@@ -106,7 +120,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 0.2.0 及以前关掉了“抓取后自动打分”的，升级后是“只在我点的时候打分”。
 
-打分进行时，左下角会显示“AI 正在打分 3/12”和 **暂停打分** 按钮。点暂停后，正在打的那个岗位立刻停下（Claude Code 进程会一起结束，不再消耗额度），剩下的岗位留着；暂停期间新抓到的岗位、手动点的打分也都先排着。点 **继续打分** 接着打，这期间被标为不感兴趣或已投递的岗位会跳过。关掉 Dayjob 再打开，仍然是暂停状态。
+打分进行时，左下角会显示“AI 正在打分 3/12”和 **暂停打分** 按钮。点暂停后，正在打的那个岗位立刻停下（Claude Code 或 Codex 进程会一起结束，不再消耗额度），剩下的岗位留着；暂停期间新抓到的岗位、手动点的打分也都先排着。点 **继续打分** 接着打，这期间被标为不感兴趣或已投递的岗位会跳过。关掉 Dayjob 再打开，仍然是暂停状态。
 
 **今日岗位** 右上角的 **剔除低于 60 分的岗位** 会把所有低于 60 分的新岗位一次移到“不感兴趣”，已收藏和已投递的不动，还没打分的也不动。移完可以点 **撤销**。
 
@@ -114,7 +128,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 ## 按简历推荐搜索和公司
 
-在 **搜索与公司** 页点 **让 Claude 推荐**（可以先写补充偏好，比如“只看湾区和远程、需要 H-1B 担保”）。Claude 用“简历与 AI”里设置的方式运行（本机 Claude Code 会用你的 Claude 额度，一次大约一分钟），读完所有简历后给出：
+在 **搜索与公司** 页点 **让 AI 推荐**（可以先写补充偏好，比如“只看湾区和远程、需要 H-1B 担保”）。AI 用“简历与 AI”里选的方式和模型运行（本机 Claude Code 或 Codex 会用你的额度，一次大约一分钟），读完所有简历后给出：
 
 - 最多 6 个搜索：职位关键词、地点、要排除的级别词（比如应届简历排除 Senior / Staff），以及适合哪份简历；
 - 最多 10 家公司：只推荐用 Greenhouse、Lever、Ashby 招聘的公司。Dayjob 会逐个请求它们的招聘页，不存在的直接去掉，并显示目前的公开岗位数。
@@ -288,7 +302,7 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Versi
 ```
 server/            本机 HTTP 服务（只监听 127.0.0.1）
   jobs/scrapers/   LinkedIn、Indeed、公司招聘页、JobSpy 桥接
-  jobs/scoring/    Claude Code / Claude API 打分
+  jobs/scoring/    Claude Code / Claude API / Codex / OpenAI API 打分，models.mjs 是模型和推理强度列表
   jobs/            SQLite、搜索、追踪、每日调度、简历匹配、Claude 推荐、每月目标、主页统计
 integrations/      Claude MCP 服务器
 desktop/           Electron 主进程、托盘、Claude 一键连接、内置浏览器和自动填写、自动更新

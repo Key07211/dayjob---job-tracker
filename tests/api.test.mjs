@@ -104,6 +104,14 @@ test('settings and searches are validated; the API key never comes back', async 
     assert.ok(!JSON.stringify(saved.body).includes('sk-secret'));
     assert.ok(!JSON.stringify((await call('/api/bootstrap')).body).includes('sk-secret'));
     assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { apiKey: null } } })).body.ai.hasApiKey, false);
+    assert.equal(boot.settings.ai.effort, '', 'new installs use each model\'s own effort');
+    const chatgpt = await call('/api/settings', { method: 'PATCH', body: { ai: { provider: 'openai-api', model: 'gpt-6.1-sol', effort: 'xhigh', openaiApiKey: 'sk-openai-secret' } } });
+    assert.equal(chatgpt.status, 200);
+    assert.deepEqual([chatgpt.body.ai.provider, chatgpt.body.ai.model, chatgpt.body.ai.effort, chatgpt.body.ai.hasOpenaiApiKey], ['openai-api', 'gpt-6.1-sol', 'xhigh', true]);
+    assert.ok(!JSON.stringify((await call('/api/bootstrap')).body).includes('sk-openai-secret'));
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { provider: 'codex-cli', codexCommand: '', effort: '' } } })).body.ai.effort, '');
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { effort: 'ultra' } } })).status, 400);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { openaiApiKey: null } } })).body.ai.hasOpenaiApiKey, false);
     assert.equal(boot.settings.desktop.closeToTray, true, 'closing the window keeps Dayjob in the tray by default');
     assert.equal((await call('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: 'no' } } })).status, 400);
     assert.equal((await call('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: false } } })).body.desktop.closeToTray, false);

@@ -7,10 +7,9 @@ import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repo
 import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
 import { APPLICANT_FIELDS, LINK_FIELDS } from './jobs/applicant.mjs';
+import { EFFORTS, PROVIDER_IDS } from './jobs/scoring/models.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
-const PROVIDERS = ['claude-cli', 'anthropic-api'];
-const EFFORTS = ['low', 'medium', 'high'];
 
 const fail = message => { throw new HttpError(400, message); };
 const has = (input, key) => Object.prototype.hasOwnProperty.call(input, key);
@@ -102,18 +101,20 @@ export function settingsPatch(input) {
     time: item => (/^([01]?\d|2[0-3]):[0-5]\d$/.test(item || '') ? item.padStart(5, '0') : fail('Time must look like 08:30.')),
   }));
   section('ai', value => pick(value, {
-    provider: item => oneOf(item, PROVIDERS, 'AI provider'),
+    provider: item => oneOf(item, PROVIDER_IDS, 'AI provider'),
     claudeCommand: item => text(item, 'Claude Code path', { max: 1024, optional: true }),
+    codexCommand: item => text(item, 'Codex path', { max: 1024, optional: true }),
     model: item => {
       const model = text(item, 'Model', { max: 100, optional: true });
       if (model && !/^[\w.:[\]-]+$/.test(model)) fail('Model must be a model id such as claude-opus-5-5.');
       return model;
     },
     apiKey: item => (item === null ? '' : text(item, 'API key', { max: 400 })),
+    openaiApiKey: item => (item === null ? '' : text(item, 'OpenAI API key', { max: 400 })),
     scoreMode: item => oneOf(item, SCORE_MODES, 'Scoring mode'),
     language: item => oneOf(item, ['zh', 'en'], 'Language'),
     maxPerRun: item => integer(item, 'Scores per run', 1, 200),
-    effort: item => oneOf(item, EFFORTS, 'Effort'),
+    effort: item => (item === '' ? '' : oneOf(item, EFFORTS, 'Effort')),
   }));
   section('updates', value => pick(value, {
     autoCheck: item => boolean(item, 'Daily update check'),
@@ -152,8 +153,9 @@ export function settingsPatch(input) {
 
 // The API key never leaves the server; the interface only learns whether one is set.
 export function publicSettings(settings) {
-  const { apiKey, ...ai } = settings.ai;
-  return { ...settings, ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY) } };
+  const { apiKey, openaiApiKey, ...ai } = settings.ai;
+  return { ...settings, ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY),
+    hasOpenaiApiKey: Boolean(openaiApiKey), openaiKeyFromEnv: !openaiApiKey && Boolean(process.env.OPENAI_API_KEY) } };
 }
 
 export function recommendInput(input) {

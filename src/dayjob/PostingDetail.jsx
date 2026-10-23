@@ -6,6 +6,8 @@ import { useI18n } from '../i18n.jsx';
 import { Markdown } from './Markdown.jsx';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 
+const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
+
 function DateRow({ name, value, relative = true }) {
   const { t } = useI18n();
   if (!value) return null;
@@ -40,7 +42,7 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, sav
         <div className="score-number">{score.score}<small>/100</small></div>
         <div>
           <strong>{label('verdict', score.verdict)}</strong>
-          <span>{score.provider === 'claude-mcp' ? t('来自 Claude（MCP）', 'From Claude (MCP)') : score.provider === 'anthropic-api' ? 'Claude API' : 'Claude Code'} · {formatTime(score.createdAt)}</span>
+          <span>{score.provider === 'claude-mcp' ? t('来自 Claude（MCP）', 'From Claude (MCP)') : SCORED_BY[score.provider] || 'Claude Code'}{score.model ? ` · ${score.model}` : ''} · {formatTime(score.createdAt)}</span>
         </div>
         <button className="icon-button" title={t('重新打分', 'Score again')} onClick={() => onScore(true)} disabled={scoring}>
           {scoring ? <LoaderCircle size={15} className="spin" /> : <RotateCcw size={15} />}

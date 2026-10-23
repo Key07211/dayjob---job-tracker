@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -81,16 +82,53 @@ const SCORE_MODES = [
     detail: ['在岗位详情点“AI 打分”，或在列表里勾选几个一起打分。', 'Click “Score with AI” on a job, or tick a few in the list and score them together.'] },
 ];
 
+const PROVIDER_GROUPS = [
+  { name: 'Claude', items: [
+    { id: 'claude-cli', name: ['本机 Claude Code', 'Claude Code on this computer'],
+      detail: ['用你已登录的 Claude Code（claude -p），不需要 API key。', 'Uses your signed-in Claude Code (claude -p). No API key needed.'] },
+    { id: 'anthropic-api', name: ['Claude API', 'Claude API'], detail: ['用你自己的 Anthropic API key，按用量计费。', 'Uses your own Anthropic API key, billed by usage.'] },
+  ] },
+  { name: 'ChatGPT', items: [
+    { id: 'codex-cli', name: ['本机 Codex', 'Codex on this computer'],
+      detail: ['用你以 ChatGPT 账号登录的 Codex（codex exec），不需要 API key。', 'Uses Codex signed in with your ChatGPT account (codex exec). No API key needed.'] },
+    { id: 'openai-api', name: ['OpenAI API', 'OpenAI API'], detail: ['用你自己的 OpenAI API key，按用量计费。', 'Uses your own OpenAI API key, billed by usage.'] },
+  ] },
+];
+const MODEL_TAGS = { recommended: ['推荐', 'recommended'], top: ['最强', 'most capable'], fast: ['快、省', 'fast, cheap'], older: ['旧版', 'older'] };
+const EFFORT_LABELS = { low: ['低（更快更省）', 'Low (faster, cheaper)'], medium: ['中', 'Medium'], high: ['高（更细致）', 'High (more thorough)'],
+  xhigh: ['很高', 'Extra high'], max: ['最高（最慢、用量最多）', 'Max (slowest, uses the most)'] };
+const CLI_DEFAULT = { 'claude-cli': ['跟随 Claude Code 的设置', 'Claude Code\'s own setting'], 'codex-cli': ['跟随 Codex 的设置', 'Codex\'s own setting'] };
+const CUSTOM = 'custom';
+const listed = (provider, model) => PROVIDERS[provider].models.some(item => item.id === model);
+
 function AiSettings({ boot, reload, status }) {
   const { t } = useI18n();
   const ai = boot.settings.ai;
-  const [form, setForm] = useState({ provider: ai.provider, claudeCommand: ai.claudeCommand, model: ai.model, effort: ai.effort || 'medium',
-    language: ai.language, scoreMode: ai.scoreMode, maxPerRun: ai.maxPerRun, apiKey: '' });
+  const [form, setForm] = useState({ provider: ai.provider, claudeCommand: ai.claudeCommand, codexCommand: ai.codexCommand || '', model: ai.model,
+    effort: ai.effort || '', language: ai.language, scoreMode: ai.scoreMode, maxPerRun: ai.maxPerRun, apiKey: '', openaiApiKey: '' });
+  const [custom, setCustom] = useState(Boolean(ai.model) && !listed(ai.provider, ai.model));
   const [scoring, setScoring] = useState(boot.scoring);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const provider = PROVIDERS[form.provider];
+  const model = modelInfo(form.provider, form.model);
+  const efforts = model ? model.efforts : EFFORTS;
+  const usesKey = form.provider.endsWith('-api');
+
+  // A model from the other family would fail every score, so switching
+  // between Claude and ChatGPT starts from that provider's default model.
+  function chooseProvider(id) {
+    const next = PROVIDERS[id].family === provider.family ? form.model : '';
+    if (!next) setCustom(false);
+    setForm({ ...form, provider: id, model: next, effort: effortFor(id, next, form.effort) });
+  }
+  function chooseModel(value) {
+    if (value === CUSTOM) { setCustom(true); return; }
+    setCustom(false);
+    setForm({ ...form, model: value, effort: effortFor(form.provider, value, form.effort) });
+  }
 
   async function refresh() {
     setChecking(true);
@@ -102,18 +140,19 @@ function AiSettings({ boot, reload, status }) {
     event.preventDefault();
     setError('');
     setMessage('');
-    const body = { provider: form.provider, claudeCommand: form.claudeCommand, model: form.model, effort: form.effort, language: form.language,
-      scoreMode: form.scoreMode, maxPerRun: Number(form.maxPerRun), ...(form.apiKey ? { apiKey: form.apiKey } : {}) };
+    const body = { provider: form.provider, claudeCommand: form.claudeCommand, codexCommand: form.codexCommand, model: form.model.trim(), effort: form.effort,
+      language: form.language, scoreMode: form.scoreMode, maxPerRun: Number(form.maxPerRun),
+      ...(form.apiKey ? { apiKey: form.apiKey } : {}), ...(form.openaiApiKey ? { openaiApiKey: form.openaiApiKey } : {}) };
     try {
       await api('/api/settings', { method: 'PATCH', body: { ai: body } });
-      set('apiKey', '');
+      setForm(current => ({ ...current, apiKey: '', openaiApiKey: '' }));
       await reload();
       await refresh();
       setMessage(t('已保存。', 'Saved.'));
     } catch (failure) { setError(failure.message); }
   }
-  async function clearKey() {
-    try { await api('/api/settings', { method: 'PATCH', body: { ai: { apiKey: null } } }); await reload(); await refresh(); }
+  async function clearKey(key) {
+    try { await api('/api/settings', { method: 'PATCH', body: { ai: { [key]: null } } }); await reload(); await refresh(); }
     catch (failure) { setError(failure.message); }
   }
   async function scoreAll() {
@@ -122,6 +161,14 @@ function AiSettings({ boot, reload, status }) {
     catch (failure) { setError(failure.message); }
   }
 
+  const keyField = form.provider === 'anthropic-api'
+    ? { key: 'apiKey', saved: ai.hasApiKey, env: ai.apiKeyFromEnv && 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-…' }
+    : { key: 'openaiApiKey', saved: ai.hasOpenaiApiKey, env: ai.openaiKeyFromEnv && 'OPENAI_API_KEY', placeholder: 'sk-…' };
+  const cliPath = form.provider === 'claude-cli'
+    ? { key: 'claudeCommand', label: t('Claude Code 路径（可选）', 'Claude Code path (optional)'), find: 'claude', example: 'C:\\Users\\{you}\\.local\\bin\\claude.exe' }
+    : { key: 'codexCommand', label: t('Codex 路径（可选）', 'Codex path (optional)'), find: 'codex', example: 'C:\\Users\\{you}\\AppData\\Roaming\\npm\\codex.cmd' };
+  const modelValue = custom ? CUSTOM : form.model || provider.defaultModel;
+
   return (
     <form className="card-section" onSubmit={save}>
       <h2><Sparkles size={18} />{t('AI 打分', 'AI scoring')}</h2>
@@ -129,36 +176,47 @@ function AiSettings({ boot, reload, status }) {
         {scoring.available ? <CheckCircle2 size={15} /> : null}{serverText(scoring.detail)}
         <button type="button" className="icon-button" title={t('重新检测', 'Check again')} onClick={refresh} disabled={checking}>{checking ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
       </p>
-      <div className="choice-row">
-        <label className={form.provider === 'claude-cli' ? 'selected' : ''}>
-          <input type="radio" name="provider" checked={form.provider === 'claude-cli'} onChange={() => set('provider', 'claude-cli')} />
-          <strong>{t('本机 Claude Code', 'Claude Code on this computer')}</strong><span>{t('用你已登录的 Claude Code（claude -p），不需要 API key。', 'Uses your signed-in Claude Code (claude -p). No API key needed.')}</span>
-        </label>
-        <label className={form.provider === 'anthropic-api' ? 'selected' : ''}>
-          <input type="radio" name="provider" checked={form.provider === 'anthropic-api'} onChange={() => set('provider', 'anthropic-api')} />
-          <strong>Claude API</strong><span>{t('用你自己的 Anthropic API key，按用量计费。', 'Uses your own Anthropic API key, billed by usage.')}</span>
-        </label>
-      </div>
+      {PROVIDER_GROUPS.map(group => (
+        <div key={group.name} className="provider-group">
+          <h3 className="choice-title">{group.name}</h3>
+          <div className="choice-row">
+            {group.items.map(item => (
+              <label key={item.id} className={form.provider === item.id ? 'selected' : ''}>
+                <input type="radio" name="provider" checked={form.provider === item.id} onChange={() => chooseProvider(item.id)} />
+                <strong>{t(...item.name)}</strong><span>{t(...item.detail)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="form-grid">
-        {form.provider === 'claude-cli' ? (
-          <label>{t('Claude Code 路径（可选）', 'Claude Code path (optional)')}<input value={form.claudeCommand} onChange={event => set('claudeCommand', event.target.value)} placeholder={t('自动查找 claude', 'Finds claude automatically')} maxLength={1024} />
-            <small>{t('找不到时填写，例如 C:\\Users\\你\\.local\\bin\\claude.exe', 'Fill in if it is not found, e.g. C:\\Users\\you\\.local\\bin\\claude.exe')}</small></label>
-        ) : (
-          <label>API key
-            <input type="password" value={form.apiKey} onChange={event => set('apiKey', event.target.value)} autoComplete="off"
-              placeholder={ai.hasApiKey ? t('已保存（输入新的可替换）', 'Saved (type a new one to replace it)') : ai.apiKeyFromEnv ? t('使用环境变量 ANTHROPIC_API_KEY', 'Using ANTHROPIC_API_KEY from the environment') : 'sk-ant-…'} />
-            {ai.hasApiKey ? <button type="button" className="link" onClick={clearKey}>{t('清除已保存的 key', 'Remove the saved key')}</button>
+        {usesKey ? (
+          <label>{form.provider === 'anthropic-api' ? 'Anthropic API key' : 'OpenAI API key'}
+            <input type="password" value={form[keyField.key]} onChange={event => set(keyField.key, event.target.value)} autoComplete="off"
+              placeholder={keyField.saved ? t('已保存（输入新的可替换）', 'Saved (type a new one to replace it)') : keyField.env ? t(`使用环境变量 ${keyField.env}`, `Using ${keyField.env} from the environment`) : keyField.placeholder} />
+            {keyField.saved ? <button type="button" className="link" onClick={() => clearKey(keyField.key)}>{t('清除已保存的 key', 'Remove the saved key')}</button>
               : <small>{t('只保存在本机数据库，不会显示回界面。', 'Stored only in the local database and never shown again.')}</small>}
           </label>
+        ) : (
+          <label>{cliPath.label}<input value={form[cliPath.key]} onChange={event => set(cliPath.key, event.target.value)} placeholder={t(`自动查找 ${cliPath.find}`, `Finds ${cliPath.find} automatically`)} maxLength={1024} />
+            <small>{t(`找不到时填写，例如 ${cliPath.example.replace('{you}', '你')}`, `Fill in if it is not found, e.g. ${cliPath.example.replace('{you}', 'you')}`)}</small></label>
         )}
-        <label>{t('模型（可选）', 'Model (optional)')}<input value={form.model} onChange={event => set('model', event.target.value)} placeholder={form.provider === 'anthropic-api' ? 'claude-opus-5-5' : t('使用 Claude Code 默认模型', 'Claude Code\'s default model')} maxLength={100} /></label>
-        {form.provider === 'anthropic-api' ? (
-          <label>{t('思考力度', 'Effort')}
-            <select value={form.effort} onChange={event => set('effort', event.target.value)}>
-              <option value="low">{t('低（更快更省）', 'Low (faster, cheaper)')}</option><option value="medium">{t('中', 'Medium')}</option><option value="high">{t('高（更细致）', 'High (more thorough)')}</option>
-            </select>
-          </label>
-        ) : null}
+        <label>{t('模型', 'Model')}
+          <select value={modelValue} onChange={event => chooseModel(event.target.value)}>
+            {CLI_DEFAULT[form.provider] ? <option value="">{t(...CLI_DEFAULT[form.provider])}</option> : null}
+            {provider.models.map(item => <option key={item.id} value={item.id}>{item.name}{item.tag ? ` · ${t(...MODEL_TAGS[item.tag])}` : ''}</option>)}
+            <option value={CUSTOM}>{t('其他（输入模型 ID）', 'Other (type a model id)')}</option>
+          </select>
+          {custom ? <input value={form.model} onChange={event => set('model', event.target.value)} placeholder={provider.family === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol'}
+            maxLength={100} aria-label={t('模型 ID', 'Model id')} autoFocus /> : null}
+        </label>
+        <label>{t('推理强度', 'Reasoning effort')}
+          <select value={efforts.length ? form.effort : ''} onChange={event => set('effort', event.target.value)} disabled={!efforts.length}>
+            <option value="">{efforts.length ? t('模型默认', 'Model default') : t('这个模型不支持', 'Not supported by this model')}</option>
+            {efforts.map(level => <option key={level} value={level}>{t(...EFFORT_LABELS[level])}</option>)}
+          </select>
+          <small>{t('越高分析越细，但更慢、用量更多。', 'Higher looks closer, but is slower and uses more.')}</small>
+        </label>
         <label>{t('分析语言', 'Analysis language')}
           <select value={form.language} onChange={event => set('language', event.target.value)}>
             <option value="zh">中文</option><option value="en">English</option>
@@ -175,9 +233,11 @@ function AiSettings({ boot, reload, status }) {
           </label>
         ))}
       </div>
-      <p className="hint">{t('每打一个岗位调用一次 Claude，会用掉 Claude Code 额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
-        'Each scored job is one Claude call and uses your Claude Code allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
-      {form.provider === 'anthropic-api' ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',
+      <p className="hint">{t('每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
+        'Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
+      {form.provider === 'codex-cli' ? <p className="hint">{t('ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna；Plus、Pro、Business、Enterprise、Edu 可以用列表里的全部模型。没登录时，在终端运行 codex 并选择用 ChatGPT 登录。',
+        'On ChatGPT Free and Go, Codex offers GPT-6 Luna only; Plus, Pro, Business, Enterprise and Edu get every model listed. To sign in, run codex in a terminal and choose Sign in with ChatGPT.')}</p> : null}
+      {form.provider === 'anthropic-api' && model?.fallback ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',
         'Server-side fallback is on for the Claude API: if the chosen model declines a request, Anthropic retries it once with a fallback model.')}</p> : null}
       <p className="hint">{t('也可以在 Claude Code / Claude Desktop 里通过 Dayjob MCP 让 Claude 读取岗位和简历、直接写回分析（设置 → 连接 Claude）。',
         'You can also ask Claude in Claude Code or Claude Desktop to read jobs and your resume through the Dayjob MCP and write its analysis back (Settings → Connect Claude).')}</p>
