@@ -166,8 +166,13 @@ async function createWindow() {
   });
   window.webContents.on('will-redirect', (event, url) => { if (!localUrl(url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
+  // Closing the window keeps Dayjob in the tray for the daily search, unless
+  // the user turned that off in Settings; then it quits.
   window.on('close', event => {
-    if (!quitting && tray) { event.preventDefault(); window.hide(); }
+    if (quitting) return;
+    event.preventDefault();
+    if (!shutdownStarted && tray && service.repo.getSettings().desktop.closeToTray) window.hide();
+    else app.quit();
   });
 
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
@@ -377,12 +382,21 @@ async function runSmoke() {
   timings.browser = Date.now() - started;
   const updateCheck = await smokeUpdate();
   timings.update = Date.now() - started;
+  // By default closing the window only hides it.
+  window.close();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && browserCheck.ok && updateCheck.ok;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && browserCheck.ok && updateCheck.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
-  app.quit();
+  // With "keep running" turned off, closing the window quits Dayjob: the
+  // build check fails if the app is still running after this.
+  const off = await fetch(`${origin}/api/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Dayjob-Token': state.csrfToken },
+    body: JSON.stringify({ desktop: { closeToTray: false } }) });
+  if (!off.ok) throw new Error(`Could not turn off "keep running": ${off.status}`);
+  window.close();
 }
 
 async function boot() {

@@ -118,6 +118,9 @@ export function settingsPatch(input) {
   section('updates', value => pick(value, {
     autoCheck: item => boolean(item, 'Daily update check'),
   }));
+  section('desktop', value => pick(value, {
+    closeToTray: item => boolean(item, 'Keep running after closing the window'),
+  }));
   section('tracking', value => pick(value, {
     followUpDays: item => integer(item, 'Follow-up days', 0, 90),
     ghostDays: item => integer(item, 'No-reply days', 0, 180),

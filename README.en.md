@@ -23,6 +23,7 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Application tracking | "I applied" records the date and a note and moves the job to Applications. Stages: Applied → Assessment → Interviewing → Offer / Accepted / Rejected / Withdrawn / Ghosted, each change on a timeline. Applications made elsewhere can be added by hand. |
 | Automatic follow-through | A follow-up reminder N days (7 by default) after applying or a status change; a "possibly ghosted" flag after N days (21) at Applied; a daily check whether applied and saved jobs have closed. |
 | Notifications | A daily summary (new jobs, strong matches), follow-up reminders and closed postings, as Windows notifications and in the app. |
+| Running in the background | By default, closing the window leaves Dayjob in the tray, so searches, reminders and Claude keep working; "Quit Dayjob" in the tray menu closes it completely. To keep nothing running, untick "Keep running in the tray" under Settings → Closing the window: closing the window then quits Dayjob, and a missed daily search runs when you next open it that day. |
 | Home | Dayjob opens on a statistics page: applications this week and month, reply rate, OA / interview rate, the monthly and weekly goals, the last 12 weeks, the funnel, a daily heatmap, where applications stand, results by job board, and what needs a follow-up, recent changes and the best matches not applied to yet. |
 | Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week on Home. |
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
@@ -269,7 +270,7 @@ To check a build on your own computer:
 
 ```bash
 npm run package:win
-powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.6.0
+powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.6.1
 ```
 
 ## License notes
