@@ -19,7 +19,7 @@
   --key: #FFFFFF;
   --key-lip: #D3E1EC;
   --key-gap: #C3D3E0;
-  --key-black: #1E2B38;
+  --key-black: #56758F;
   --key-on: #CFE6F7;
   --key-on-text: #285A80;
   --key-on-lip: #8DB8DA;
@@ -79,7 +79,7 @@
 .pkey { position: relative; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 46px; background: var(--key); color: var(--side-text);
   text-align: left; font-size: 13px; box-shadow: inset -6px 0 0 var(--key-lip); transition: box-shadow 156ms cubic-bezier(.3, 0, 0, 1), background 156ms, filter 156ms; }
 .pkey > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pkey em { font-style: normal; font-family: var(--mono); font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 999px; background: var(--side); color: var(--side-muted); }
+.pkey em { font-style: normal; font-family: var(--mono); font-weight: 700; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 999px; background: var(--side); color: var(--side-muted); }
 .pkey:hover { filter: brightness(.97); }
 .pkey.down { box-shadow: inset -2px 0 0 var(--key-lip), inset 14px 0 16px -12px rgb(0 0 0 / 30%); filter: brightness(.92); transition-duration: 78ms; }
 .pkey.on { background: var(--key-on); color: var(--key-on-text); font-weight: 600; box-shadow: inset -3px 0 0 var(--key-on-lip), inset 12px 0 14px -12px rgb(0 0 0 / 22%); }
@@ -110,7 +110,7 @@
 .bar-days { display: flex; gap: 7px; font-size: 10.5px; color: var(--side-muted); text-align: center; }
 .bar-days span { flex: 1; min-width: 0; }
 .bar-days .today { color: var(--side-text); font-weight: 600; }
-.plus { position: absolute; top: 50px; margin-left: -10px; font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--side-hi); pointer-events: none;
+.plus { position: absolute; top: 50px; margin-left: -10px; font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--side-hi); pointer-events: none;
   animation: plus-up 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
 @keyframes plus-up { 0% { opacity: 0; transform: translateY(6px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-22px); } }
 
@@ -128,7 +128,7 @@
 .vinyl { position: absolute; left: 24px; top: 24px; width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center;
   background: radial-gradient(circle, transparent 0 41%, rgb(255 255 255 / 7%) 41.5% 42.5%, transparent 43% 64%, rgb(255 255 255 / 7%) 64.5% 65.5%, transparent 66%),
     repeating-radial-gradient(circle, var(--disc) 0 1.6px, var(--groove) 2.2px, var(--disc) 3px); }
-.vinyl > b { position: relative; width: 46px; height: 46px; border-radius: 50%; color: var(--on-good); font-family: var(--mono); font-size: 11px; font-weight: 500;
+.vinyl > b { position: relative; width: 46px; height: 46px; border-radius: 50%; color: var(--on-good); font-family: var(--mono); font-size: 11px; font-weight: 700;
   background: radial-gradient(circle, var(--disc) 0 2.5px, var(--good) 3px 19px, var(--label-ring) 19.5px 20.5px, var(--good) 21px); }
 .vinyl > b > i { position: absolute; left: 0; right: 0; top: 7px; text-align: center; font-style: normal; }
 /* The sheen stays put while the record turns under it, which is what makes the spin read as real. */

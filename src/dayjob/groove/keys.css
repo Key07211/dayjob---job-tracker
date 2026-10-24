@@ -1,0 +1,62 @@
+/* ---------- Keys carry on: the sidebar's keyboard continues into every page ----------
+   The sidebar colour runs along the top of each page like an opened lid, the job and application lists are a second
+   keyboard (a lip on the right, a pressed key for the selected row), and buttons and cards sit on a lip of their own. */
+:root {
+  --key-hover: #F6F9FC;
+  --pri-lip: #285A80;
+  /* The selected row looks like the pressed sidebar key. */
+  --row-on: var(--key-on);
+  --row-on-text: var(--key-on-text);
+  --row-on-lip: var(--key-on-lip);
+}
+:root[data-theme="night"] {
+  --key-hover: #34302B;
+  --pri-lip: #B98F43;
+  /* At night yellow stays for good news and the active page, so a selected row is lamp-lit brown with yellow text. */
+  --row-on: #453C30;
+  --row-on-text: #F2C46D;
+  --row-on-lip: #2A2520;
+}
+
+/* The lid: the band reaches from the sidebar to the window's right edge, whatever width the page itself is capped at. */
+.main { overflow-x: clip; }
+.view-header { isolation: isolate; padding-bottom: 16px; margin-bottom: 20px; }
+.view-header::before { content: ""; position: absolute; z-index: -1; top: -26px; bottom: 0; left: -28px; right: -100vw;
+  background: var(--side); box-shadow: inset 0 -3px 0 var(--key-lip); }
+.settings-page > .view-header { margin-bottom: 4px; }
+
+/* The second keyboard. */
+.posting-list { background: var(--key-gap); display: flex; flex-direction: column; gap: 1px; border-radius: 4px 18px 18px 4px; }
+.posting-list > .posting-item, .posting-list > .posting-row { flex: none; background: var(--key); border-bottom: 0; box-shadow: inset -6px 0 0 var(--key-lip);
+  transition: background-color 156ms, box-shadow 78ms cubic-bezier(.3, 0, 0, 1); }
+.posting-list > .posting-item:hover, .posting-list > .posting-row:hover { background: var(--key-hover); }
+.posting-list > .posting-item.selected, .posting-list > .posting-row.selected {
+  background: var(--row-on); box-shadow: inset -3px 0 0 var(--row-on-lip), inset 12px 0 14px -12px rgb(0 0 0 / 22%); }
+.posting-list > .selected .row-main strong { color: var(--row-on-text); }
+.posting-list > .selected .score-badge.good { background: var(--card); }
+.posting-list > .list-empty, .posting-list > .list-more { flex: 1 0 auto; background: var(--key); }
+
+/* Buttons and cards stand on a lip and press down like a key. */
+.button { border-color: transparent; box-shadow: inset 0 -3px 0 var(--key-lip); transition: transform 78ms cubic-bezier(.3, 0, 0, 1), box-shadow 78ms, background-color 156ms; }
+.button:hover:not(:disabled) { border-color: transparent; background: var(--key-hover); }
+.button:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 -1px 0 var(--key-lip); }
+.button.primary { box-shadow: inset 0 -3px 0 var(--pri-lip); }
+.button.primary:hover:not(:disabled) { background: var(--green-hover); }
+.button.primary:active:not(:disabled) { box-shadow: inset 0 -1px 0 var(--pri-lip); }
+.button.small { box-shadow: inset 0 -2px 0 var(--key-lip); }
+.posting-detail, .application-detail { box-shadow: inset 0 -5px 0 var(--key-lip); }
+.card-section, .panel-form, .goals-panel, .home-card { box-shadow: inset 0 -4px 0 var(--key-lip); }
+.kpi, .funnel-step { box-shadow: inset 0 -3px 0 var(--key-lip); }
+
+/* Filters and search are pills, like the buttons beside them. */
+.filters select, .filters input:not([type]), .search-input { border-radius: 999px; border-color: transparent; }
+.filters select:focus, .filters input:not([type]):focus { border-color: var(--line-strong); }
+
+/* A job's dates and sources as one line of small facts instead of four boxes. */
+.facts-line { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 0; }
+.facts-line span { font-size: 12.5px; line-height: 24px; padding: 0 10px; border-radius: 999px; background: var(--soft); color: var(--muted); }
+.facts-line span:first-child { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .posting-list > .posting-item, .posting-list > .posting-row { transition: none; }
+}

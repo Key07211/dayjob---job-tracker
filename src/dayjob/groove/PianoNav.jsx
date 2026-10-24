@@ -20,7 +20,7 @@ export function PianoNav({ items, theme, label }) {
   return (
     <nav className="keys" aria-label={label}>
       {items.map((item, index) => (
-        <button key={item.id} type="button" className={`pkey${item.active ? ' on' : ''}${down === item.id ? ' down' : ''}`}
+        <button key={item.id} type="button" data-view={item.id} className={`pkey${item.active ? ' on' : ''}${down === item.id ? ' down' : ''}`}
           aria-current={item.active ? 'page' : undefined} onClick={() => press(item)}>
           {BLACK_AFTER.includes(index - 1) ? <i className="bkey" aria-hidden="true" /> : null}
           <item.icon size={18} />

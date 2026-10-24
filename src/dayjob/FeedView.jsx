@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
 import { dateLine, label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -7,7 +8,9 @@ import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
 import { Staff } from './groove/Staff.jsx';
 import { useGroove } from './groove/bus.js';
-import { BEAT, reducedMotion } from './groove/sound.js';
+import { BEAT, cue, reducedMotion } from './groove/sound.js';
+import { E8, Q, flipList } from './groove/fx.js';
+import { Hit, Roll } from './groove/Fx.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -34,7 +37,16 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const [reloadKey, setReloadKey] = useState(0);
   const [scoringMessage, setScoringMessage] = useState('');
   const [picked, setPicked] = useState(() => new Set());
-  const [removed, setRemoved] = useState(null);
+  // What can be undone: jobs just moved to Not interested, with the bar that offers it rising at the bottom.
+  const [undo, setUndo] = useState(null);
+  const [noneLow, setNoneLow] = useState(false);
+  // Rows on their way out (low scores, folded from the bottom up) or back (undone, from the top down), by id: their place in the wave.
+  const [folding, setFolding] = useState({});
+  const [returning, setReturning] = useState({});
+  // Refreshing deals the rows in again, an eighth note apart.
+  const [wave, setWave] = useState(0);
+  const list = useRef(null);
+  const flip = useMemo(() => flipList({ get children() { return list.current?.children; } }), []);
   // Ripples behind a job row: a soft ring when its score lands, three yellow rings when it is applied to.
   const [ripples, setRipples] = useState({});
   const [landed, setLanded] = useState(() => new Set());
@@ -46,7 +58,8 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   // Outside "score everything", the user ticks the jobs worth a Claude call.
   const picking = scoreMode !== 'auto' && hasResume;
   const scoreAllShown = scoreMode === 'auto' || (scoreMode === 'saved' && mode === 'saved');
-  const set = (key, value) => setFilters(current => ({ ...current, [key]: value }));
+  // A changed sort or filter: rows that stay slide to their new place instead of jumping.
+  const set = (key, value) => { flip.measure(); setFilters(current => ({ ...current, [key]: value })); };
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +77,12 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     return () => { cancelled = true; };
   }, [mode, text, filters.site, filters.minScore, filters.sort, filters.sinceDays, filters.searchId, filters.includeClosed, dataVersion, reloadKey]);
 
+  useLayoutEffect(() => { flip.play(); }, [result, flip]);
+  useEffect(() => {
+    if (!undo?.auto) return undefined;
+    const timer = setTimeout(() => setUndo(current => (current === undo ? null : current)), 8000);
+    return () => clearTimeout(timer);
+  }, [undo]);
   // A finished or paused batch refreshes the data; its "scoring started" note is then out of date.
   useEffect(() => { setScoringMessage(''); }, [dataVersion]);
   const sites = useMemo(() => [...new Set(result.items.map(item => item.site))], [result.items]);
@@ -96,7 +115,13 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   });
   useGroove('apply', ({ postingId }) => { if (postingId) ripple(postingId, 'chord'); });
 
-  function onChanged(updated, { removed, applied } = {}) {
+  function onChanged(updated, { removed, applied, restored } = {}) {
+    // A job taken back from Not interested slides back into its place from the left.
+    if (restored) {
+      setReturning(current => ({ ...current, [updated.id]: 0 }));
+      setTimeout(() => setReturning(current => { const next = { ...current }; delete next[updated.id]; return next; }), BEAT * 2);
+    }
+    if (removed && updated.status === 'dismissed') setUndo({ ids: [updated.id], auto: true, text: ['已移到“不感兴趣”。', 'Moved to Not interested.'] });
     if (removed) {
       const index = result.items.findIndex(item => item.id === updated.id);
       const rest = result.items.filter(item => item.id !== updated.id);
@@ -132,19 +157,33 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       void refreshStatus();
     } catch (failure) { setScoringMessage(failure.message); }
   }
+  // The low rows fold away one by one from the bottom up, an eighth note apart, then the undo bar rises.
   async function removeLow() {
     setScoringMessage('');
+    setNoneLow(false);
+    cue('removeLow');
+    const lows = result.items.filter(item => item.status === 'new' && item.score && item.score.score < LOW_SCORE).map(item => item.id);
+    if (lows.length && !reducedMotion()) {
+      setFolding(Object.fromEntries([...lows].reverse().map((id, index) => [id, Math.min(index, 12)])));
+      await new Promise(resolve => setTimeout(resolve, Math.min(lows.length, 12) * E8 + Q * 1.25));
+    }
     try {
       const { dismissed } = await api('/api/postings/dismiss-low', { method: 'POST', body: { below: LOW_SCORE } });
-      setRemoved(dismissed);
+      setResult(current => ({ items: current.items.filter(item => !dismissed.includes(item.id)), total: Math.max(0, current.total - dismissed.length) }));
+      if (dismissed.length) setUndo({ ids: dismissed, text: [`已把 ${dismissed.length} 个低于 ${LOW_SCORE} 分的岗位移到“不感兴趣”。`, `Moved ${dismissed.length} ${dismissed.length === 1 ? 'job' : 'jobs'} under ${LOW_SCORE} to Not interested.`] });
+      else setNoneLow(true);
       setReloadKey(key => key + 1);
       void refreshStatus();
-    } catch (failure) { setScoringMessage(failure.message); }
+    } catch (failure) { setScoringMessage(failure.message); } finally { setFolding({}); }
   }
+  // Like rewinding: what was just taken away comes back in the reverse order, from the top down.
   async function undoRemove() {
+    const ids = undo.ids;
     try {
-      await api('/api/postings/restore', { method: 'POST', body: { ids: removed } });
-      setRemoved(null);
+      await api('/api/postings/restore', { method: 'POST', body: { ids } });
+      setUndo(null);
+      setReturning(Object.fromEntries(ids.map((id, index) => [id, Math.min(index, 12)])));
+      setTimeout(() => setReturning({}), BEAT * 2 + Math.min(ids.length, 12) * E8);
       setReloadKey(key => key + 1);
       void refreshStatus();
     } catch (failure) { setScoringMessage(failure.message); }
@@ -163,22 +202,22 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
           </div>
         </div>
         <div className="header-actions">
-          {picked.size ? <button className="button primary" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t(`给选中的 ${picked.size} 个岗位打分`, `Score ${picked.size} picked ${picked.size === 1 ? 'job' : 'jobs'}`)}</button>
-            : unscored && hasResume && scoreAllShown ? <button className="button" onClick={scoreAll}><Sparkles size={15} />{t(`给 ${unscored} 个岗位打分`, `Score ${unscored} ${unscored === 1 ? 'job' : 'jobs'}`)}</button> : null}
+          {picked.size ? <button className="button primary" data-fx="sparkle" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t('给选中的 ', 'Score ')}<Roll value={picked.size} />{t(' 个岗位打分', picked.size === 1 ? ' picked job' : ' picked jobs')}</button>
+            : unscored && hasResume && scoreAllShown ? <button className="button" data-fx="sparkle" onClick={scoreAll}><Sparkles size={15} />{t(`给 ${unscored} 个岗位打分`, `Score ${unscored} ${unscored === 1 ? 'job' : 'jobs'}`)}</button> : null}
           {low ? <button className="button" onClick={removeLow} title={t(`把所有低于 ${LOW_SCORE} 分的新岗位移到“不感兴趣”，已收藏的不动`, `Move every new job scoring under ${LOW_SCORE} to Not interested; saved jobs stay`)}>
             <EyeOff size={15} />{t(`剔除低于 ${LOW_SCORE} 分的岗位`, `Remove jobs under ${LOW_SCORE}`)}</button> : null}
-          <button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button>
+          <button className="icon-button" data-fx="refresh" title={t('刷新', 'Refresh')} onClick={() => { setWave(value => value + 1); setReloadKey(key => key + 1); }}><RefreshCw size={16} /></button>
         </div>
       </header>
       {scoringMessage ? <p className="notice">{scoringMessage}</p> : null}
-      {removed ? (
-        <p className="notice">
-          {removed.length ? t(`已把 ${removed.length} 个低于 ${LOW_SCORE} 分的岗位移到“不感兴趣”。`, `Moved ${removed.length} ${removed.length === 1 ? 'job' : 'jobs'} under ${LOW_SCORE} to Not interested.`)
-            : t(`没有低于 ${LOW_SCORE} 分的新岗位。`, `No new jobs score under ${LOW_SCORE}.`)}
-          {removed.length ? <button className="link" onClick={undoRemove}>{t('撤销', 'Undo')}</button> : null}
-          <button className="link" onClick={() => setRemoved(null)}>{t('知道了', 'OK')}</button>
-        </p>
-      ) : null}
+      {noneLow ? <p className="notice">{t(`没有低于 ${LOW_SCORE} 分的新岗位。`, `No new jobs score under ${LOW_SCORE}.`)}<button className="link" onClick={() => setNoneLow(false)}>{t('知道了', 'OK')}</button></p> : null}
+      {/* The page is a container (for its own layout), so the bar is placed on the window itself to sit at its bottom. */}
+      {undo ? createPortal(
+        <div className="undo-bar" role="status">
+          <span>{t(...undo.text)}</span>
+          <button className="button small" data-fx="undo" onClick={undoRemove}><RotateCcw size={14} />{t('撤销', 'Undo')}</button>
+          <button className="icon-button" title={t('知道了', 'OK')} onClick={() => setUndo(null)}><X size={15} /></button>
+        </div>, document.body) : null}
       {!hasResume && mode === 'active' ? (
         <p className="notice">{t('还没有上传简历，岗位不会被打分。', 'No resume yet, so jobs are not scored.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : null}
@@ -207,7 +246,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       </div>
       {error ? <p className="notice error">{error}</p> : null}
       <div className="split">
-        <div className="posting-list" role="list">
+        <div className="posting-list" role="list" ref={list}>
           {loading && !result.items.length ? <div className="list-empty"><LoaderCircle className="spin" /></div> : null}
           {empty ? (
             <div className="list-empty">
@@ -218,22 +257,23 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
             </div>
           ) : null}
           {result.items.map((item, index) => (
-            <div key={item.id} role="listitem" className={`posting-item enter${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}`}
-              style={leaving[item.id] ? undefined : { animationDelay: `${Math.min(index, 12) * (BEAT / 8)}ms` }}>
+            <div key={`${item.id}-${wave}`} data-id={item.id} role="listitem"
+              className={`posting-item ${item.id in returning ? 'returning' : item.id in folding ? 'folding' : 'enter'}${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}`}
+              style={leaving[item.id] ? undefined : { animationDelay: `${(folding[item.id] ?? returning[item.id] ?? Math.min(index, 12)) * E8}ms` }}>
               {ripples[item.id]?.length ? <span className="ripples" aria-hidden="true">{ripples[item.id].map(ring => (ring.kind === 'chord'
                 ? [0, 1, 2].map(k => <i key={`${ring.id}-${k}`} className="rp chord" style={{ animationDelay: `${k * (BEAT / 8)}ms` }} />)
                 : [<i key={`${ring.id}-w`} className="rp wash" />, <i key={`${ring.id}-r`} className="rp note" />]))}</span> : null}
               {picking ? (
                 <span className="pick">
-                  {!item.score ? <input type="checkbox" checked={picked.has(item.id)} onChange={() => togglePick(item.id)}
+                  {!item.score ? <input type="checkbox" data-fx="pick" checked={picked.has(item.id)} onChange={() => togglePick(item.id)}
                     title={t('勾选后一起打分', 'Tick to score it')} aria-label={t(`勾选“${item.title}”来打分`, `Pick “${item.title}” for scoring`)} /> : null}
                 </span>
               ) : null}
-              <button className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}`} onClick={() => setSelected(item.id)}>
+              <button className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}`} data-fx="select" onClick={() => setSelected(item.id)}>
                 <div className="logo">{item.companyLogo ? <img src={item.companyLogo} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{(item.company || item.title).slice(0, 1).toUpperCase()}</span>}</div>
                 <div className="row-main">
-                  <strong>{item.title}</strong>
-                  <span className="row-company">{item.company}{item.location ? ` · ${item.location}` : ''}</span>
+                  <strong><Hit text={item.title} q={text} /></strong>
+                  <span className="row-company"><Hit text={item.company} q={text} />{item.location ? ` · ${item.location}` : ''}</span>
                   <span className="row-meta">
                     {item.datePosted ? <span>{t(`${relativeDay(item.datePosted)}发布`, `Posted ${relativeDay(item.datePosted)}`)}</span>
                       : <span>{t(`${relativeDay(item.firstSeenAt)}抓取`, `Found ${relativeDay(item.firstSeenAt)}`)}</span>}

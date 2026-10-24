@@ -5,6 +5,8 @@ import { api } from '../api.js';
 import { formatDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { emit } from './groove/bus.js';
+import { cue, reducedMotion } from './groove/sound.js';
+import { Q, flyTo, holdToConfirm, leave, shake } from './groove/fx.js';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
 export const hasBrowser = Boolean(desktop);
@@ -56,10 +58,18 @@ export function useBrowserState(setView) {
 function Approval({ approval }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
-  const answer = allowed => { setBusy(true); desktop.answer(approval.id, allowed).catch(() => {}); };
+  const bar = useRef(null);
+  // Allowed: a ✓ pops and the bar folds away. Denied: the bar shakes a little first.
+  const answer = allowed => {
+    setBusy(true);
+    const send = () => desktop.answer(approval.id, allowed).catch(() => {});
+    if (allowed) { cue('success'); leave(bar.current, 'up', send); return; }
+    shake(bar.current);
+    setTimeout(() => leave(bar.current, 'up', send), reducedMotion() ? 0 : Q * 2.4);
+  };
   const site = approval.site || t('这个网站', 'this site');
   return (
-    <div className="browser-approval" role="alertdialog" aria-live="assertive">
+    <div className="browser-approval" ref={bar} role="alertdialog" aria-live="assertive">
       <ShieldAlert size={18} />
       <p>
         <strong>{t('Claude 想先征得你同意', 'Claude is asking first')}</strong>
@@ -70,7 +80,7 @@ function Approval({ approval }) {
       </p>
       <div className="form-actions">
         <button className="button" onClick={() => answer(false)} disabled={busy}>{t('拒绝', 'Deny')}</button>
-        <button className="button primary" onClick={() => answer(true)} disabled={busy}>{t('允许', 'Allow')}</button>
+        <button className="button primary" data-fx="pop" onClick={() => answer(true)} disabled={busy}><CircleCheck size={15} />{t('允许', 'Allow')}</button>
       </div>
     </div>
   );
@@ -81,6 +91,7 @@ function SaveForm({ draft, apply, onCancel, onSaved }) {
   const [form, setForm] = useState({ title: draft.title || '', company: draft.company || '', location: draft.location || '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const own = useRef(null);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   async function save(event) {
     event.preventDefault();
@@ -95,11 +106,14 @@ function SaveForm({ draft, apply, onCancel, onSaved }) {
       } });
       const application = apply ? await api(`/api/postings/${saved.id}/apply`, { method: 'POST', body: {} }) : null;
       if (application) emit('apply', { postingId: saved.id });
+      // The page shrinks to a card and flies into the sidebar key it now belongs to.
+      flyTo(own.current.querySelector('[type="submit"]'), application ? 'applications' : 'saved', 'page');
+      cue('fav');
       onSaved(saved, application);
     } catch (failure) { setError(failure.message); setBusy(false); }
   }
   return (
-    <form className="browser-save" onSubmit={save}>
+    <form className="browser-save" ref={own} onSubmit={save}>
       <label>{t('职位', 'Title')}<input value={form.title} maxLength={240} required onChange={event => set('title', event.target.value)} /></label>
       <label>{t('公司', 'Company')}<input value={form.company} maxLength={160} required onChange={event => set('company', event.target.value)} /></label>
       <label>{t('地点', 'Location')}<input value={form.location} maxLength={160} onChange={event => set('location', event.target.value)} /></label>
@@ -108,7 +122,7 @@ function SaveForm({ draft, apply, onCancel, onSaved }) {
         : t('这个网页没有标准的岗位数据，请确认职位和公司；职位描述取自网页正文。', 'This page has no standard job data, so check the title and company. The description is taken from the page text.')}</p>
       {error ? <p className="notice error">{error}</p> : null}
       <div className="form-actions">
-        <button type="button" className="button small" onClick={onCancel}>{t('取消', 'Cancel')}</button>
+        <button type="button" className="button small" onClick={() => leave(own.current, 'up', onCancel)}>{t('取消', 'Cancel')}</button>
         <button type="submit" className="button small primary" disabled={busy}>
           {apply ? <><CircleCheck size={14} />{t('保存并标记已投递', 'Save and mark applied')}</> : <><Bookmark size={14} />{t('收藏到 Dayjob', 'Save to Dayjob')}</>}
         </button>
@@ -133,6 +147,8 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
   const [fill, setFill] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
+  // With auto-submit on, the button must be held for 0.6 s; letting go early cancels.
+  const hold = useRef(() => {});
   const profile = boot.settings.applicant || {};
   const profileEmpty = !['firstName', 'lastName', 'email', 'phone'].some(key => String(profile[key] || '').trim());
 
@@ -189,6 +205,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
       if (state.autoSubmit && !posting) from.draft = await desktop.extract().catch(() => null);
       const result = await desktop.autofill({ submit: state.autoSubmit });
       setFill({ ...result, from, urls: [url, result.page?.url] });
+      if (result.filled.length) cue('type');
     }
     catch (failure) {
       const message = bridgeMessage(failure);
@@ -201,6 +218,14 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
     setConfirming(false);
     desktop.setAutoSubmit(value).catch(() => {});
   }
+  const startHold = event => {
+    if (event.type === 'keydown' && (event.repeat || (event.key !== 'Enter' && event.key !== ' '))) return;
+    if (event.type === 'keydown') event.preventDefault();
+    hold.current();
+    hold.current = holdToConfirm(event.currentTarget, () => { hold.current = () => {}; void autofill(); });
+  };
+  const stopHold = () => { hold.current(); hold.current = () => {}; };
+  const holdProps = state.autoSubmit ? { onPointerDown: startHold, onPointerUp: stopHold, onPointerLeave: stopHold, onKeyDown: startHold, onKeyUp: stopHold, onClick: undefined } : { onClick: autofill };
   const viewPosting = () => {
     if (posting.application) openItem('applications', posting.application.id);
     else openItem(posting.status === 'saved' ? 'saved' : 'feed', posting.id);
@@ -211,7 +236,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
       <aside className="browser-assist collapsed" aria-label={t('浏览器助手', 'Browser assistant')}>
         <button className="icon-button" title={t('展开侧栏', 'Show the side panel')} onClick={() => onCollapse(false)}><ChevronsLeft size={16} /></button>
         <button className="icon-button" title={state.autoSubmit ? t('自动填写并提交', 'Autofill and submit') : t('自动填写', 'Autofill')} disabled={!url || filling || profileEmpty}
-          onClick={() => { onCollapse(false); void autofill(); }}><WandSparkles size={16} /></button>
+          onClick={() => { onCollapse(false); if (!state.autoSubmit) void autofill(); }}><WandSparkles size={16} /></button>
         <button className="icon-button" title={t('加入 Dayjob', 'Add to Dayjob')} disabled={!url || Boolean(posting)} onClick={() => { onCollapse(false); void startSave(false); }}><Bookmark size={16} /></button>
         {state.autoSubmit ? <span className="assist-dot" title={t('自动提交已开启', 'Auto-submit is on')} /> : null}
         {state.agentBusy ? <Bot size={16} className="assist-busy" aria-label={t('Claude 正在操作', 'Claude is working')} /> : null}
@@ -254,15 +279,15 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
 
       <section className="assist-section">
         <h3>{t('申请表', 'Application form')}</h3>
-        <button className="button primary block" onClick={autofill} disabled={!url || filling || profileEmpty}>
+        <button className="button primary block" data-fx={state.autoSubmit ? undefined : 'sparkle'} {...holdProps} disabled={!url || filling || profileEmpty}>
           {filling ? <LoaderCircle size={15} className="spin" /> : <WandSparkles size={15} />}
-          {state.autoSubmit ? t('自动填写并提交', 'Autofill and submit') : t('自动填写', 'Autofill')}
+          {state.autoSubmit ? t('按住：自动填写并提交', 'Hold: autofill and submit') : t('自动填写', 'Autofill')}
         </button>
         {profileEmpty ? <p className="hint">{t('先填好申请资料（姓名、邮箱、电话等），自动填写才知道填什么。', 'Fill in your application profile (name, email, phone…) so autofill knows what to put in.')}</p> : null}
         {fill ? (
           <div className="assist-result">
             <p><CircleCheck size={14} />{fill.filled.length ? t(`已填写 ${fill.filled.length} 项`, `Filled ${fill.filled.length} ${fill.filled.length === 1 ? 'field' : 'fields'}`) : t('没有能自动填的空格了', 'Nothing left that autofill can fill')}</p>
-            {fill.filled.length ? <details><summary>{t('看看填了哪些', 'Show which')}</summary><ul>{fill.filled.map((item, index) => <li key={index}>{item.label}</li>)}</ul></details> : null}
+            {fill.filled.length ? <details><summary>{t('看看填了哪些', 'Show which')}</summary><ul>{fill.filled.map((item, index) => <li key={index} style={{ '--i': Math.min(index, 12) }}>{item.label}</li>)}</ul></details> : null}
             {fill.left.length ? (
               <>
                 <p className="warn">{t('还需要你来填：', 'Still yours to fill in:')}</p>
@@ -291,7 +316,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
             <p>{t('开启后，自动填写会在必填项都填好时直接点提交；Claude 点提交时也不再先问你。每次打开 Dayjob 都会恢复为关闭。',
               'When on, autofill clicks submit as soon as every required field is filled, and Claude no longer asks before submitting. It turns off again every time Dayjob opens.')}</p>
             <div className="form-actions">
-              <button className="button small" onClick={() => setConfirming(false)}>{t('取消', 'Cancel')}</button>
+              <button className="button small" onClick={event => leave(event.currentTarget.closest('.assist-confirm'), 'up', () => setConfirming(false))}>{t('取消', 'Cancel')}</button>
               <button className="button small primary" onClick={() => setAutoSubmit(true)}>{t('开启', 'Turn on')}</button>
             </div>
           </div>
@@ -311,7 +336,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
       </section>
 
       {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
-      <button className="button small assist-external" disabled={!url} onClick={() => desktop.command('external')}><ExternalLink size={14} />{t('用系统浏览器打开', 'Open in your browser')}</button>
+      <button className="button small assist-external" data-fx="external" disabled={!url} onClick={() => desktop.command('external')}><ExternalLink size={14} />{t('用系统浏览器打开', 'Open in your browser')}</button>
     </aside>
   );
 }
@@ -323,6 +348,23 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
   const [typed, setTyped] = useState(null);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(() => read('dayjob-browser-assist', 'open') === 'collapsed');
+  // The browser slides in from the right and out to the right; the page itself is a native view, so it waits until the slide is done.
+  const [arriving, setArriving] = useState(() => !reducedMotion());
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (!arriving) return undefined;
+    const timer = setTimeout(() => setArriving(false), Q * 1.5);
+    return () => clearTimeout(timer);
+  }, [arriving]);
+  // Tabs opened after the browser appeared slide out of the ＋.
+  const seenTabs = useRef(null);
+  if (state && !seenTabs.current) seenTabs.current = new Set(state.tabs.map(tab => tab.id));
+  useEffect(() => {
+    const fresh = (state?.tabs || []).map(tab => tab.id).filter(id => !seenTabs.current?.has(id));
+    if (!fresh.length) return undefined;
+    const timer = setTimeout(() => fresh.forEach(id => seenTabs.current.add(id)), Q * 2);
+    return () => clearTimeout(timer);
+  });
   const active = state?.tabs.find(tab => tab.id === state.activeId) || null;
   const shownUrl = active && active.url !== 'about:blank' ? active.url : '';
 
@@ -333,7 +375,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     const node = frame.current;
     if (!node || !desktop) return;
     const rect = node.getBoundingClientRect();
-    const next = covered || !active || rect.width < 40 || rect.height < 40 ? null
+    const next = covered || arriving || closing || !active || rect.width < 40 || rect.height < 40 ? null
       : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
     const key = JSON.stringify(next);
     if (key === last.current) return;
@@ -365,6 +407,11 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     address.current?.blur();
     desktop.go(url).catch(() => setError(t('这个地址打不开。', 'That address cannot be opened.')));
   }
+  const close = event => {
+    const page = event.currentTarget.closest('.browser-page');
+    setClosing(true);
+    leave(page, 'right', onClose);
+  };
   function collapse(value) {
     setCollapsed(value);
     keep('dayjob-browser-assist', value ? 'collapsed' : 'open');
@@ -372,33 +419,33 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
 
   if (!state) return <div className="browser-page"><div className="detail-empty"><LoaderCircle className="spin" /></div></div>;
   return (
-    <section className="browser-page">
+    <section className={`browser-page${arriving ? ' arriving' : ''}`}>
       <div className="browser-tabs">
         <div className="browser-tab-list">
           {state.tabs.map(tab => (
-            <div key={tab.id} className={`browser-tab${tab.id === state.activeId ? ' active' : ''}`} title={tab.url}>
+            <div key={tab.id} className={`browser-tab${tab.id === state.activeId ? ' active' : ''}${seenTabs.current?.has(tab.id) ? '' : ' fresh'}`} title={tab.url}>
               <button className="browser-tab-main" onClick={() => command('switch', tab.id)}>
                 {tab.loading ? <LoaderCircle size={13} className="spin" /> : tab.favicon ? <img src={tab.favicon} alt="" referrerPolicy="no-referrer" /> : <Globe size={13} />}
                 <span>{tab.title || hostOf(tab.url) || t('新标签页', 'New tab')}</span>
               </button>
-              <button className="browser-tab-close" title={t('关闭标签页', 'Close tab')} onClick={() => command('close', tab.id)}><X size={12} /></button>
+              <button className="browser-tab-close" title={t('关闭标签页', 'Close tab')} onClick={event => leave(event.currentTarget.closest('.browser-tab'), 'narrow', () => command('close', tab.id))}><X size={12} /></button>
             </div>
           ))}
-          <button className="icon-button" title={t('新标签页', 'New tab')} onClick={() => command('new')}><Plus size={15} /></button>
+          <button className="icon-button" data-fx="pop" title={t('新标签页', 'New tab')} onClick={() => command('new')}><Plus size={15} /></button>
         </div>
         <div className="browser-window">
           {state.agentBusy ? <span className="agent-pill" title={t('Claude 正在操作', 'Claude is working')}><Bot size={14} /></span> : null}
-          {canSide ? <button className="icon-button" title={wide ? t('和当前页面并排显示', 'Show beside the current page') : t('铺满窗口', 'Fill the window')} onClick={() => onWide(!wide)}>
+          {canSide ? <button className="icon-button" data-fx="pop" title={wide ? t('和当前页面并排显示', 'Show beside the current page') : t('铺满窗口', 'Fill the window')} onClick={() => onWide(!wide)}>
             {wide ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button> : null}
-          <button className="icon-button" title={t('收起浏览器（标签页会保留）', 'Hide the browser (tabs stay open)')} onClick={onClose}><X size={16} /></button>
+          <button className="icon-button" title={t('收起浏览器（标签页会保留）', 'Hide the browser (tabs stay open)')} onClick={close}><X size={16} /></button>
         </div>
       </div>
       <form className="browser-bar" onSubmit={go}>
-        <button type="button" className="icon-button" title={t('后退', 'Back')} disabled={!active?.canGoBack} onClick={() => command('back')}><ArrowLeft size={16} /></button>
-        <button type="button" className="icon-button" title={t('前进', 'Forward')} disabled={!active?.canGoForward} onClick={() => command('forward')}><ArrowRight size={16} /></button>
+        <button type="button" className="icon-button" data-fx="back" title={t('后退', 'Back')} disabled={!active?.canGoBack} onClick={() => command('back')}><ArrowLeft size={16} /></button>
+        <button type="button" className="icon-button" data-fx="forward" title={t('前进', 'Forward')} disabled={!active?.canGoForward} onClick={() => command('forward')}><ArrowRight size={16} /></button>
         {active?.loading
-          ? <button type="button" className="icon-button" title={t('停止', 'Stop')} onClick={() => command('stop')}><Square size={13} /></button>
-          : <button type="button" className="icon-button" title={t('刷新', 'Reload')} disabled={!active} onClick={() => command('reload')}><RotateCw size={15} /></button>}
+          ? <button type="button" className="icon-button" data-fx="stop" title={t('停止', 'Stop')} onClick={() => command('stop')}><Square size={13} /></button>
+          : <button type="button" className="icon-button" data-fx="refresh" title={t('刷新', 'Reload')} disabled={!active} onClick={() => command('reload')}><RotateCw size={15} /></button>}
         <input ref={address} className="browser-address" value={typed ?? shownUrl} spellCheck={false} placeholder={t('输入网址或搜索', 'Enter an address or search')}
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
@@ -414,7 +461,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
                 'Sign in to LinkedIn, Indeed or company career sites here; the sign-ins stay on this computer. When you find a good job, click “Add to Dayjob” on the right to save, score and track it; on an application form, click “Autofill”.')}</p>
               <p className="hint">{t('连接 Claude 后，Claude 也能在这里打开和阅读网页、帮你填写申请表。需要提交或发送时，会先在这里请你确认；密码和文件上传始终由你自己来。',
                 'With Claude connected, Claude can open and read pages here and help fill in applications. Before anything is submitted or sent, it asks you here first; passwords and file uploads are always left to you.')}</p>
-              <div className="browser-links">{START.map(link => <button key={link.url} className="button" onClick={() => desktop.open(link.url)}>{link.name}</button>)}</div>
+              <div className="browser-links">{START.map(link => <button key={link.url} className="button" data-fx="open" onClick={() => desktop.open(link.url)}>{link.name}</button>)}</div>
             </div>
           ) : null}
         </div>
