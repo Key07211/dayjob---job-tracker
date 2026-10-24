@@ -3,6 +3,7 @@ import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, Power, 
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { applyMotion, MOTION_KEY } from './motion.js';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
@@ -142,6 +143,7 @@ export function SettingsView({ boot, reload, update }) {
     desktop: settings.notifications.desktop, minScore: settings.notifications.minScore, pythonCommand: settings.jobspy.pythonCommand,
     retentionDays: settings.retentionDays });
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem('dayjob-theme') || 'system'; } catch { return 'system'; } });
+  const [motionChoice, setMotionChoice] = useState(() => { try { return localStorage.getItem(MOTION_KEY) || 'system'; } catch { return 'system'; } });
   const [sites, setSites] = useState(boot.sites);
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
@@ -155,6 +157,11 @@ export function SettingsView({ boot, reload, update }) {
     const dark = value === 'dark' || (value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'night' : 'day';
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  }
+  function chooseMotion(value) {
+    setMotionChoice(value);
+    try { localStorage.setItem(MOTION_KEY, value); } catch { /* optional */ }
+    applyMotion(value);
   }
   async function save(event) {
     event.preventDefault();
@@ -225,6 +232,16 @@ export function SettingsView({ boot, reload, update }) {
               <button key={value} className={theme === value ? 'active' : ''} onClick={() => applyTheme(value)}>{t(zh, en)}</button>
             ))}
           </div>
+        </div>
+        <div className="option-row">
+          <span>{t('动效', 'Motion')}</span>
+          <div className="segmented">
+            {[['system', '跟随系统', 'System'], ['full', '开启', 'On'], ['reduce', '减少', 'Reduced']].map(([value, zh, en]) => (
+              <button key={value} className={motionChoice === value ? 'active' : ''} onClick={() => chooseMotion(value)}>{t(zh, en)}</button>
+            ))}
+          </div>
+          <small>{t('“减少”会关掉页面切换、列表和打分的动画。跟随系统时，Windows 设置 › 辅助功能 › 视觉效果 › 动画效果 关闭后，Dayjob 也会减少动效。',
+            '“Reduced” turns off the page, list and scoring animations. On System, Dayjob reduces motion when Windows Settings › Accessibility › Visual effects › Animation effects is off.')}</small>
         </div>
         <p className="hint">{t('数据库：', 'Database: ')}{boot.dataFile} · Dayjob {boot.version}</p>
         {desktop ? <button className="button" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}

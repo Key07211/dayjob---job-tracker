@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Pause, Play, Search, Settings } from 'lucide-react';
 import { api, setToken } from './api.js';
@@ -13,6 +13,7 @@ import { SettingsView } from './dayjob/SettingsView.jsx';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
+import { motion } from './dayjob/motion.js';
 import './dayjob/dayjob.css';
 
 const VIEWS = [
@@ -62,6 +63,17 @@ function App() {
   const [paneWidth, setPaneWidth] = useState(() => Number(read(localStorage, 'dayjob-browser-width')) || null);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [resizing, setResizing] = useState(false);
+  // The browser pane slides in and out: start (mounted, closed) -> enter -> in,
+  // and leave -> out. The page itself, a native view, shows only once it is in.
+  const [panePhase, setPanePhase] = useState(() => (browserOpen ? 'in' : 'out'));
+  const phaseNow = useRef(panePhase);
+  phaseNow.current = panePhase;
+  const lastWide = useRef(false);
+  // One highlight slides between the items: the current view, or the browser when it fills the window.
+  const navRef = useRef(null);
+  const thumbRef = useRef(null);
+  const thumbPlaced = useRef(false);
+  const navTarget = browserOpen && (browserWide || windowWidth < SIDE_MIN_WINDOW) ? 'browser' : view;
   // A job or application picked on Home or in the browser, for its view to
   // open with; any other way of changing views clears it. "browser" opens the
   // browser beside the current view.
@@ -99,10 +111,46 @@ function App() {
   useEffect(() => { keep(sessionStorage, 'dayjob-view', view); }, [view]);
   useEffect(() => { keep(sessionStorage, 'dayjob-browser', browserOpen ? 'open' : 'closed'); }, [browserOpen]);
   useEffect(() => {
+    const phase = phaseNow.current;
+    if (browserOpen ? phase === 'in' : phase === 'out') return undefined;
+    const { slow } = motion();
+    if (!slow) { setPanePhase(browserOpen ? 'in' : 'out'); return undefined; }
+    let frame = 0;
+    let timer = 0;
+    const settle = next => { timer = setTimeout(() => setPanePhase(next), slow); };
+    if (!browserOpen) {
+      setPanePhase('leave');
+      settle('out');
+    } else if (phase === 'leave') {
+      setPanePhase('enter');
+      settle('in');
+    } else {
+      // Paint it closed first, so the opening has somewhere to start from.
+      setPanePhase('start');
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => { setPanePhase('enter'); settle('in'); }); });
+    }
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [browserOpen]);
+  useEffect(() => {
     const resize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
+
+  const booted = Boolean(boot);
+  useLayoutEffect(() => {
+    const thumb = thumbRef.current;
+    const item = navRef.current?.querySelector(`[data-nav="${navTarget}"]`);
+    if (!thumb) return;
+    thumb.style.opacity = item ? '' : '0';
+    if (!item) return;
+    const first = !thumbPlaced.current;
+    thumbPlaced.current = true;
+    if (first) thumb.classList.add('still');
+    thumb.style.transform = `translateY(${item.offsetTop}px)`;
+    thumb.style.height = `${item.offsetHeight}px`;
+    if (first) { void thumb.offsetHeight; thumb.classList.remove('still'); }
+  }, [navTarget, booted]);
 
   // Poll quickly while a run is in progress, slowly otherwise.
   const busy = Boolean(status?.scheduler?.running || status?.scheduler?.scoringBatch);
@@ -162,7 +210,13 @@ function App() {
   const openItem = (target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); };
   const focusFor = target => (focus?.view === target ? focus.id : null);
   const canSide = windowWidth >= SIDE_MIN_WINDOW;
-  const wide = browserOpen && (browserWide || !canSide);
+  const wideOpen = browserOpen && (browserWide || !canSide);
+  const paneShown = panePhase !== 'out';
+  const paneMoving = paneShown && panePhase !== 'in';
+  const paneClosed = panePhase === 'start' || panePhase === 'leave';
+  // Closing keeps the shape it had; a full-window browser lifts off the view under it.
+  if (browserOpen) lastWide.current = wideOpen;
+  const wide = browserOpen ? wideOpen : paneShown && lastWide.current;
   const [minPane, maxPane] = paneLimits(windowWidth);
   const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((windowWidth - SIDEBAR) * 0.58)));
   // Dragging the divider: the page (a native view) is hidden meanwhile so it
@@ -202,9 +256,11 @@ function App() {
           <div><strong>Dayjob</strong><span>{t('求职追踪', 'Job tracker')}</span></div>
           <LanguageSwitch compact />
         </div>
-        <nav>
+        <nav ref={navRef}>
+          <span className="nav-thumb" ref={thumbRef} aria-hidden="true" />
           {VIEWS.map(item => (
-            <button key={item.id} className={`nav-item${(item.id === 'browser' ? browserOpen : view === item.id && !wide) ? ' active' : ''}`}
+            <button key={item.id} data-nav={item.id} aria-current={navTarget === item.id ? 'page' : undefined}
+              className={`nav-item${navTarget === item.id ? ' current' : item.id === 'browser' && browserOpen ? ' active' : ''}`}
               onClick={() => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id))}>
               <item.icon size={18} />
               <span>{t(...item.label)}</span>
@@ -222,6 +278,7 @@ function App() {
               : scheduler.running ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t(...(PHASES[scheduler.phase] || PHASES.score))}</p>
                 : <p>{nextRunText(scheduler.nextRunAt)}</p>}
             {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
+            {scoringNow && scoring.progress?.total ? <div className="run-meter" aria-hidden="true"><span style={{ transform: `scaleX(${Math.min(1, scoring.progress.done / scoring.progress.total)})` }} /></div> : null}
             {runMessage ? <p className="run-message">{runMessage}</p> : null}
             {scoringNow ? <button className="button block" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
               : scoring.paused ? <button className="button block" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
@@ -232,22 +289,25 @@ function App() {
         </div>
       </aside>
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
-      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}`}>
+      <main className={`main${paneShown ? ` with-browser${wide && !paneMoving ? ' wide' : ''}` : ''}`}>
         <div className="main-view">
-          {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
-          {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
-          {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
-          {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
-          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} /> : null}
-          {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
+          <div key={view} className="view-enter">
+            {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
+            {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} scoring={scoring} {...shared} /> : null}
+            {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} scoring={scoring} {...shared} /> : null}
+            {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
+            {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
+            {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} /> : null}
+            {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
+          </div>
         </div>
-        {browserOpen ? (
+        {paneShown ? (
           <>
             {!wide ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
               onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
-            <div className="browser-pane" style={wide ? undefined : { width }}>
-              <BrowserView state={browser} covered={showNotifications || resizing} boot={boot} dataVersion={dataVersion} openItem={openItem}
+            <div className={`browser-pane${paneMoving ? ` moving ${wide ? 'lifting' : 'side'}` : ''}${paneClosed ? ' closed' : ''}`}
+              style={wide ? undefined : { width: paneClosed ? 0 : width, '--pane-width': `${width}px` }}>
+              <BrowserView state={browser} covered={showNotifications || resizing || paneMoving} boot={boot} dataVersion={dataVersion} openItem={openItem}
                 wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} />
             </div>
           </>

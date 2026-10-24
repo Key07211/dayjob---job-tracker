@@ -296,12 +296,12 @@ test('pausing stops the posting being scored and holds the rest until resumed, a
   const scorer = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
   const batch = scorer.scoreBatch(['li-1', 'li-2', 'li-3']);
   await running;
-  assert.deepEqual((await scorer.status()).progress, { done: 0, total: 3 });
+  assert.deepEqual(await scorer.status().then(state => [state.progress, state.waiting]), [{ done: 0, total: 3 }, ['li-1', 'li-2', 'li-3']]);
   assert.deepEqual(scorer.pause(), { paused: true, held: 0 });
   const result = await batch;
   assert.equal(result.paused, true);
   assert.equal(result.scored, 0);
-  assert.deepEqual(await scorer.status().then(state => [state.paused, state.held, state.progress]), [true, 3, null]);
+  assert.deepEqual(await scorer.status().then(state => [state.paused, state.held, state.progress, state.waiting]), [true, 3, null, ['li-1', 'li-2', 'li-3']]);
 
   // While paused, new work waits too: a batch is held at once and a single job is refused.
   assert.equal((await scorer.scoreBatch(['li-2'])).paused, true);

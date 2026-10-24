@@ -39,8 +39,10 @@ export function createScorer({ repo, providers, log = console.warn }) {
 
   async function status(refresh = false) {
     const current = provider();
+    // The postings still to be scored, so the list can mark them: the held ones while paused.
+    const waiting = paused ? held : [...progress.ids].filter(id => !progress.done.has(id));
     return { provider: current.id, ...(await current.status(refresh)), mode: getSettings().ai.scoreMode, resumes: repo.countResumes(), pending,
-      paused, held: held.length, progress: batches.size ? { done: progress.done.size, total: progress.ids.size } : null };
+      paused, held: held.length, progress: batches.size ? { done: progress.done.size, total: progress.ids.size } : null, waiting: waiting.slice(0, 500) };
   }
 
   // Each posting is scored against the resume it was matched to by keywords.

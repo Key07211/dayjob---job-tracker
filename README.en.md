@@ -31,6 +31,7 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
+| Motion | Jobs waiting to be scored shimmer, each score pops in and counts up, and a bar at the bottom left shows scoring progress; new jobs slide in one after another, jobs glide to their new place when the order changes, and removed low matches fade out row by row; the sidebar highlight slides between pages and the browser slides in from the right. Dayjob follows Windows' Animation effects setting by default; pick On or Reduced under Settings → Motion. |
 
 ![Applications: funnel, stages and timeline](docs/media/applications-en.webp)
 

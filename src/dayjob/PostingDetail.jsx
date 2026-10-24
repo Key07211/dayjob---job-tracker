@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInput, relativeDay, salaryText, scoreTone } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { Markdown } from './Markdown.jsx';
+import { CountUp } from './motion.js';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
@@ -14,8 +15,11 @@ function DateRow({ name, value, relative = true }) {
   return <div><dt>{name}</dt><dd>{formatDay(value)}{relative ? <span>{t(`（${relativeDay(value)}）`, ` (${relativeDay(value)})`)}</span> : null}</dd></div>;
 }
 
-function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, saved }) {
+function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, saved, queued, paused }) {
   const { t } = useI18n();
+  // A score that arrives (or is redone) while the card is open rises in and counts up.
+  const first = useRef(score?.createdAt ?? null);
+  const landed = Boolean(score) && score.createdAt !== first.current;
   if (!hasResume) {
     return (
       <div className="score-card empty">
@@ -26,8 +30,10 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, sav
   }
   if (!score) {
     return (
-      <div className="score-card empty">
-        <p>{scoreMode === 'saved' && !saved ? t('这个岗位还没有打分。收藏后会自动打分，也可以现在就打。', 'This job has not been scored yet. Saving it scores it, or score it now.')
+      <div className={`score-card empty${queued ? ` queued${paused ? ' held' : ''}` : ''}`}>
+        <p>{queued ? (paused ? t('这个岗位在等着打分。点左下角的“继续打分”后会打分。', 'This job is waiting to be scored. It is scored once you click “Resume scoring” at the bottom left.')
+          : t('这个岗位在打分队列里，打完会自动显示在这里。', 'This job is in the scoring queue; its score shows here when it is done.'))
+          : scoreMode === 'saved' && !saved ? t('这个岗位还没有打分。收藏后会自动打分，也可以现在就打。', 'This job has not been scored yet. Saving it scores it, or score it now.')
           : scoreMode === 'auto' ? t('这个岗位还没有打分。', 'This job has not been scored yet.')
             : t('这个岗位还没有打分。打一次分用一次 Claude 额度。', 'This job has not been scored yet. Each score is one Claude call.')}</p>
         <button className="button primary" onClick={() => onScore(false)} disabled={scoring}>
@@ -37,9 +43,9 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, sav
     );
   }
   return (
-    <div className={`score-card ${scoreTone(score.score)}`}>
+    <div key={score.createdAt} className={`score-card ${scoreTone(score.score)}${landed ? ' landed' : ''}`}>
       <div className="score-head">
-        <div className="score-number">{score.score}<small>/100</small></div>
+        <div className="score-number"><CountUp value={score.score} play={landed} /><small>/100</small></div>
         <div>
           <strong>{label('verdict', score.verdict)}</strong>
           <span>{score.provider === 'claude-mcp' ? t('来自 Claude（MCP）', 'From Claude (MCP)') : SCORED_BY[score.provider] || 'Claude Code'}{score.model ? ` · ${score.model}` : ''} · {formatTime(score.createdAt)}</span>
@@ -96,7 +102,7 @@ function ApplyForm({ onApply, onCancel, busy }) {
   );
 }
 
-export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto' }) {
+export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto', scoredAt = null, queued = false, paused = false }) {
   const { t } = useI18n();
   const [posting, setPosting] = useState(null);
   const [error, setError] = useState('');
@@ -116,6 +122,14 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
       .catch(failure => { if (!cancelled) setError(failure.message); });
     return () => { cancelled = true; };
   }, [id]);
+  // The list saw a newer score (a batch scored this job): fetch it quietly.
+  const shownScore = posting ? posting.score?.createdAt ?? null : undefined;
+  useEffect(() => {
+    if (shownScore === undefined || !scoredAt || scoredAt === shownScore) return undefined;
+    let cancelled = false;
+    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) setPosting(value); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [id, scoredAt, shownScore]);
 
   async function act(name, work) {
     const own = () => shown.current === id;
@@ -202,7 +216,8 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
           ? <span>{t(`（也发布在 ${posting.duplicates.map(item => label('site', item.site)).join('、')}）`, ` (also on ${posting.duplicates.map(item => label('site', item.site)).join(', ')})`)}</span> : null}</dd></div>
         {posting.searches?.length ? <div><dt>{t('匹配的搜索', 'Matched searches')}</dt><dd>{posting.searches.map(search => search.name).join(t('、', ', '))}</dd></div> : null}
       </dl>
-      <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} scoreMode={scoreMode} saved={posting.status === 'saved'} />
+      <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} scoreMode={scoreMode} saved={posting.status === 'saved'}
+        queued={queued} paused={paused} />
       <ResumeMatch match={posting.resumeMatch} />
       <section className="description">
         <h3>{t('职位描述', 'Job description')}</h3>

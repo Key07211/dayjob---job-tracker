@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { api, query } from '../api.js';
 import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
+import { motion, useListMotion } from './motion.js';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -21,7 +22,7 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, scoring = null, focus = null }) {
   const { t } = useI18n();
   const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
   const [result, setResult] = useState({ items: [], total: 0 });
@@ -32,6 +33,10 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const [scoringMessage, setScoringMessage] = useState('');
   const [picked, setPicked] = useState(() => new Set());
   const [removed, setRemoved] = useState(null);
+  // Rows on their way out ("remove low matches"), by id, with their place in the stagger.
+  const [leaving, setLeaving] = useState(null);
+  const removing = useRef(false);
+  const listRef = useRef(null);
   const text = useDebounced(filters.q, 250);
   const scoreMode = boot.settings.ai.scoreMode || 'auto';
   const hasResume = boot.resumes.length > 0;
@@ -39,6 +44,10 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const picking = scoreMode !== 'auto' && hasResume;
   const scoreAllShown = scoreMode === 'auto' || (scoreMode === 'saved' && mode === 'saved');
   const set = (key, value) => setFilters(current => ({ ...current, [key]: value }));
+  // Jobs in the running scoring batch (or held while paused) show as queued,
+  // and each score that lands refreshes the list.
+  const waiting = useMemo(() => new Set(scoring?.waiting || []), [scoring?.waiting]);
+  const scoredSoFar = scoring?.progress?.done ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,19 +57,23 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       .then(value => {
         if (cancelled) return;
         setResult(value);
+        // A refresh while they fade out (a score landing) keeps them going.
+        if (!removing.current) setLeaving(null);
         setError('');
         setSelected(current => (current && value.items.some(item => item.id === current) ? current : value.items[0]?.id || null));
       })
       .catch(failure => { if (!cancelled) setError(failure.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [mode, text, filters.site, filters.minScore, filters.sort, filters.sinceDays, filters.searchId, filters.includeClosed, dataVersion, reloadKey]);
+  }, [mode, text, filters.site, filters.minScore, filters.sort, filters.sinceDays, filters.searchId, filters.includeClosed, dataVersion, reloadKey, scoredSoFar]);
 
   // A finished or paused batch refreshes the data; its "scoring started" note is then out of date.
   useEffect(() => { setScoringMessage(''); }, [dataVersion]);
   const sites = useMemo(() => [...new Set(result.items.map(item => item.site))], [result.items]);
   const unscored = result.items.filter(item => !item.score).length;
-  const low = mode === 'active' ? result.items.filter(item => item.status === 'new' && item.score && item.score.score < LOW_SCORE).length : 0;
+  const isLow = item => item.status === 'new' && item.score && item.score.score < LOW_SCORE;
+  const low = mode === 'active' ? result.items.filter(isLow).length : 0;
+  useListMotion(listRef, result.items.map(item => item.id).join('\n'));
   useEffect(() => {
     setPicked(current => {
       const still = new Set(result.items.filter(item => current.has(item.id) && !item.score).map(item => item.id));
@@ -104,14 +117,26 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       void refreshStatus();
     } catch (failure) { setScoringMessage(failure.message); }
   }
+  // The low rows fade out one after another while the server moves them; the
+  // rest then slide up into place.
   async function removeLow() {
     setScoringMessage('');
+    const ids = result.items.filter(isLow).map(item => item.id);
+    setLeaving(new Map(ids.map((id, index) => [id, Math.min(index, 12)])));
+    removing.current = true;
+    const { base, stagger } = motion();
+    const settled = new Promise(resolve => { setTimeout(resolve, base + stagger * Math.min(ids.length - 1, 12)); });
     try {
-      const { dismissed } = await api('/api/postings/dismiss-low', { method: 'POST', body: { below: LOW_SCORE } });
+      const [{ dismissed }] = await Promise.all([api('/api/postings/dismiss-low', { method: 'POST', body: { below: LOW_SCORE } }), settled]);
+      removing.current = false;
       setRemoved(dismissed);
       setReloadKey(key => key + 1);
       void refreshStatus();
-    } catch (failure) { setScoringMessage(failure.message); }
+    } catch (failure) {
+      removing.current = false;
+      setLeaving(null);
+      setScoringMessage(failure.message);
+    }
   }
   async function undoRemove() {
     try {
@@ -128,6 +153,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
         : t('每日抓取的新岗位，按你的简历 AI 打分。', 'New jobs from the daily search, scored by AI against your resume.');
 
   const empty = !loading && !result.items.length;
+  const selectedItem = result.items.find(item => item.id === selected);
   return (
     <section className="feed">
       <header className="view-header">
@@ -180,7 +206,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       </div>
       {error ? <p className="notice error">{error}</p> : null}
       <div className="split">
-        <div className="posting-list" role="list">
+        <div className="posting-list" role="list" ref={listRef}>
           {loading && !result.items.length ? <div className="list-empty"><LoaderCircle className="spin" /></div> : null}
           {empty ? (
             <div className="list-empty">
@@ -191,7 +217,8 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
             </div>
           ) : null}
           {result.items.map(item => (
-            <div key={item.id} role="listitem" className={`posting-item${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}`}>
+            <div key={item.id} data-key={item.id} role="listitem" className={`posting-item${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving?.has(item.id) ? ' leaving' : ''}`}
+              style={leaving?.has(item.id) ? { '--i': leaving.get(item.id) } : undefined}>
               {picking ? (
                 <span className="pick">
                   {!item.score ? <input type="checkbox" checked={picked.has(item.id)} onChange={() => togglePick(item.id)}
@@ -214,14 +241,15 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                     {item.status === 'saved' && mode === 'active' ? <span className="tag-saved"><Bookmark size={11} />{t('已收藏', 'Saved')}</span> : null}
                   </span>
                 </div>
-                <ScoreBadge score={item.score} compact />
+                <ScoreBadge score={item.score} compact queued={waiting.has(item.id)} paused={Boolean(scoring?.paused)} />
               </button>
             </div>
           ))}
           {result.total > result.items.length ? <p className="list-more">{t(`显示前 ${result.items.length} 个，共 ${result.total} 个。用筛选缩小范围。`, `Showing ${result.items.length} of ${result.total}. Use the filters to narrow it down.`)}</p> : null}
         </div>
         <div className="detail-pane">
-          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} />
+          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode}
+            scoredAt={selectedItem?.score?.scoredAt ?? null} queued={waiting.has(selected)} paused={Boolean(scoring?.paused)} />
             : <div className="detail-empty">{t('选择左侧的岗位查看详情', 'Pick a job on the left to see it here')}</div>}
         </div>
       </div>

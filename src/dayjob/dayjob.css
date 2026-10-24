@@ -22,6 +22,14 @@
   --blue-soft: #e5eef4;
   --shadow: 0 1px 2px rgb(41 60 52 / 6%), 0 4px 16px rgb(41 60 52 / 5%);
   --focus: rgb(47 101 89 / 18%);
+  --shimmer: rgb(255 255 255 / 80%);
+  /* Motion: every animation takes its timing from these; "reduce" zeroes them. */
+  --dur-fast: 150ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+  --stagger: 35ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
   color: var(--text);
   background: var(--surface);
 }
@@ -44,7 +52,10 @@
   --blue-soft: #1c2d3a;
   --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 25%);
   --focus: rgb(125 187 168 / 25%);
+  --shimmer: rgb(255 255 255 / 9%);
 }
+/* Settings > Motion, or Windows' Animation effects turned off. */
+:root[data-motion="reduce"] { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; --stagger: 0ms; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--surface); }
 h1, h2, h3, h4, p { margin: 0; }
@@ -67,6 +78,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); min-he
 code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pop { from { opacity: 0; transform: scale(0.55); } }
+@keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
 .boot-screen { min-height: 100vh; display: grid; place-content: center; gap: 12px; color: var(--muted); text-align: center; }
 
@@ -80,15 +94,22 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .brand img { width: 34px; height: 34px; }
 .brand strong { display: block; font-size: 17px; letter-spacing: -0.01em; }
 .brand span { display: block; font-size: 12px; color: var(--muted); }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; position: relative; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 8px; color: var(--text); text-align: left;
+  position: relative; transition: color var(--dur-fast);
 }
 .nav-item span { flex: 1; }
 .nav-item em { font-style: normal; font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; line-height: 18px; }
 .nav-item:hover { background: var(--card); }
 .nav-item.active { background: var(--card); color: var(--green); font-weight: 600; box-shadow: var(--shadow); }
-.nav-item.active em { color: var(--green); border-color: var(--green-soft); background: var(--green-soft); }
+.nav-item.active em, .nav-item.current em { color: var(--green); border-color: var(--green-soft); background: var(--green-soft); }
+/* The highlight under the current view slides from item to item. */
+.nav-thumb { position: absolute; top: 0; left: 0; right: 0; border-radius: 8px; background: var(--card); box-shadow: var(--shadow); pointer-events: none;
+  transition: transform var(--dur-slow) var(--ease-out), height var(--dur-slow) var(--ease-out); }
+.nav-thumb.still { transition: none; }
+.nav-item.current { color: var(--green); font-weight: 600; }
+.nav-item.current:hover { background: transparent; }
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 .run-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .run-card p { color: var(--muted); }
@@ -96,7 +117,10 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .run-message { color: var(--text) !important; }
 .run-paused { display: flex; align-items: flex-start; gap: 6px; color: var(--orange) !important; line-height: 1.45; }
 .run-paused svg { flex: none; margin-top: 2px; }
+.run-meter { height: 4px; border-radius: 999px; background: var(--green-soft); overflow: hidden; }
+.run-meter span { display: block; height: 100%; background: var(--green); transform-origin: left; transition: transform var(--dur-slow) var(--ease-out); }
 .main { margin-left: 216px; flex: 1; min-width: 0; padding: 26px 28px 28px; }
+.view-enter { animation: rise var(--dur-base) var(--ease-out); }
 
 /* ---------- common ---------- */
 .button {
@@ -115,7 +139,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .link { color: var(--green); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; margin-left: 6px; }
 .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
 .muted { color: var(--muted); }
-.notice { background: var(--green-soft); color: var(--text); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; margin-bottom: 12px; }
+.notice { background: var(--green-soft); color: var(--text); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; margin-bottom: 12px; animation: rise var(--dur-base) var(--ease-out); }
 .notice.error { background: var(--red-soft); color: var(--red); }
 .view-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
 .view-header h1 { font-size: 22px; letter-spacing: -0.01em; margin-bottom: 4px; }
@@ -145,6 +169,8 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .posting-item.picking > .posting-row { padding-left: 10px; }
 .posting-item .pick { flex-shrink: 0; width: 30px; display: flex; justify-content: flex-end; padding-top: 21px; }
 .posting-item .pick input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; }
+.posting-item.leaving { animation: row-out var(--dur-base) var(--ease-out) calc(var(--i, 0) * var(--stagger)) both; pointer-events: none; }
+@keyframes row-out { to { opacity: 0; transform: translateX(-24px); } }
 .logo { width: 36px; height: 36px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line); display: grid; place-items: center; overflow: hidden; flex-shrink: 0; font-weight: 600; color: var(--muted); }
 .logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .logo.large { width: 52px; height: 52px; border-radius: 12px; font-size: 20px; }
@@ -168,6 +194,15 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .score-badge.stretch { background: var(--amber-soft); color: var(--orange); }
 .score-badge.weak { background: var(--red-soft); color: var(--red); }
 :root[data-theme="night"] .score-badge.strong { color: #0f1a17; }
+.score-badge.landed { animation: pop var(--dur-slow) var(--ease-spring) both; }
+/* Waiting in a scoring batch: a light sweeps across; held while paused: a dashed edge. */
+.score-badge.queued { position: relative; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.score-badge.queued::after, .score-card.queued::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, var(--shimmer) 50%, transparent 80%); animation: shimmer 1.4s linear infinite;
+}
+.score-badge.held { box-shadow: none; outline: 1px dashed var(--line-strong); outline-offset: -1px; }
+.score-badge.held::after, .score-card.held::after, :root[data-motion="reduce"] .score-badge.queued::after, :root[data-motion="reduce"] .score-card.queued::after { display: none; }
 .detail-pane { min-width: 0; }
 .detail-empty { display: grid; place-items: center; min-height: 300px; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 12px; }
 
@@ -206,6 +241,13 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .score-card.good { background: color-mix(in srgb, var(--green-soft) 25%, var(--card)); }
 .score-card.stretch { background: color-mix(in srgb, var(--amber-soft) 45%, var(--card)); }
 .score-card.weak { background: color-mix(in srgb, var(--red-soft) 40%, var(--card)); }
+.score-card.queued { position: relative; overflow: hidden; }
+.score-card.queued::after { animation-duration: 2s; }
+.score-card.landed > * { animation: rise var(--dur-base) var(--ease-out) both; }
+.score-card.landed > :nth-child(2) { animation-delay: calc(var(--stagger) * 2); }
+.score-card.landed > :nth-child(3) { animation-delay: calc(var(--stagger) * 4); }
+.score-card.landed > :nth-child(n + 4) { animation-delay: calc(var(--stagger) * 6); }
+.score-card.landed .score-number { animation: pop var(--dur-slow) var(--ease-spring) both; transform-origin: left center; }
 .score-head { display: flex; align-items: center; gap: 14px; }
 .score-head > div:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
 .score-head span { font-size: 12px; color: var(--muted); }
@@ -376,13 +418,19 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 /* ---------- browser (beside the current view, or filling the window) ---------- */
 /* Views size themselves to the space they get, not the window. */
 .main-view { container: view / inline-size; }
-.main.with-browser { padding: 0; height: 100vh; display: flex; overflow: hidden; }
+.main.with-browser { padding: 0; height: 100vh; display: flex; overflow: hidden; position: relative; }
 .main.with-browser .main-view { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 28px 28px; }
 .main.with-browser.wide .main-view { display: none; }
 .pane-resizer { width: 6px; flex-shrink: 0; cursor: col-resize; background: var(--soft); border-left: 1px solid var(--line); }
 .pane-resizer:hover, .pane-resizer:focus-visible { background: var(--line-strong); outline: none; }
 .browser-pane { flex-shrink: 0; min-width: 0; display: flex; flex-direction: column; background: var(--card); container: pane / inline-size; }
 .main.with-browser.wide .browser-pane { flex: 1; }
+/* Opening and closing: beside the view, the pane widens and its page slides
+   in at full width; filling the window, it fades over the view under it. */
+.browser-pane.moving { overflow: hidden; transition: width var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+.browser-pane.moving.side > * { width: var(--pane-width); flex-shrink: 0; }
+.browser-pane.lifting { position: absolute; inset: 0; z-index: 3; }
+.browser-pane.lifting.closed { opacity: 0; transform: translateX(40px); }
 .nav-item em.alert { background: var(--orange); border-color: var(--orange); color: #fff; }
 .update-item small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .update-item > span:not(.update-circle) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

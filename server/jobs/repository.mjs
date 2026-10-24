@@ -131,7 +131,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     closedAt: row.closed_at, lastCheckedAt: row.last_checked_at, status: row.status, duplicateOf: row.duplicate_of,
     resumeId: row.resume_id ?? null, resumeOverlap: row.resume_overlap ?? null,
     ...(row.description !== undefined ? { description: row.description, emails: json(row.emails, []) } : {}),
-    ...(row.score !== undefined ? { score: row.score === null ? null : { score: row.score, verdict: row.verdict, summary: row.score_summary } } : {}),
+    ...(row.score !== undefined ? { score: row.score === null ? null : { score: row.score, verdict: row.verdict, summary: row.score_summary, scoredAt: row.scored_at } } : {}),
     ...(row.application_id !== undefined ? { application: row.application_id ? { id: row.application_id, status: row.application_status } : null } : {}),
   });
 
@@ -179,7 +179,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   const LIST_COLUMNS = `p.id, p.site, p.external_id, p.title, p.company, p.company_url, p.company_logo, p.location, p.city, p.state, p.country,
     p.is_remote, p.job_type, p.job_level, p.job_function, p.department, p.salary_min, p.salary_max, p.salary_interval, p.salary_currency,
     p.salary_source, p.job_url, p.apply_url, p.date_posted, p.first_seen_at, p.last_seen_at, p.closed_at, p.last_checked_at, p.status,
-    p.duplicate_of, p.resume_id, p.resume_overlap, s.score, s.verdict, s.summary AS score_summary, a.id AS application_id, a.status AS application_status`;
+    p.duplicate_of, p.resume_id, p.resume_overlap, s.score, s.verdict, s.summary AS score_summary, s.created_at AS scored_at, a.id AS application_id, a.status AS application_status`;
   // A posting shows the score from the resume it was matched to.
   const LIST_JOINS = `LEFT JOIN scores s ON s.posting_id = p.id AND s.resume_id = p.resume_id
     LEFT JOIN applications a ON a.posting_id = p.id`;
@@ -208,7 +208,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   function getPosting(id) {
-    const row = q(`SELECT p.*, s.score, s.verdict, s.summary AS score_summary, a.id AS application_id, a.status AS application_status
+    const row = q(`SELECT p.*, s.score, s.verdict, s.summary AS score_summary, s.created_at AS scored_at, a.id AS application_id, a.status AS application_status
       FROM postings p ${LIST_JOINS} WHERE p.id = ?`).get(id);
     if (!row) return null;
     const item = postingRow(row);
