@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { api, query } from '../api.js';
-import { label, relativeDay, salaryText } from './format.js';
+import { dateLine, label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
+import { Staff } from './groove/Staff.jsx';
+import { useGroove } from './groove/bus.js';
+import { BEAT, reducedMotion } from './groove/sound.js';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -21,8 +24,8 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
-  const { t } = useI18n();
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null, todayScores = [] }) {
+  const { t, locale } = useI18n();
   const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
   const [result, setResult] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,11 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const [scoringMessage, setScoringMessage] = useState('');
   const [picked, setPicked] = useState(() => new Set());
   const [removed, setRemoved] = useState(null);
+  // Ripples behind a job row: a soft ring when its score lands, three yellow rings when it is applied to.
+  const [ripples, setRipples] = useState({});
+  const [landed, setLanded] = useState(() => new Set());
+  const [leaving, setLeaving] = useState({});
+  const uid = useRef(0);
   const text = useDebounced(filters.q, 250);
   const scoreMode = boot.settings.ai.scoreMode || 'auto';
   const hasResume = boot.resumes.length > 0;
@@ -73,12 +81,32 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     return next;
   });
 
-  function onChanged(updated, { removed } = {}) {
+  function ripple(id, kind) {
+    if (reducedMotion()) return;
+    const ring = { id: ++uid.current, kind };
+    setRipples(current => ({ ...current, [id]: [...(current[id] || []), ring].slice(-3) }));
+    setTimeout(() => setRipples(current => ({ ...current, [id]: (current[id] || []).filter(item => item.id !== ring.id) })), BEAT * 2);
+  }
+  // A score landing while the list is open: the row's badge drops in and a ring spreads behind it.
+  useGroove('score', ({ id, score, verdict }) => {
+    if (!result.items.some(item => item.id === id)) return;
+    setResult(current => ({ ...current, items: current.items.map(item => (item.id === id ? { ...item, score: { ...(item.score || {}), score, verdict } } : item)) }));
+    setLanded(current => new Set(current).add(id));
+    ripple(id, 'note');
+  });
+  useGroove('apply', ({ postingId }) => { if (postingId) ripple(postingId, 'chord'); });
+
+  function onChanged(updated, { removed, applied } = {}) {
     if (removed) {
       const index = result.items.findIndex(item => item.id === updated.id);
-      const items = result.items.filter(item => item.id !== updated.id);
-      setResult({ items, total: Math.max(0, result.total - 1) });
-      setSelected(items[Math.min(index, items.length - 1)]?.id || null);
+      const rest = result.items.filter(item => item.id !== updated.id);
+      setSelected(rest[Math.min(index, rest.length - 1)]?.id || null);
+      // The row slides out first; an application lets its rings play for a beat and a half.
+      setLeaving(current => ({ ...current, [updated.id]: applied ? 'leaving applied' : 'leaving' }));
+      setTimeout(() => {
+        setResult(current => ({ items: current.items.filter(item => item.id !== updated.id), total: Math.max(0, current.total - 1) }));
+        setLeaving(current => { const next = { ...current }; delete next[updated.id]; return next; });
+      }, reducedMotion() ? 0 : applied ? BEAT * 1.5 : BEAT * 0.75);
     } else {
       setResult(current => ({ ...current, items: current.items.map(item => (item.id === updated.id ? { ...item, ...updated, description: undefined } : item)) }));
     }
@@ -122,18 +150,17 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     } catch (failure) { setScoringMessage(failure.message); }
   }
   const scoreAll = () => scoreJobs(result.items.filter(item => !item.score).map(item => item.id));
-  const intro = mode === 'saved' ? t('先收藏，准备好再投递。投递后会自动出现在“投递追踪”。', 'Save jobs now and apply when you are ready. Applied jobs move to Applications.')
-    : scoreMode === 'saved' ? t('每日抓取的新岗位。收藏的岗位会按你的简历 AI 打分，也可以勾选几个直接打分。', 'New jobs from the daily search. Jobs you save are scored against your resume, or tick a few to score them now.')
-      : scoreMode === 'manual' ? t('每日抓取的新岗位。勾选想打分的岗位，再点右上角的按钮。', 'New jobs from the daily search. Tick the ones you want scored, then use the button at the top right.')
-        : t('每日抓取的新岗位，按你的简历 AI 打分。', 'New jobs from the daily search, scored by AI against your resume.');
 
   const empty = !loading && !result.items.length;
   return (
     <section className="feed">
       <header className="view-header">
-        <div>
-          <h1>{mode === 'saved' ? t('已收藏', 'Saved') : t('今日岗位', 'Today')}</h1>
-          <p>{intro}</p>
+        <div className="title-block">
+          <p className="view-date">{dateLine(locale)}</p>
+          <div className="title-row">
+            <h1>{mode === 'saved' ? t('已收藏', 'Saved') : t('今日岗位', 'Today')}</h1>
+            {mode === 'active' ? <Staff scores={todayScores} label={t('播放今天的旋律', 'Play today\'s melody')} /> : null}
+          </div>
         </div>
         <div className="header-actions">
           {picked.size ? <button className="button primary" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t(`给选中的 ${picked.size} 个岗位打分`, `Score ${picked.size} picked ${picked.size === 1 ? 'job' : 'jobs'}`)}</button>
@@ -190,8 +217,12 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                 : <><p>{t('先添加一个搜索，比如“Data Scientist · San Francisco”。', 'Start by adding a search, such as “Data Scientist · San Francisco”.')}</p><button className="button primary" onClick={() => setView('searches')}>{t('添加搜索', 'Add a search')}</button></>}
             </div>
           ) : null}
-          {result.items.map(item => (
-            <div key={item.id} role="listitem" className={`posting-item${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}`}>
+          {result.items.map((item, index) => (
+            <div key={item.id} role="listitem" className={`posting-item enter${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}`}
+              style={leaving[item.id] ? undefined : { animationDelay: `${Math.min(index, 12) * (BEAT / 8)}ms` }}>
+              {ripples[item.id]?.length ? <span className="ripples" aria-hidden="true">{ripples[item.id].map(ring => (ring.kind === 'chord'
+                ? [0, 1, 2].map(k => <i key={`${ring.id}-${k}`} className="rp chord" style={{ animationDelay: `${k * (BEAT / 8)}ms` }} />)
+                : [<i key={`${ring.id}-w`} className="rp wash" />, <i key={`${ring.id}-r`} className="rp note" />]))}</span> : null}
               {picking ? (
                 <span className="pick">
                   {!item.score ? <input type="checkbox" checked={picked.has(item.id)} onChange={() => togglePick(item.id)}
@@ -214,7 +245,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                     {item.status === 'saved' && mode === 'active' ? <span className="tag-saved"><Bookmark size={11} />{t('已收藏', 'Saved')}</span> : null}
                   </span>
                 </div>
-                <ScoreBadge score={item.score} compact />
+                <ScoreBadge score={item.score} compact landed={landed.has(item.id)} />
               </button>
             </div>
           ))}

@@ -75,7 +75,7 @@ export async function createApp(options = {}) {
   }
   function schedulerState() {
     return { running: scheduler.running, phase: scheduler.phase, nextRunAt: scheduler.nextRunAt(), lastDailyRun: repo.getMeta('lastDailyRun'),
-      lastTracking: repo.getMeta('lastTracking'), scoringBatch: Boolean(scoringBatch), scoringPending: scorer.pending };
+      lastTracking: repo.getMeta('lastTracking'), scoringBatch: Boolean(scoringBatch), scoringPending: scorer.pending, searchProgress: runner.progress };
   }
   async function status() {
     return { version: VERSION, serverTime: now().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

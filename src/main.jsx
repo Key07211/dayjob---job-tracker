@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Pause, Play, Search, Settings } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -13,18 +13,33 @@ import { SettingsView } from './dayjob/SettingsView.jsx';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
+import { PianoNav } from './dayjob/groove/PianoNav.jsx';
+import { Turntable } from './dayjob/groove/Turntable.jsx';
+import { WeekBars } from './dayjob/groove/WeekBars.jsx';
+import { Metronome } from './dayjob/groove/Metronome.jsx';
+import { ListenWave } from './dayjob/groove/ListenWave.jsx';
+import { emit, useGroove } from './dayjob/groove/bus.js';
+import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
+import { BEAT, playApply, playBatchEnd, playHello, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
+import '@fontsource-variable/bricolage-grotesque/wght.css';
+import '@fontsource/dm-mono/latin-400.css';
+import '@fontsource/dm-mono/latin-500.css';
 import './dayjob/dayjob.css';
+import './dayjob/groove/groove.css';
 
+// note: which of the tune's eight phrases the page's key plays, the same with or without the browser.
 const VIEWS = [
-  { id: 'home', label: ['主页', 'Home'], icon: LayoutDashboard },
-  { id: 'feed', label: ['今日岗位', 'Today'], icon: Inbox },
-  { id: 'saved', label: ['已收藏', 'Saved'], icon: Bookmark },
-  { id: 'applications', label: ['投递追踪', 'Applications'], icon: BriefcaseBusiness },
-  ...(hasBrowser ? [{ id: 'browser', label: ['浏览器', 'Browser'], icon: Globe }] : []),
-  { id: 'searches', label: ['搜索与公司', 'Searches'], icon: Search },
-  { id: 'resume', label: ['简历与 AI', 'Resume & AI'], icon: FileUser },
-  { id: 'settings', label: ['设置', 'Settings'], icon: Settings },
+  { id: 'home', label: ['主页', 'Home'], icon: LayoutDashboard, note: 0 },
+  { id: 'feed', label: ['今日岗位', 'Today'], icon: Inbox, note: 1 },
+  { id: 'saved', label: ['已收藏', 'Saved'], icon: Bookmark, note: 2 },
+  { id: 'applications', label: ['投递追踪', 'Applications'], icon: BriefcaseBusiness, note: 3 },
+  ...(hasBrowser ? [{ id: 'browser', label: ['浏览器', 'Browser'], icon: Globe, note: 4 }] : []),
+  { id: 'searches', label: ['搜索与公司', 'Searches'], icon: Search, note: 5 },
+  { id: 'resume', label: ['简历与 AI', 'Resume & AI'], icon: FileUser, note: 6 },
+  { id: 'settings', label: ['设置', 'Settings'], icon: Settings, note: 7 },
 ];
+const WEEKDAYS = { zh: ['一', '二', '三', '四', '五', '六', '日'], en: ['M', 'T', 'W', 'T', 'F', 'S', 'S'] };
 // The browser opens beside the current view; below this window width it fills the window.
 const SIDE_MIN_WINDOW = 1000;
 const SIDEBAR = 216;
@@ -33,24 +48,26 @@ const VIEW_MIN = 360;
 const paneLimits = windowWidth => [PANE_MIN, Math.max(PANE_MIN, windowWidth - SIDEBAR - VIEW_MIN)];
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
 const keep = (storage, key, value) => { try { storage.setItem(key, value); } catch { /* optional */ } };
-const PHASES = { search: ['正在抓取岗位…', 'Fetching jobs…'], score: ['AI 正在打分…', 'AI is scoring…'], track: ['正在更新投递状态…', 'Updating applications…'] };
 
 function nextRunText(value) {
-  if (!value) return tr('每日抓取已关闭', 'Daily search is off');
+  if (!value) return tr('点唱片开始抓取', 'Click the record to search');
   const date = new Date(value);
   if (date - Date.now() < 90 * 1000) return tr('马上开始每日抓取', 'Daily search starts shortly');
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const day = date.toDateString() === new Date().toDateString() ? tr('今天', 'today') : date.toDateString() === tomorrow.toDateString() ? tr('明天', 'tomorrow') : formatDay(value);
   const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-  return tr(`下次抓取：${day} ${time}`, `Next search: ${day} ${time}`);
+  return tr(`下次 ${day} ${time}`, `Next ${day} ${time}`);
 }
 
 // The language is also a server setting, so notifications and the tray follow it.
 const saveLanguage = language => { api('/api/settings', { method: 'PATCH', body: { language } }).catch(() => {}); };
 
 function App() {
-  const { t, setLang } = useI18n();
+  const { t, lang, setLang } = useI18n();
+  const groove = usePrefs();
+  const theme = useTheme();
+  const nowPlaying = useNowPlaying();
   const [boot, setBoot] = useState(null);
   const [error, setError] = useState('');
   const [view, setView] = useState(() => {
@@ -79,6 +96,9 @@ function App() {
   const wasRunning = useRef(false);
   const wasSearching = useRef(false);
   const adopted = useRef(false);
+  // Scores that landed since the last poll play one per beat, so a batch sounds like a melody, not a chord.
+  const feed = useRef({ seq: null, queue: [], timer: 0, batch: 0, busy: false });
+  const [pending, setPending] = useState(0);
   const browser = useBrowserState(goTo);
   const update = useUpdateState();
 
@@ -125,6 +145,55 @@ function App() {
     wasSearching.current = Boolean(status?.scheduler?.running);
   }, [busy, status]);
 
+  const finishBatch = useCallback(() => {
+    const f = feed.current;
+    if (f.busy || f.queue.length || f.timer) return;
+    // A whole batch scored: the cadence and the bell, once, when at least two scores landed.
+    if (f.batch >= 2) { emit('batch-end', { scored: f.batch }); playBatchEnd(); }
+    f.batch = 0;
+  }, []);
+  const drain = useCallback(() => {
+    const f = feed.current;
+    if (f.timer) return;
+    const step = () => {
+      const next = f.queue.shift();
+      setPending(f.queue.length);
+      if (!next) { f.timer = 0; finishBatch(); return; }
+      f.batch += 1;
+      emit('score', next);
+      playScore(next.score);
+      f.timer = setTimeout(step, BEAT);
+    };
+    step();
+  }, [finishBatch]);
+  useEffect(() => {
+    const landed = status?.scoring?.landed;
+    const f = feed.current;
+    if (!f.busy && busy) f.batch = 0;
+    f.busy = busy;
+    if (landed) {
+      const top = landed.reduce((max, item) => Math.max(max, item.seq), 0);
+      // What landed before the window opened is not played again.
+      if (f.seq === null) f.seq = top;
+      const fresh = landed.filter(item => item.seq > f.seq).sort((a, b) => a.seq - b.seq);
+      if (fresh.length) {
+        f.seq = top;
+        f.queue.push(...fresh);
+        setPending(f.queue.length);
+        drain();
+      }
+    }
+    finishBatch();
+  }, [status, busy, drain, finishBatch]);
+  useEffect(() => () => { clearTimeout(feed.current.timer); feed.current.timer = 0; }, []);
+  // An application anywhere: one strum, and the week bars catch up.
+  useGroove('apply', () => {
+    playApply();
+    api('/api/status').then(setStatus).catch(() => {});
+  });
+  // Following music was turned on before: start listening again (the sound itself waits for a first click).
+  useEffect(() => { if (prefs.get().followMusic) setFollow(true); }, []);
+
   // Pausing stops the job being scored right away; resuming scores what was left.
   async function setScoringPaused(pause) {
     setRunMessage('');
@@ -137,6 +206,8 @@ function App() {
 
   async function runNow() {
     setRunMessage('');
+    playNeedle();
+    emit('fetch');
     try {
       await api('/api/runs', { method: 'POST', body: {} });
       setStatus(await api('/api/status'));
@@ -155,7 +226,18 @@ function App() {
   const scheduler = status?.scheduler || boot.scheduler;
   const scoring = status?.scoring || boot.scoring;
   const scoringNow = !scoring.paused && (scheduler.running ? scheduler.phase === 'score' : scheduler.scoringBatch);
-  const progress = scoringNow && scoring.progress?.total ? ` ${Math.min(scoring.progress.done + 1, scoring.progress.total)}/${scoring.progress.total}` : '';
+  const scoreShare = scoring.progress?.total ? Math.min(1, scoring.progress.done / scoring.progress.total) : 0;
+  const searchShare = scheduler.searchProgress?.total ? Math.min(1, scheduler.searchProgress.done / scheduler.searchProgress.total) : 0;
+  // The stylus tracks the whole run: most of it is the search, then scoring, then the application check.
+  const deckProgress = scheduler.running ? (scheduler.phase === 'search' ? 0.7 * searchShare : scheduler.phase === 'score' ? 0.7 + 0.25 * scoreShare : 0.95) : scoreShare;
+  const deckBusy = scheduler.running || scoringNow;
+  const step = scoringNow && scoring.progress?.total ? `${Math.min(scoring.progress.done + 1, scoring.progress.total)}/${scoring.progress.total}` : '';
+  const runText = scoringNow ? t(`AI 正在打分 ${step}`, `AI is scoring ${step}`)
+    : scheduler.running ? (scheduler.phase === 'track' ? t('正在更新投递状态…', 'Updating applications…') : t(`正在抓取 ${Math.round(deckProgress * 100)}%`, `Fetching ${Math.round(deckProgress * 100)}%`)) : '';
+  const track = groove.followMusic ? nowPlaying.track : null;
+  const trackSub = track ? [track.artist, appName(track.app, t)].filter(Boolean).join(' · ') : '';
+  const todayScores = (stats.todayScores || []).slice(0, Math.max(0, (stats.todayScores || []).length - pending));
+  const weekTotal = (stats.week || []).reduce((sum, value) => sum + value, 0);
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
@@ -163,6 +245,17 @@ function App() {
   const focusFor = target => (focus?.view === target ? focus.id : null);
   const canSide = windowWidth >= SIDE_MIN_WINDOW;
   const wide = browserOpen && (browserWide || !canSide);
+  const pianoKeys = VIEWS.map(item => ({
+    id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
+    active: item.id === 'browser' ? browserOpen : view === item.id && !wide,
+    badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
+    onSelect: () => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id)),
+  }));
+  function toggleSound() {
+    const next = !groove.sound;
+    prefs.set({ sound: next });
+    if (next) playHello();
+  }
   const [minPane, maxPane] = paneLimits(windowWidth);
   const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((windowWidth - SIDEBAR) * 0.58)));
   // Dragging the divider: the page (a native view) is hidden meanwhile so it
@@ -198,44 +291,43 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src="/favicon.svg" alt="" />
-          <div><strong>Dayjob</strong><span>{t('求职追踪', 'Job tracker')}</span></div>
+          <span className="brand-mark" aria-hidden="true">d</span>
+          <strong>dayjob</strong>
+          <button type="button" className={`sound-button${groove.sound ? ' on' : ''}`} onClick={toggleSound} aria-pressed={groove.sound}
+            title={groove.sound ? t('关闭提示音', 'Turn sounds off') : t('打开提示音', 'Turn sounds on')} aria-label={t('提示音', 'Sounds')}>
+            {groove.sound ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          </button>
           <LanguageSwitch compact />
         </div>
-        <nav>
-          {VIEWS.map(item => (
-            <button key={item.id} className={`nav-item${(item.id === 'browser' ? browserOpen : view === item.id && !wide) ? ' active' : ''}`}
-              onClick={() => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id))}>
-              <item.icon size={18} />
-              <span>{t(...item.label)}</span>
-              {badges[item.id] ? <em className={item.id === 'browser' ? 'alert' : undefined}>{badges[item.id] > 999 ? '999+' : badges[item.id]}</em> : null}
-            </button>
-          ))}
-        </nav>
+        <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
           <button className={`nav-item${showNotifications ? ' active' : ''}`} onClick={() => setShowNotifications(value => !value)}>
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em>{stats.unreadNotifications}</em> : null}
           </button>
-          <div className="run-card">
-            {scoringNow ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t('AI 正在打分', 'AI is scoring')}{progress}</p>
-              : scheduler.running ? <p className="run-phase"><LoaderCircle size={15} className="spin" />{t(...(PHASES[scheduler.phase] || PHASES.score))}</p>
-                : <p>{nextRunText(scheduler.nextRunAt)}</p>}
-            {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
-            {runMessage ? <p className="run-message">{runMessage}</p> : null}
-            {scoringNow ? <button className="button block" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
-              : scoring.paused ? <button className="button block" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
-            <button className="button primary block" onClick={runNow} disabled={scheduler.running}>
-              <Play size={15} />{scheduler.running ? t('抓取中', 'Searching') : t('立即抓取', 'Search now')}
-            </button>
-          </div>
+          <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
+            total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
+          <Turntable busy={deckBusy} disabled={scheduler.running} progress={deckProgress} playing={Boolean(track)} onStart={runNow}
+            label={scheduler.running ? t('抓取中', 'Searching') : t('点唱片开始抓取', 'Click the record to search now')}
+            title={track ? track.title : t('每日推荐', 'Daily picks')}
+            sub={runText || trackSub || nextRunText(scheduler.nextRunAt)} dim={scoring.paused && !deckBusy} />
+          {scoring.paused || runMessage || scoringNow ? (
+            <div className="run-extra">
+              {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
+              {runMessage ? <p className="run-message">{runMessage}</p> : null}
+              {scoringNow ? <button className="button block" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
+                : scoring.paused ? <button className="button block" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
+            </div>
+          ) : null}
         </div>
       </aside>
+      <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
+      <ListenWave on={Boolean(track) && !nowPlaying.browser} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
       <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}`}>
         <div className="main-view">
           {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
+          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} todayScores={todayScores} {...shared} /> : null}
           {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
           {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
           {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}

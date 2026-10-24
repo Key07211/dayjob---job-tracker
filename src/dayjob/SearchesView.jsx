@@ -385,8 +385,7 @@ export function SearchesView({ boot, reload, status, setView }) {
   return (
     <section className="settings-page searches-page">
       <header className="view-header">
-        <div><h1>{t('搜索与公司', 'Searches & companies')}</h1><p>{t('每天按这些条件抓取。抓取在你的电脑上进行，会放慢请求节奏，避免被网站限流。',
-          'Dayjob searches for these every day, from your computer, at a slow pace so the sites do not rate limit it.')}</p></div>
+        <div><h1>{t('搜索与公司', 'Searches & companies')}</h1></div>
         <div className="header-actions"><button className="button primary" onClick={() => setEditing('new')}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
       </header>
       {editing ? (

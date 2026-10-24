@@ -29,6 +29,9 @@ export function createScorer({ repo, providers, log = console.warn }) {
   // Postings in the running batches, and the ones of those already done; two
   // batches asking for the same posting count it once.
   let progress = { ids: new Set(), done: new Set() };
+  // The latest scores as they land, numbered, so the app can play each one once.
+  let landed = [];
+  let landedSeq = 0;
 
   const provider = () => available[getSettings().ai.provider] || available['claude-cli'];
   const persist = () => repo.setMeta('scoringPaused', paused ? { at: new Date().toISOString(), ids: held } : null);
@@ -40,7 +43,7 @@ export function createScorer({ repo, providers, log = console.warn }) {
   async function status(refresh = false) {
     const current = provider();
     return { provider: current.id, ...(await current.status(refresh)), mode: getSettings().ai.scoreMode, resumes: repo.countResumes(), pending,
-      paused, held: held.length, progress: batches.size ? { done: progress.done.size, total: progress.ids.size } : null };
+      paused, held: held.length, progress: batches.size ? { done: progress.done.size, total: progress.ids.size } : null, landed };
   }
 
   // Each posting is scored against the resume it was matched to by keywords.
@@ -60,7 +63,10 @@ export function createScorer({ repo, providers, log = console.warn }) {
     try { result = await provider().score({ resume: resume.text, posting, signal: controller.signal }); }
     catch (error) { throw controller.signal.aborted ? pausedError() : error; }
     finally { if (inFlight === controller) inFlight = null; }
-    return repo.saveScore(postingId, resume.id, result);
+    const saved = repo.saveScore(postingId, resume.id, result);
+    landedSeq += 1;
+    landed = [...landed, { seq: landedSeq, id: postingId, score: saved.score, verdict: saved.verdict }].slice(-20);
+    return saved;
   }
 
   // Serialized: a manual "score" click waits behind a running batch.

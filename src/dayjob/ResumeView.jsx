@@ -347,7 +347,7 @@ export function ResumeView({ boot, reload, status, focus }) {
   const { t } = useI18n();
   return (
     <section className="settings-page">
-      <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1><p>{t('AI 会对照最匹配的那份简历给每个岗位打 0–100 分，并列出匹配点、差距和可补充的关键词。', 'AI rates each job 0–100 against your best-matching resume and lists strengths, gaps and keywords to add.')}</p></div></header>
+      <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1></div></header>
       <Resumes resumes={boot.resumes} reload={reload} />
       <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
       <AiSettings boot={boot} reload={reload} status={status} />
