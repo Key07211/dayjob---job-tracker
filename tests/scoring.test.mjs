@@ -320,6 +320,20 @@ test('pausing stops the posting being scored and holds the rest until resumed, a
   assert.deepEqual(scoredIds, ['Job 1', 'Job 2']);
 });
 
+test('each score that lands is listed once, numbered, for the app to play', async () => {
+  const { repo } = memoryRepo();
+  for (const id of ['1', '2']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: `Acme ${id}`, jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
+  repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
+  const provider = { id: 'claude-cli', status: async () => ({ available: true, detail: 'ok' }), score: async () => ({ ...normalizeScore(RESULT), provider: 'claude-cli' }) };
+  const scorer = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
+  assert.deepEqual((await scorer.status()).landed, []);
+  await scorer.scoreBatch(['li-1', 'li-2']);
+  assert.deepEqual((await scorer.status()).landed, [{ seq: 1, id: 'li-1', score: 78, verdict: 'good' }, { seq: 2, id: 'li-2', score: 78, verdict: 'good' }]);
+  await scorer.score('li-1');
+  assert.equal((await scorer.status()).landed.length, 2, 'asking again for a stored score plays nothing');
+  assert.deepEqual(repo.stats().todayScores, [78, 78]);
+});
+
 test('pausing kills the running Claude Code process', async () => {
   const stopped = [];
   const spawn = () => {

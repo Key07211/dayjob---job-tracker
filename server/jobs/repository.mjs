@@ -484,12 +484,25 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   function stats() {
     const count = sql => q(sql).get().n;
     const byStatus = Object.fromEntries(q('SELECT status, COUNT(*) AS n FROM applications GROUP BY status').all().map(row => [row.status, row.n]));
+    // Local days: this week runs Monday to Sunday, and today starts at midnight here.
+    const current = now();
+    const today = new Date(current.getFullYear(), current.getMonth(), current.getDate());
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+    const week = [0, 0, 0, 0, 0, 0, 0];
+    for (const row of q('SELECT applied_at FROM applications WHERE applied_at >= ?').all(monday.toISOString())) {
+      const at = new Date(row.applied_at);
+      const index = Math.round((new Date(at.getFullYear(), at.getMonth(), at.getDate()) - monday) / 864e5);
+      if (index >= 0 && index < 7) week[index] += 1;
+    }
     return {
       newPostings: count("SELECT COUNT(*) AS n FROM postings WHERE status = 'new' AND duplicate_of IS NULL"),
       savedPostings: count("SELECT COUNT(*) AS n FROM postings WHERE status = 'saved' AND duplicate_of IS NULL"),
       totalPostings: count('SELECT COUNT(*) AS n FROM postings WHERE duplicate_of IS NULL'),
       applications: byStatus,
       unreadNotifications: count('SELECT COUNT(*) AS n FROM notifications WHERE read = 0'),
+      // Applications per day this week, Monday first, and today's scores in the order they landed.
+      week,
+      todayScores: q('SELECT score FROM (SELECT score, created_at FROM scores WHERE created_at >= ? ORDER BY created_at DESC LIMIT 24) ORDER BY created_at').all(today.toISOString()).map(row => row.score),
     };
   }
 

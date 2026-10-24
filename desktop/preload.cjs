@@ -28,6 +28,13 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
   }),
+  music: Object.freeze({
+    // Following music reads the Windows media controls, so it exists only on Windows.
+    supported: process.platform === 'win32',
+    setFollow: value => ipcRenderer.invoke('dayjob:music-follow', value),
+    getState: () => ipcRenderer.invoke('dayjob:music-state'),
+    onNowPlaying: callback => listen('dayjob:now-playing', callback),
+  }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke('dayjob:update-state'),
     onState: callback => listen('dayjob:update-state', callback),

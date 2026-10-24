@@ -132,6 +132,19 @@ test('applications record a timeline and keep follow-ups current', () => {
   assert.equal(repo.getPosting('li-1').status, 'saved', 'a deleted application leaves the job saved');
 });
 
+test('stats count this week\'s applications per local day, Monday first', () => {
+  const now = clock('2026-10-21T16:00:00Z');
+  const { repo } = memoryRepo(now);
+  const today = (now().getDay() + 6) % 7;
+  assert.deepEqual(repo.stats().week, [0, 0, 0, 0, 0, 0, 0]);
+  repo.createApplication({ company: 'Acme', title: 'Analyst' });
+  repo.createApplication({ company: 'Bayline', title: 'Analyst' });
+  repo.createApplication({ company: 'Old', title: 'Analyst', appliedAt: new Date(now().getTime() - 8 * 864e5).toISOString() });
+  const week = repo.stats().week;
+  assert.equal(week[today], 2);
+  assert.equal(week.reduce((sum, count) => sum + count, 0), 2, 'last week\'s application is not counted');
+});
+
 test('each posting is scored against the resume that shares the most keywords', () => {
   const { repo } = memoryRepo();
   repo.upsertPosting(job({ description: 'Python, SQL and machine learning for experimentation. Equal opportunity employer.' }));

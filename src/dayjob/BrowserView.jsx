@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, 
 import { api } from '../api.js';
 import { formatDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
+import { emit } from './groove/bus.js';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
 export const hasBrowser = Boolean(desktop);
@@ -93,6 +94,7 @@ function SaveForm({ draft, apply, onCancel, onSaved }) {
         description: draft.description || undefined, datePosted: day || undefined, jobType, isRemote: draft.remote || undefined, status: 'saved',
       } });
       const application = apply ? await api(`/api/postings/${saved.id}/apply`, { method: 'POST', body: {} }) : null;
+      if (application) emit('apply', { postingId: saved.id });
       onSaved(saved, application);
     } catch (failure) { setError(failure.message); setBusy(false); }
   }
@@ -156,6 +158,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
   }
   async function apply(target) {
     const application = await api(`/api/postings/${target.id}/apply`, { method: 'POST', body: {} });
+    emit('apply', { postingId: target.id });
     setLookupKey(key => key + 1);
     return application;
   }

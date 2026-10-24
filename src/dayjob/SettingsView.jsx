@@ -3,8 +3,10 @@ import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, Power, 
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { SoundSettings } from './groove/SoundSettings.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
+let fadeTimer = 0;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
   error: ['连接异常', 'Connection problem'], unavailable: ['没有找到 Claude Code 或 Claude Desktop', 'Claude Code or Claude Desktop not found'] };
 
@@ -153,8 +155,13 @@ export function SettingsView({ boot, reload, update }) {
     setTheme(value);
     try { localStorage.setItem('dayjob-theme', value); } catch { /* optional */ }
     const dark = value === 'dark' || (value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.dataset.theme = dark ? 'night' : 'day';
-    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    // The colours fade over one beat instead of switching at once.
+    const root = document.documentElement;
+    root.classList.add('theme-fading');
+    clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => root.classList.remove('theme-fading'), 700);
+    root.dataset.theme = dark ? 'night' : 'day';
+    root.style.colorScheme = dark ? 'dark' : 'light';
   }
   async function save(event) {
     event.preventDefault();
@@ -177,7 +184,7 @@ export function SettingsView({ boot, reload, update }) {
 
   return (
     <section className="settings-page">
-      <header className="view-header"><div><h1>{t('设置', 'Settings')}</h1><p>{t('所有数据保存在本机的 SQLite 数据库里。', 'All data stays in a SQLite database on this computer.')}</p></div></header>
+      <header className="view-header"><div><h1>{t('设置', 'Settings')}</h1></div></header>
       <form className="card-section" onSubmit={save}>
         <h2>{t('每日抓取', 'Daily search')}</h2>
         <div className="form-grid">
@@ -211,6 +218,7 @@ export function SettingsView({ boot, reload, update }) {
       <BrowserData />
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />
+      <SoundSettings />
       <section className="card-section">
         <h2>{t('语言、外观与数据', 'Language, look and data')}</h2>
         <div className="option-row">

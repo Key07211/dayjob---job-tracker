@@ -203,7 +203,11 @@ test('one failing board makes a run partial, not failed', async () => {
     ['apis.indeed.com', { status: 403, body: '' }],
   ]);
   const runner = createSearchRunner({ repo, http, bridge: () => ({}), log: () => {} });
-  const { run } = await runner.run({ trigger: 'manual' });
+  assert.equal(runner.progress, null);
+  const running = runner.run({ trigger: 'manual' });
+  assert.deepEqual(runner.progress, { done: 0, total: 2 }, 'each search on each site is one step');
+  const { run } = await running;
+  assert.equal(runner.progress, null);
   assert.equal(run.status, 'partial');
   assert.ok(run.detail.find(entry => entry.source.endsWith('indeed')).blocked);
 });

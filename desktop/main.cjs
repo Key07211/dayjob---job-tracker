@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -6,6 +6,7 @@ const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
 const { createBrowser } = require('./browser.cjs');
 const { createUpdater } = require('./updater.cjs');
+const nowPlaying = require('./now-playing.cjs');
 
 app.setName('Dayjob');
 app.setAppUserModelId('com.dayjob.tracker');
@@ -29,6 +30,7 @@ let origin;
 let claude;
 let browser;
 let updates;
+let music;
 let quitting = false;
 let shutdownStarted = false;
 let language = null;
@@ -114,6 +116,8 @@ function setupIpc() {
   handle('dayjob:update-check', () => updates.check());
   handle('dayjob:update-download', () => updates.download());
   handle('dayjob:update-install', () => updates.install());
+  handle('dayjob:music-follow', value => music.setFollow(value === true));
+  handle('dayjob:music-state', () => music.current());
 }
 
 function buildTray() {
@@ -139,7 +143,7 @@ async function createWindow() {
   const image = nativeImage.createFromPath(icon);
   window = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640,
-    title: text().title, backgroundColor: '#f6f6f2', icon: image,
+    title: text().title, backgroundColor: '#F4F8FB', icon: image,
     show: false, paintWhenInitiallyHidden: smoke, autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -382,13 +386,15 @@ async function runSmoke() {
   timings.browser = Date.now() - started;
   const updateCheck = await smokeUpdate();
   timings.update = Date.now() - started;
+  const musicCheck = await nowPlaying.probe();
+  timings.music = Date.now() - started;
   // By default closing the window only hides it.
   window.close();
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && browserCheck.ok && updateCheck.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && browserCheck.ok && updateCheck.ok && musicCheck.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, music: musicCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
@@ -409,8 +415,17 @@ async function boot() {
   origin = await service.listen(port);
   const bridge = path.join(app.getAppPath(), 'integrations', 'mcp-server.mjs');
   claude = createClaudeConnection({ command: process.execPath, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1', DAYJOB_URL: origin } });
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  session.defaultSession.setPermissionCheckHandler(() => false);
+  // Everything is refused, except that while "follow music" is on (Settings, off by default) Dayjob's own page may
+  // hear the system sound, for the listening wave; it is analysed in the page and never recorded or sent anywhere.
+  const capture = (contents, permission, url) => permission === 'display-capture' && Boolean(music?.following) && Boolean(window) && contents === window.webContents && localUrl(url);
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(capture(contents, permission, details?.requestingUrl)));
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) => capture(contents, permission, requestingOrigin));
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    if (process.platform !== 'win32' || !music?.following || !window || !request.audioRequested || !localUrl(request.frame?.url)) { callback(null); return; }
+    desktopCapturer.getSources({ types: ['screen'] })
+      .then(sources => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : null))
+      .catch(() => callback(null));
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     if (!localUrl(details.url)) return callback({});
     callback({ responseHeaders: { ...details.responseHeaders,
@@ -426,6 +441,7 @@ async function boot() {
     saveLastCheck: at => service.repo.setMeta('lastUpdateCheck', at),
     onState: state => { if (window && !window.isDestroyed()) window.webContents.send('dayjob:update-state', state); },
   });
+  music = nowPlaying.createNowPlaying({ onChange: state => { if (window && !window.isDestroyed()) window.webContents.send('dayjob:now-playing', state); } });
   setupIpc();
   await createWindow();
   if (smoke) await runSmoke();
@@ -443,6 +459,7 @@ app.on('before-quit', event => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   updates?.stop();
+  music?.stop();
   Promise.resolve(service?.close()).catch(console.error).finally(() => {
     tray?.destroy();
     quitting = true;

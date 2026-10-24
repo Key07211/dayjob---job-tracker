@@ -1,0 +1,244 @@
+/* ---------- Daily Groove: the sidebar's keys, record player, week bars and metronome, and the motion that follows the music ---------- */
+:root {
+  --acc: #F9D77E;
+  --on-acc: #1E2B38;
+  --side-hi: #285A80;
+  --step-hi: #F5C95A;
+  --step-mid: #A9D0EE;
+  --step-lo: #C3CFDA;
+  --amb: rgb(127 182 222 / 50%);
+  --sw-off: #A9B9C8;
+  --knob: #FFFFFF;
+  --disc: #1E2B38;
+  --groove: #34475A;
+  --deck-edge: #CFE0EE;
+  --steel: #8EA0B0;
+  --steel-hi: #E6ECF1;
+  --steel-lo: #BAC7D2;
+  --label-ring: #E2B851;
+  --key: #FFFFFF;
+  --key-lip: #D3E1EC;
+  --key-gap: #C3D3E0;
+  --key-black: #1E2B38;
+  --key-on: #CFE6F7;
+  --key-on-text: #285A80;
+  --key-on-lip: #8DB8DA;
+}
+:root[data-theme="night"] {
+  --acc: #3A342D;
+  --on-acc: #F2C46D;
+  --side-hi: #F2C46D;
+  --step-hi: #F2C46D;
+  --step-mid: #8C7550;
+  --step-lo: #4F483F;
+  --amb: rgb(242 196 109 / 28%);
+  --sw-off: #4A443C;
+  --knob: #CFC5B3;
+  --disc: #141210;
+  --groove: #2E2A25;
+  --deck-edge: #3A342D;
+  --steel: #B3A998;
+  --steel-hi: #4D463D;
+  --steel-lo: #2F2A25;
+  --label-ring: #C99A45;
+  --key: #2D2925;
+  --key-lip: #1F1C19;
+  --key-gap: #141210;
+  --key-black: #0D0B09;
+  --key-on: #F2C46D;
+  --key-on-text: #1C1916;
+  --key-on-lip: #B98F43;
+}
+
+/* ---------- sidebar ---------- */
+.sidebar { background: var(--side); color: var(--side-text); border-right: 0; padding: 22px 0 14px; gap: 18px; overflow: hidden; }
+.brand { padding: 0 14px 0 16px; gap: 8px; }
+.brand .brand-mark { width: 32px; height: 32px; flex: none; border-radius: 11px; display: grid; place-items: center; background: var(--acc); color: var(--on-acc);
+  font-family: var(--display); font-weight: 800; font-size: 19px; line-height: 1; }
+.brand strong { font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.brand .language-toggle { margin-left: 0; }
+.brand .sound-button { margin-left: auto; }
+.sound-button { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--side-muted); border: 1.5px solid var(--side-hover); transition: color 156ms, border-color 156ms, background 156ms; }
+.sound-button:hover { color: var(--side-text); border-color: var(--side-text); }
+.sound-button.on { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
+.sidebar-foot { padding: 0 12px; gap: 8px; }
+.sidebar-foot .nav-item { padding: 7px 10px; border-radius: 999px; color: var(--side-muted); }
+.sidebar-foot .nav-item:hover { background: var(--side-hover); color: var(--side-text); }
+.sidebar-foot .nav-item.active { background: var(--side-card); color: var(--side-text); }
+.sidebar-foot .nav-item em { background: var(--side-card); border-color: transparent; }
+.run-extra { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.run-extra p { color: var(--side-muted); line-height: 1.45; }
+.run-extra .run-paused { color: var(--orange); }
+.run-extra .run-message { color: var(--side-text); }
+.run-extra .button { min-height: 32px; }
+.main { margin-left: 216px; }
+.notifications { left: 228px; }
+
+/* 06 · the pages are white keys coming out of the left wall; the right end is each key's front lip. Down in ⅛ beat, up in ¼. */
+.keys { position: relative; display: flex; flex-direction: column; gap: 1px; margin-right: 12px; border-radius: 0 10px 10px 0; overflow: hidden; background: var(--key-gap); flex: none; }
+.pkey { position: relative; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 46px; background: var(--key); color: var(--side-text);
+  text-align: left; font-size: 13px; box-shadow: inset -6px 0 0 var(--key-lip); transition: box-shadow 156ms cubic-bezier(.3, 0, 0, 1), background 156ms, filter 156ms; }
+.pkey > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pkey em { font-style: normal; font-family: var(--mono); font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 999px; background: var(--side); color: var(--side-muted); }
+.pkey:hover { filter: brightness(.97); }
+.pkey.down { box-shadow: inset -2px 0 0 var(--key-lip), inset 14px 0 16px -12px rgb(0 0 0 / 30%); filter: brightness(.92); transition-duration: 78ms; }
+.pkey.on { background: var(--key-on); color: var(--key-on-text); font-weight: 600; box-shadow: inset -3px 0 0 var(--key-on-lip), inset 12px 0 14px -12px rgb(0 0 0 / 22%); }
+.pkey.on em { background: var(--key-on-text); color: var(--key-on); }
+.pkey.on.down { box-shadow: inset -1px 0 0 var(--key-on-lip), inset 14px 0 16px -12px rgb(0 0 0 / 32%); }
+.pkey:focus-visible { outline: 2px solid var(--green); outline-offset: -4px; }
+.bkey { position: absolute; left: 0; top: 0; width: 34px; height: 22px; margin-top: -11.5px; border-radius: 0 6px 6px 0; background: var(--key-black);
+  box-shadow: inset -4px 0 0 rgb(255 255 255 / 8%); pointer-events: none; z-index: 2; }
+
+/* 08 · this week's applications, one bar a day; today's bar bounces when you apply. */
+.week-bars { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px; border-radius: 16px; background: var(--side-card); }
+.week-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; }
+.week-head span { font-family: var(--mono); font-size: 11.5px; color: var(--side-muted); }
+.bars { display: flex; align-items: flex-end; gap: 7px; height: 46px; }
+.bar { flex: 1; min-width: 0; border-radius: 6px 6px 3px 3px; background: var(--step-mid); transform-origin: bottom; transition: height 312ms cubic-bezier(.2, .8, .2, 1); }
+.bar.today { background: var(--good); }
+.bar.future { background: transparent; border: 1.5px dashed var(--line-strong); }
+.bar.bump { animation: bar-bump 312ms cubic-bezier(.2, .9, .3, 1.4); }
+@keyframes bar-bump { from { transform: scaleY(.8); } to { transform: none; } }
+.bars.breathe .bar { animation: bar-breathe 625ms cubic-bezier(.45, 0, .55, 1) infinite alternate; }
+.bars.breathe .bar:nth-child(2) { animation-delay: -78ms; }
+.bars.breathe .bar:nth-child(3) { animation-delay: -156ms; }
+.bars.breathe .bar:nth-child(4) { animation-delay: -234ms; }
+.bars.breathe .bar:nth-child(5) { animation-delay: -312ms; }
+.bars.breathe .bar:nth-child(6) { animation-delay: -390ms; }
+.bars.breathe .bar:nth-child(7) { animation-delay: -468ms; }
+@keyframes bar-breathe { from { transform: scaleY(.88); } to { transform: none; } }
+.bar-days { display: flex; gap: 7px; font-size: 10.5px; color: var(--side-muted); text-align: center; }
+.bar-days span { flex: 1; min-width: 0; }
+.bar-days .today { color: var(--side-text); font-weight: 600; }
+.plus { position: absolute; top: 50px; margin-left: -10px; font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--side-hi); pointer-events: none;
+  animation: plus-up 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
+@keyframes plus-up { 0% { opacity: 0; transform: translateY(6px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-22px); } }
+
+/* 01 · the record player: the arm drops in ¾ beat; the record spins up and coasts down over a beat (WAAPI in Turntable.jsx). */
+.turntable { position: relative; display: flex; flex-direction: column; gap: 8px; }
+.deck-box { position: relative; align-self: center; width: 204px; height: 180px; zoom: .92; }
+.deck { position: absolute; inset: 0; padding: 0; border: 1px solid var(--deck-edge); border-radius: 22px; background: var(--side-card); color: inherit; overflow: visible; transition: border-color 156ms; }
+.deck:not(:disabled):hover { border-color: var(--green); }
+.deck:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.deck:disabled { cursor: default; opacity: 1; }
+.platter { position: absolute; left: 16px; top: 16px; width: 148px; height: 148px; border-radius: 50%;
+  background: conic-gradient(from 20deg, var(--steel-hi), var(--steel-lo), var(--steel-hi), var(--steel-lo), var(--steel-hi)); }
+.rim { position: absolute; left: 10px; top: 10px; width: 160px; height: 160px; }
+.rim circle { stroke: var(--green); transition: stroke-dashoffset 625ms cubic-bezier(.2, .8, .2, 1); }
+.vinyl { position: absolute; left: 24px; top: 24px; width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle, transparent 0 41%, rgb(255 255 255 / 7%) 41.5% 42.5%, transparent 43% 64%, rgb(255 255 255 / 7%) 64.5% 65.5%, transparent 66%),
+    repeating-radial-gradient(circle, var(--disc) 0 1.6px, var(--groove) 2.2px, var(--disc) 3px); }
+.vinyl > b { position: relative; width: 46px; height: 46px; border-radius: 50%; color: var(--on-good); font-family: var(--mono); font-size: 11px; font-weight: 500;
+  background: radial-gradient(circle, var(--disc) 0 2.5px, var(--good) 3px 19px, var(--label-ring) 19.5px 20.5px, var(--good) 21px); }
+.vinyl > b > i { position: absolute; left: 0; right: 0; top: 7px; text-align: center; font-style: normal; }
+/* The sheen stays put while the record turns under it, which is what makes the spin read as real. */
+.sheen { position: absolute; left: 24px; top: 24px; width: 132px; height: 132px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 300deg, transparent 0deg, rgb(255 255 255 / 16%) 30deg, transparent 62deg, transparent 180deg, rgb(255 255 255 / 9%) 212deg, transparent 244deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 24px, #000 25px); mask: radial-gradient(circle, transparent 0 24px, #000 25px); }
+.rest-post { position: absolute; left: 186px; top: 120px; width: 12px; height: 12px; border-radius: 4px; background: var(--steel-lo); box-shadow: inset 0 0 0 1px var(--deck-edge); }
+/* The arm pivots at its base; while fetching the stylus tracks from the outer groove inward as the run goes on. */
+.tonearm { position: absolute; left: 162px; top: 0; width: 40px; height: 150px; overflow: visible; transform-origin: 20px 18px; transition: transform 468ms cubic-bezier(.2, .8, .2, 1); }
+.deck:not(:disabled):hover .tonearm.rest { transform: rotate(-2deg) !important; }
+.arm-weight { fill: var(--steel-hi); stroke: var(--steel); }
+.arm-base { fill: var(--steel-lo); stroke: var(--steel); }
+.arm-pin { fill: var(--steel); }
+.arm-tube { stroke: var(--steel); }
+.arm-head { fill: var(--side-text); }
+.led { position: absolute; left: 18px; bottom: 16px; width: 7px; height: 7px; border-radius: 50%; background: var(--deck-edge); transition: background 312ms; }
+.led.on { background: var(--green); }
+.deck-pops { position: absolute; left: 79px; top: 22px; width: 22px; height: 26px; pointer-events: none; }
+/* 03 · each cue floats a small note out of the record, coloured like the score. */
+.deck-pop { position: absolute; left: 0; top: 0; width: 22px; height: 26px; animation: note-pop 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
+.deck-pop.hi { color: var(--step-hi); }
+.deck-pop.mid { color: var(--step-mid); }
+.deck-pop.lo { color: var(--line-strong); }
+@keyframes note-pop { 0% { opacity: 0; transform: translateY(6px) scale(.6); } 25% { opacity: 1; transform: translateY(-6px) scale(1); } 100% { opacity: 0; transform: translateY(-46px) rotate(-14deg); } }
+.minirec { display: none; position: relative; width: 44px; height: 44px; flex: none; border-radius: 50%; overflow: visible; }
+.minirec:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.minirec:disabled { cursor: default; opacity: 1; }
+.mini-disc { display: block; width: 44px; height: 44px; border-radius: 50%;
+  background: radial-gradient(circle, var(--good) 0 5px, var(--disc) 6px 9px, var(--groove) 10px 11px, var(--disc) 12px 15px, var(--groove) 16px 17px, var(--disc) 18px); }
+.mini-pops { position: absolute; left: 11px; top: -6px; width: 22px; height: 26px; pointer-events: none; }
+.deck-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0 4px; transition: opacity 312ms; }
+.deck-text strong { font-size: 14px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-text span { font-size: 12px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-text.dim { opacity: .5; }
+
+/* Shorter windows: the small record replaces the deck, then the week bars go and the keys get shorter. */
+@media (max-height: 900px) {
+  .deck-box { display: none; }
+  .minirec { display: block; }
+  .turntable { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--side-card); }
+  .deck-text { padding: 0; }
+  .deck-text strong { font-size: 13px; }
+  .deck-text span { font-size: 11.5px; }
+}
+@media (max-height: 760px) {
+  .week-bars { display: none; }
+  .pkey { height: 40px; }
+}
+@media (max-height: 680px) {
+  .pkey { height: 36px; }
+  .sidebar { gap: 12px; padding-top: 16px; }
+}
+
+/* 05 · while a batch is scored, the sidebar's edge becomes a line that charges, dashes forward and settles with each score. */
+.metronome { position: fixed; left: 202px; top: 0; width: 28px; height: 100vh; overflow: visible; color: var(--green); pointer-events: none; z-index: 21; }
+.mw-rail { stroke: var(--line); stroke-width: 2; opacity: 0; transition: opacity 312ms; }
+.metronome.live .mw-rail { opacity: 1; }
+
+/* 02 · a faint staff beside the Today title; every score today is a note, and the button plays them. */
+.view-header > .title-block { flex: 1; min-width: 0; }
+.title-row { display: flex; align-items: flex-end; gap: 18px; min-width: 0; }
+.title-row h1 { flex: none; }
+.staff { position: relative; flex: 1; min-width: 140px; max-width: 460px; height: 72px; margin: -24px 0 -12px; }
+.staff-lines i { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); }
+.staff-lines i:nth-child(1) { top: 34px; }
+.staff-lines i:nth-child(2) { top: 42px; }
+.staff-lines i:nth-child(3) { top: 50px; }
+.staff-lines i:nth-child(4) { top: 58px; }
+.staff-lines i:nth-child(5) { top: 66px; }
+.nt { position: absolute; width: 16px; height: 40px; animation: note-drop 312ms cubic-bezier(.2, .9, .3, 1.3) both; }
+.nt > i { position: absolute; left: 0; bottom: 0; width: 13px; height: 9.5px; border-radius: 50%; transform: rotate(-22deg); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
+.nt > s { position: absolute; left: 11.5px; bottom: 4px; width: 1.5px; height: 28px; text-decoration: none; }
+.nt.hi > i, .nt.hi > s { background: var(--step-hi); }
+.nt.mid > i, .nt.mid > s { background: var(--step-mid); }
+.nt.lo > i { background: transparent; border: 1.5px solid var(--line-strong); }
+.nt.lo > s { background: var(--line-strong); }
+.nt.now > i { transform: rotate(-22deg) scale(1.45); }
+@keyframes note-drop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.staff-play { position: absolute; top: 38px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--card); color: var(--green); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
+.staff-play:hover { transform: scale(1.08); }
+.staff-play:active { transform: scale(.94); }
+
+/* 04 · ripples spread behind a job row, never over its text. */
+.posting-item > .ripples { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.posting-item > .posting-row:hover { background: transparent; }
+.rp { position: absolute; right: 30px; top: 50%; width: 40px; height: 40px; margin: -20px -20px 0 0; border-radius: 50%; }
+.rp.note { border: 2px solid var(--green); animation: ripple-note 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
+.rp.wash { background: var(--amb); animation: ripple-wash 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
+.rp.chord { border: 2px solid var(--step-hi); animation: ripple-chord 937ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes ripple-note { from { opacity: .55; transform: scale(.3); } to { opacity: 0; transform: scale(8); } }
+@keyframes ripple-wash { from { opacity: .8; transform: scale(.3); } to { opacity: 0; transform: scale(6); } }
+@keyframes ripple-chord { from { opacity: .7; transform: scale(.3); } to { opacity: 0; transform: scale(14); } }
+/* A job leaving the list (applied, hidden) slides out and closes its gap. */
+.posting-item.leaving { animation: row-out 468ms cubic-bezier(.6, 0, .8, .2) forwards; pointer-events: none; }
+.posting-item.leaving.applied { animation-delay: 468ms; }
+@keyframes row-out { 0% { opacity: 1; max-height: 140px; } 40% { opacity: 0; transform: translateX(-24px); max-height: 140px; } 100% { opacity: 0; transform: translateX(-24px); max-height: 0; border-bottom-width: 0; } }
+
+/* A switch, for settings that turn something on or off. */
+.toggle { position: relative; width: 46px; height: 26px; flex: none; border-radius: 999px; background: var(--sw-off); transition: background 156ms; }
+.toggle > i { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--knob); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
+.toggle.on { background: var(--good); }
+.toggle.on > i { transform: translateX(20px); background: var(--on-good); }
+.toggle:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+
+/* 07 · the listening wave along the bottom of the page, behind the cards, only while a music app plays and following is on. */
+.listen-wave { position: fixed; left: 216px; right: 0; bottom: 0; height: 78px; pointer-events: none; z-index: -1; opacity: 0; transition: opacity 625ms; }
+.listen-wave.on { opacity: 1; }
+.listen-wave canvas { display: block; width: 100%; height: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pkey, .tonearm, .rim circle, .bar, .toggle, .toggle > i, .deck-text { transition: none; }
+  .nt, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
+}
