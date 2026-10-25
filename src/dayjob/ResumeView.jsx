@@ -326,7 +326,7 @@ function ProfileField({ name, rule, type, placeholder, value, onChange, disabled
   }
   // A month (2024-08) or a year; "Aug 2024" and the like turn into that when the box is left.
   if (rule === 'month') {
-    return <input name={name} value={value} maxLength={20} placeholder="2024-08" disabled={disabled} onChange={event => onChange(event.target.value)}
+    return <input name={name} value={value} maxLength={20} placeholder={disabled ? t('至今', 'Present') : '2024-08'} disabled={disabled} onChange={event => onChange(event.target.value)}
       onBlur={event => { const month = monthOf(event.target.value); if (month && month !== event.target.value) onChange(month); }} />;
   }
   return <input type={type === 'link' ? 'text' : type || 'text'} inputMode={type === 'link' ? 'url' : undefined} name={name} value={value} maxLength={rule}
