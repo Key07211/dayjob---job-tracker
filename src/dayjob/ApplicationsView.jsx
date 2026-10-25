@@ -10,6 +10,7 @@ import { emit } from './groove/bus.js';
 import { BEAT, cue } from './groove/sound.js';
 import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tint, underline, wiggle } from './groove/fx.js';
 import { NoteLoader } from './groove/BrandNote.jsx';
+import { DateField } from './groove/Picker.jsx';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -75,7 +76,7 @@ function NewApplication({ onCreated, onCancel }) {
         <label>{t('公司', 'Company')}<input value={form.company} onChange={set('company')} required maxLength={160} /></label>
         <label>{t('职位', 'Title')}<input value={form.title} onChange={set('title')} required maxLength={240} /></label>
         <label>{t('链接（可选）', 'Link (optional)')}<input type="url" value={form.jobUrl} onChange={set('jobUrl')} placeholder="https://" /></label>
-        <label>{t('投递日期', 'Applied on')}<input type="date" value={form.day} max={localDateInput()} onChange={set('day')} required /></label>
+        <label>{t('投递日期', 'Applied on')}<DateField value={form.day} max={localDateInput()} onChange={set('day')} required /></label>
       </div>
       <label>{t('备注', 'Note')}<input value={form.note} onChange={set('note')} maxLength={2000} /></label>
       {error ? <p className="notice error">{error}</p> : null}
@@ -207,7 +208,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
           ))}
         </div>
         <div className="form-grid">
-          <label>{t('发生日期', 'Date')}<input type="date" value={statusDay} max={localDateInput()} onChange={event => setStatusDay(event.target.value)} /></label>
+          <label>{t('发生日期', 'Date')}<DateField value={statusDay} max={localDateInput()} onChange={event => setStatusDay(event.target.value)} /></label>
           <label className="grow">{t('备注（随状态一起记录）', 'Note (saved with the status)')}<input ref={noteInput} value={note} maxLength={2000} placeholder={t('例如：收到 HackerRank 邀请', 'e.g. got a HackerRank invite')} onChange={event => setNote(event.target.value)} /></label>
         </div>
         <div className="form-actions">
@@ -216,7 +217,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
       </section>
       <section className="follow-up">
         <label>{t('下次跟进', 'Next follow-up')}
-          <input type="date" ref={followInput} value={item.nextFollowUpAt ? localDateInput(item.nextFollowUpAt) : ''}
+          <DateField ref={followInput} value={item.nextFollowUpAt ? localDateInput(item.nextFollowUpAt) : ''}
             onChange={event => { void patch({ nextFollowUpAt: event.target.value ? dateInputToIso(event.target.value) : null }); }} />
         </label>
         <label className="grow">{t('联系人', 'Contact')}<input defaultValue={item.contact} key={`contact-${item.id}`} maxLength={500} placeholder={t('招聘人员姓名或邮箱', 'Recruiter name or email')}

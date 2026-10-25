@@ -307,6 +307,9 @@ const CUES = {
   goal: out => { [60, 64, 67].forEach((midi, i) => piano(midi, { at: 0.02 + i * 0.06, gain: 0.09, dur: 1.2 }, out)); ding({ at: 0.3, gain: 0.06 }, out); },
   type: out => [0, 0.07, 0.15].forEach(at => noise({ at, dur: 0.012, gain: 0.05, type: 'highpass', freq: 4000 }, out)),
   error: out => noise({ dur: 0.07, gain: 0.22, freq: 160, q: 0.8 }, out),
+  // The day/night switch: three notes climbing for the sunrise, the same three falling for the evening.
+  dawn: out => notes([60, 64, 67], E8S, out, { gain: 0.08, dur: 0.6 }),
+  dusk: out => notes([67, 64, 60], E8S, out, { gain: 0.07, dur: 0.8 }),
 };
 export function cue(name, arg) {
   if (!CUES[name] || !prefs.get().sound || !allow(`cue-${name}`, BEAT / 4)) return;

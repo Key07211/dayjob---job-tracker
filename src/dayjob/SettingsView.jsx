@@ -8,10 +8,11 @@ import { cue } from './groove/sound.js';
 import { leaveThen, pop, shake, unfold } from './groove/fx.js';
 import { formatTime } from './format.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
-import { setThemeChoice, setThemeHours, useThemeSettings } from './theme.js';
+import { releaseThemeHold, setThemeChoice, setThemeHours, useThemeSettings } from './theme.js';
 import { ViewDate } from './ViewDate.jsx';
 import { updateProblem } from './UpdateButton.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
+import { TimeField } from './groove/Picker.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
@@ -365,6 +366,19 @@ function Updates({ boot, reload, update }) {
   );
 }
 
+// After the header switch turned the theme against the clock: until when it holds, and a way back to the clock now.
+function HoldNote({ hold }) {
+  const { t } = useI18n();
+  const at = new Date(hold.until);
+  const until = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  return (
+    <p className="theme-hold">
+      {hold.night ? t(`现在临时换成了夜晚，到 ${until} 再按时间切换。`, `Night for now, by the clock again at ${until}.`) : t(`现在临时换成了白天，到 ${until} 再按时间切换。`, `Day for now, by the clock again at ${until}.`)}
+      <button className="link" onClick={releaseThemeHold}>{t('现在就按时间', 'Follow the clock now')}</button>
+    </p>
+  );
+}
+
 export function SettingsView({ boot, reload, update, focus }) {
   const { t } = useI18n();
   const settings = boot.settings;
@@ -408,7 +422,7 @@ export function SettingsView({ boot, reload, update, focus }) {
         <h2>{t('每日抓取', 'Daily search')}</h2>
         <div className="form-grid">
           <label className="check-line"><input type="checkbox" checked={form.scheduleEnabled} onChange={event => set('scheduleEnabled', event.target.checked)} />{t('每天自动抓取', 'Search every day')}</label>
-          <label>{t('时间', 'Time')}<input type="time" value={form.time} onChange={event => set('time', event.target.value)} required /><small>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</small></label>
+          <label>{t('时间', 'Time')}<TimeField value={form.time} onChange={event => set('time', event.target.value)} /><small>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</small></label>
           <label>{t('岗位保留天数', 'Keep jobs (days)')}<input type="number" min={7} max={365} value={form.retentionDays} onChange={event => set('retentionDays', event.target.value)} /><small>{t('未收藏、未投递的旧岗位到期清理。', 'Old jobs you did not save or apply to are cleared after this.')}</small></label>
         </div>
         <h2>{t('投递追踪', 'Application tracking')}</h2>
@@ -455,8 +469,9 @@ export function SettingsView({ boot, reload, update, focus }) {
           </div>
           {look.choice === 'time' ? (
             <div className="theme-hours">
-              <label><Sun size={14} />{t('白天从', 'Day from')}<input type="time" value={look.hours.day} onChange={event => setThemeHours({ day: event.target.value })} /></label>
-              <label><LampDesk size={14} />{t('黑夜从', 'Night from')}<input type="time" value={look.hours.night} onChange={event => setThemeHours({ night: event.target.value })} /></label>
+              <label><Sun size={14} />{t('白天从', 'Day from')}<TimeField value={look.hours.day} onChange={event => setThemeHours({ day: event.target.value })} /></label>
+              <label><LampDesk size={14} />{t('黑夜从', 'Night from')}<TimeField value={look.hours.night} onChange={event => setThemeHours({ night: event.target.value })} /></label>
+              {look.hold ? <HoldNote hold={look.hold} /> : null}
             </div>
           ) : null}
         </div>

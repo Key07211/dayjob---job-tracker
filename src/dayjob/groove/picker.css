@@ -1,0 +1,125 @@
+/* ---------- Dropdowns, dates and times drawn by Dayjob (Picker.jsx): the box, and the card it opens ---------- */
+.picker { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 100%; min-height: 34px; padding: 7px 10px 7px 12px;
+  border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 156ms, box-shadow 156ms cubic-bezier(.2, .8, .2, 1); }
+.picker:hover:not(:disabled) { border-color: var(--line-strong); }
+.picker:focus-visible, .picker.open { outline: none; border-color: var(--line-strong); box-shadow: 0 0 0 3px var(--focus); }
+.picker:disabled { opacity: .55; cursor: not-allowed; }
+.picker-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-value.empty { color: var(--muted); }
+.picker > svg { color: var(--muted); transition: transform 156ms cubic-bezier(.2, .8, .2, 1), color 156ms; }
+.picker.open > svg { color: var(--green); }
+.picker.open > .picker-chev { transform: rotate(180deg); }
+.filters .picker { min-width: 0; border-radius: 999px; border-color: transparent; }
+.filters .picker.open, .filters .picker:focus-visible { border-color: var(--line-strong); }
+.goal-card h3 .picker { margin-left: auto; font-size: 12.5px; padding: 3px 8px; min-height: 0; font-weight: 500; }
+.goal-card h3 .picker .picker-value { color: var(--text); font-size: inherit; font-weight: inherit; }
+.form-grid label .picker + input { margin-top: 4px; }
+.profile-group .picker { color: var(--text); }
+
+.picker-panel { position: fixed; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--card); color: var(--text); box-shadow: var(--float-shadow); font-size: 13.5px; transform-origin: 50% 0;
+  animation: picker-in 156ms cubic-bezier(.2, .8, .2, 1) both; }
+.picker-panel.up { transform-origin: 50% 100%; animation-name: picker-in-up; }
+.picker-panel.closing { pointer-events: none; animation: picker-out 78ms cubic-bezier(.6, 0, .8, .2) both; }
+@keyframes picker-in { from { opacity: 0; transform: translateY(-6px) scaleY(.92); } }
+@keyframes picker-in-up { from { opacity: 0; transform: translateY(6px) scaleY(.92); } }
+@keyframes picker-out { to { opacity: 0; transform: scaleY(.96); } }
+
+/* The list: the chosen option is a pressed key (pale blue by day, lamp yellow at night), the one under the pointer or
+   the arrow keys a soft shade. The options drop in one after another, an eighth of a beat apart at most. */
+.picker-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 10px; border-radius: 10px; white-space: nowrap;
+  cursor: pointer; animation: picker-row 156ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 12ms); }
+.picker-option.active { background: var(--soft); }
+.picker-option.on { background: var(--key-on); color: var(--key-on-text); font-weight: 600; box-shadow: inset -3px 0 0 var(--key-on-lip); }
+.picker-option > svg { animation: picker-check 312ms cubic-bezier(.2, .9, .3, 1.4) both; }
+.picker-option[aria-disabled="true"] { opacity: .45; cursor: default; }
+@keyframes picker-row { from { opacity: 0; transform: translateY(-3px); } }
+@keyframes picker-check { from { opacity: 0; transform: scale(.4) rotate(-30deg); } }
+
+/* The month calendar: today ringed in warm yellow, the chosen day a pressed key; months slide in from their side. */
+.picker-calendar { width: 272px; padding: 10px 10px 8px; overflow: hidden; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
+.cal-head strong { font-family: var(--display); font-size: 14px; font-weight: 700; }
+.cal-head button { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; color: var(--muted); }
+.cal-head button:hover:not(:disabled) { background: var(--soft); color: var(--text); }
+.cal-week, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-week span { padding: 4px 0; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.cal-day { height: 32px; border-radius: 10px; font-variant-numeric: tabular-nums; transition: background-color 78ms; }
+.cal-day.out { color: var(--muted); opacity: .5; }
+.cal-day.today { box-shadow: inset 0 0 0 1.5px var(--step-hi); }
+.cal-day.active { background: var(--soft); }
+.cal-day.on { background: var(--key-on); color: var(--key-on-text); font-weight: 700; box-shadow: inset 0 -3px 0 var(--key-on-lip); }
+.cal-day:disabled { opacity: .28; cursor: default; }
+.cal-grid.from-next, .cal-head strong.from-next { animation: cal-from-next 234ms cubic-bezier(.2, .8, .2, 1) both; }
+.cal-grid.from-prev, .cal-head strong.from-prev { animation: cal-from-prev 234ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes cal-from-next { from { opacity: 0; transform: translateX(18px); } }
+@keyframes cal-from-prev { from { opacity: 0; transform: translateX(-18px); } }
+.cal-foot { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 4px; font-size: 13px; }
+
+/* The time: a column of hours and one of minutes. */
+.picker-clock { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 140px; overflow: hidden; }
+.time-col { max-height: 216px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 2px; padding: 2px; border-radius: 12px; scrollbar-width: none; }
+.time-col.focused { box-shadow: inset 0 0 0 1.5px var(--line); }
+.time-col button { flex: none; padding: 6px 0; border-radius: 9px; font-variant-numeric: tabular-nums; }
+.time-col button:hover { background: var(--soft); }
+.time-col button.on { background: var(--key-on); color: var(--key-on-text); font-weight: 700; box-shadow: inset -3px 0 0 var(--key-on-lip); }
+
+/* ---------- The day/night switch beside the clock (DayNight.jsx) ---------- */
+@property --dn-cut { syntax: '<length>'; inherits: false; initial-value: 24px; }
+.daynight { position: relative; flex: none; width: 38px; height: 20px; margin-left: 6px; padding: 0; border-radius: 999px; vertical-align: middle;
+  box-shadow: inset 0 0 0 1px rgb(30 43 56 / 12%); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
+.daynight:active { transform: scale(.94); }
+.daynight:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.dn-sky { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.dn-sky::before, .dn-sky::after { content: ""; position: absolute; inset: 0; transition: opacity 469ms cubic-bezier(.45, 0, .55, 1); }
+.dn-sky::before { background: linear-gradient(180deg, #7DB4DD, #CBE4F6); }
+.dn-sky::after { background: linear-gradient(180deg, #171512, #3A342D); opacity: 0; }
+.daynight.night .dn-sky::before { opacity: 0; }
+.daynight.night .dn-sky::after { opacity: 1; }
+/* By day two clouds on the right; at night they sink away. */
+.dn-cloud { position: absolute; z-index: 1; height: 4px; border-radius: 999px; background: #FFFFFF;
+  transition: transform 312ms cubic-bezier(.2, .8, .2, 1) 156ms, opacity 234ms 156ms; }
+.dn-cloud::before { content: ""; position: absolute; left: 25%; bottom: 1px; width: 5px; height: 5px; border-radius: 50%; background: inherit; }
+.dn-cloud.c1 { right: 5px; top: 6px; width: 11px; }
+.dn-cloud.c2 { right: 11px; top: 12px; width: 8px; opacity: .85; }
+.daynight.night .dn-cloud { transform: translateY(9px); opacity: 0; transition: transform 312ms cubic-bezier(.6, 0, .8, .2), opacity 234ms; }
+/* At night three stars on the left, coming out an eighth of a beat apart. */
+.dn-star { position: absolute; z-index: 1; width: 2px; height: 2px; border-radius: 50%; background: #FFF3D4; box-shadow: 0 0 3px rgb(255 243 212 / 90%);
+  opacity: 0; transform: scale(0); transition: transform 156ms, opacity 156ms; }
+.dn-star.s1 { left: 6px; top: 5px; }
+.dn-star.s2 { left: 12px; top: 12px; width: 1.5px; height: 1.5px; }
+.dn-star.s3 { left: 16px; top: 4px; width: 1.5px; height: 1.5px; }
+.daynight.night .dn-star { opacity: 1; transform: none; transition: transform 312ms cubic-bezier(.2, .9, .3, 1.4), opacity 234ms; }
+.daynight.night .dn-star.s1 { transition-delay: 234ms; }
+.daynight.night .dn-star.s2 { transition-delay: 312ms; }
+.daynight.night .dn-star.s3 { transition-delay: 390ms; }
+/* The sun rolls across into the moon: a shadow slides over its right side and leaves a crescent. */
+.dn-knob { position: absolute; z-index: 2; top: 3px; left: 3px; width: 14px; height: 14px; filter: drop-shadow(0 0 4px rgb(249 215 126 / 90%));
+  transition: transform 469ms cubic-bezier(.3, 1.25, .5, 1), filter 469ms; }
+.daynight:hover .dn-knob { transform: translateX(2px); }
+.daynight.night .dn-knob { transform: translateX(18px); filter: drop-shadow(0 0 3px rgb(242 196 109 / 60%)); }
+.daynight.night:hover .dn-knob { transform: translateX(16px); }
+.dn-disc { position: absolute; inset: 0; border-radius: 50%; background: #F9D77E; --dn-cut: 24px;
+  -webkit-mask: radial-gradient(circle at var(--dn-cut) 36%, transparent 5.4px, #000 5.9px); mask: radial-gradient(circle at var(--dn-cut) 36%, transparent 5.4px, #000 5.9px);
+  transition: --dn-cut 469ms cubic-bezier(.45, 0, .55, 1), background-color 469ms; }
+.daynight.night .dn-disc { --dn-cut: 10px; background: #F6E7BF; }
+.daynight.turning .dn-disc { animation: dn-roll 469ms cubic-bezier(.45, 0, .55, 1); }
+@keyframes dn-roll { 40% { transform: scale(1.14, .88); } 70% { transform: scale(.96, 1.04); } }
+/* Back to day, the sun's rays flash once. */
+.dn-rays { position: absolute; inset: -5px; border-radius: 50%; opacity: 0; pointer-events: none;
+  background: repeating-conic-gradient(#F9D77E 0deg 12deg, transparent 12deg 45deg);
+  -webkit-mask: radial-gradient(circle, transparent 8px, #000 8.5px, #000 11px, transparent 11.5px); mask: radial-gradient(circle, transparent 8px, #000 8.5px, #000 11px, transparent 11.5px); }
+.daynight.day.turning .dn-rays { animation: dn-rays 625ms cubic-bezier(.2, .8, .2, 1) 234ms both; }
+@keyframes dn-rays { from { opacity: 0; transform: scale(.6) rotate(-40deg); } 40% { opacity: 1; transform: scale(1) rotate(0); } to { opacity: 0; transform: scale(1.15) rotate(20deg); } }
+/* Beside the clock it keeps the date line's height. It stays out of the page's sweep into the other theme and turns
+   live on top of it, so it plays at once even when dawn rises from the bottom and reaches the header last. */
+.view-date .daynight { margin: -3px 0 -3px 2px; view-transition-name: daynight; }
+::view-transition-group(daynight) { animation: none; }
+::view-transition-old(daynight) { display: none; }
+::view-transition-new(daynight) { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-panel, .picker-option, .picker-option > svg, .cal-grid, .cal-head strong { animation: none !important; }
+  .daynight *, .daynight *::before, .daynight *::after, .dn-sky::before, .dn-sky::after { transition: none !important; animation: none !important; }
+}
