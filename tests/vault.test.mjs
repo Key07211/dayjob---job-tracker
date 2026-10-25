@@ -104,3 +104,67 @@ test('the login script for the page is plain script text with its arguments quot
   assert.doesNotThrow(() => new Function(script));
   assert.match(loginScript('probe'), /\.probe\(\)$/);
 });
+
+test('a vault password seals every password again, and the locked vault lists and fills nothing', async () => {
+  const file = vaultFile();
+  const safeStorage = fakeSafeStorage();
+  let time = 0;
+  const clock = () => time;
+  const vault = createVault({ file, safeStorage, now, clock });
+  const linkedin = vault.save({ site: 'linkedin.com', username: 'yuan', password: 'linked-secret' });
+  const workday = vault.save({ site: 'acme.wd5.myworkdayjobs.com', username: 'yuan@example.com', password: 'Hunter2!pass' });
+  for (const bad of ['abc12', 'x'.repeat(33), 'with space1', 'símbolo123', 'pass-word1']) await assert.rejects(vault.setLock({ next: bad }), /6 to 32 letters or digits/, bad);
+
+  assert.deepEqual(await vault.setLock({ next: 'Lock1234' }).then(list => [list.lock, list.locked, list.entries.length]), [true, false, 2]);
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(!JSON.stringify(stored).includes('Lock1234'), 'the vault password is not stored');
+  assert.ok(stored.entries.every(entry => entry.wrapped && !['linked-secret', 'Hunter2!pass'].includes(safeStorage.decryptString(Buffer.from(entry.secret, 'base64')))),
+    'under the system layer each password is sealed again with the vault password');
+  assert.equal(vault.password(linkedin.id), 'linked-secret', 'open, it fills as before');
+
+  // Locked: nothing is listed, filled or changed; a typed password for a saved user name is not offered again.
+  assert.deepEqual([vault.close().locked, vault.list().entries, vault.list().count], [true, [], 2]);
+  assert.throws(() => vault.password(linkedin.id), /Open the password vault/);
+  assert.throws(() => vault.save({ site: 'greenhouse.io', username: 'a', password: 'b' }), /Open the password vault/);
+  assert.throws(() => vault.remove(linkedin.id), /Open the password vault/);
+  assert.equal(vault.knows('www.linkedin.com', 'yuan', 'anything'), true);
+  assert.equal(vault.knows('www.linkedin.com', 'someone else', 'anything'), false);
+
+  // It starts locked after a restart, and opens only with its password; too many wrong tries make it wait.
+  const again = createVault({ file, safeStorage, now, clock });
+  assert.equal(again.locked(), true);
+  await assert.rejects(again.unlock('Wrong1234'), /not the vault password/);
+  for (let i = 0; i < 4; i += 1) await assert.rejects(again.unlock('Wrong1234'), /not the vault password/);
+  await assert.rejects(again.unlock('Lock1234'), /Too many wrong tries\. Try again in 30 seconds/);
+  time += 30000;
+  assert.equal((await again.unlock('Lock1234')).locked, false);
+  assert.equal(again.password(workday.id), 'Hunter2!pass');
+  const added = again.save({ site: 'greenhouse.io', username: 'yuan', password: 'green-secret' });
+
+  // Changing it needs the current one; the passwords carry over.
+  await assert.rejects(again.setLock({ current: 'Wrong1234', next: 'NewLock99' }), /not the vault password/);
+  await again.setLock({ current: 'Lock1234', next: 'NewLock99' });
+  const third = createVault({ file, safeStorage, now, clock });
+  await assert.rejects(third.unlock('Lock1234'), /not the vault password/);
+  await third.unlock('NewLock99');
+  assert.deepEqual([third.password(linkedin.id), third.password(added.id)], ['linked-secret', 'green-secret']);
+
+  // Taking it off keeps the passwords under the system's encryption only.
+  await assert.rejects(third.removeLock('Lock1234'), /not the vault password/);
+  assert.equal((await third.removeLock('NewLock99')).lock, false);
+  const plain = createVault({ file, safeStorage, now, clock });
+  assert.deepEqual([plain.locked(), plain.password(workday.id)], [false, 'Hunter2!pass']);
+  assert.ok(!JSON.parse(fs.readFileSync(file, 'utf8')).lock);
+});
+
+test('a forgotten vault password empties the vault', async () => {
+  const file = vaultFile();
+  const vault = createVault({ file, safeStorage: fakeSafeStorage(), now });
+  vault.save({ site: 'linkedin.com', username: 'yuan', password: 'linked-secret' });
+  await vault.setLock({ next: 'Lock1234' });
+  vault.close();
+  assert.deepEqual(vault.reset(), { available: true, lock: false, locked: false, count: 0, entries: [] });
+  const after = createVault({ file, safeStorage: fakeSafeStorage(), now });
+  assert.deepEqual([after.locked(), after.list().count], [false, 0]);
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('secret'));
+});

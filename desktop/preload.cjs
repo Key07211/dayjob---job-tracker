@@ -28,13 +28,20 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
     fillLogin: id => ipcRenderer.invoke('dayjob:browser-login-fill', id),
-    answerOffer: keep => ipcRenderer.invoke('dayjob:browser-login-offer', keep),
+    answerOffer: answer => ipcRenderer.invoke('dayjob:browser-login-offer', answer),
   }),
   // Saved passwords: in to be kept, never back out; the list has sites and user names only.
   vault: Object.freeze({
     list: () => ipcRenderer.invoke('dayjob:vault-list'),
     save: entry => ipcRenderer.invoke('dayjob:vault-save', entry),
     remove: id => ipcRenderer.invoke('dayjob:vault-delete', id),
+    // The vault's own password: open, close, set or change, take off, or (forgotten) empty the vault.
+    unlock: password => ipcRenderer.invoke('dayjob:vault-unlock', password),
+    close: () => ipcRenderer.invoke('dayjob:vault-close'),
+    setLock: input => ipcRenderer.invoke('dayjob:vault-set-lock', input),
+    removeLock: current => ipcRenderer.invoke('dayjob:vault-remove-lock', current),
+    reset: () => ipcRenderer.invoke('dayjob:vault-reset'),
+    onChanged: callback => listen('dayjob:vault-changed', callback),
   }),
   music: Object.freeze({
     // Following music reads the Windows media controls, so it exists only on Windows.

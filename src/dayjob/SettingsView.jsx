@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock3, Download, Eye, EyeOff, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Monitor, Pencil, Plus, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock3, Download, Eye, EyeOff, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -138,14 +138,117 @@ function VaultForm({ entry, onCancel, onSaved }) {
 }
 
 // 密码保管: the list shows sites and user names; a password goes in and never comes back out.
+// The vault's own password (开箱密码): 6 to 32 letters or digits.
+const VAULT_PASSWORD = /^[A-Za-z0-9]{6,32}$/;
+
+// The closed vault: its password opens it. A forgotten one cannot be got back, so the only way on is to empty it.
+function VaultUnlock({ count, onChanged }) {
+  const { t } = useI18n();
+  const form = useRef(null);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { unfold(form.current); }, []);
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try { onChanged(await desktop.vault.unlock(password), 'opened'); }
+    catch (failure) { setError(bridgeText(failure)); setPassword(''); shake(form.current); }
+    finally { setBusy(false); }
+  }
+  async function reset() {
+    if (!window.confirm(t(`开箱密码忘了就没法找回。清空密码箱会删掉里面的 ${count} 个密码，并取消开箱密码。确定清空吗？`,
+      `A forgotten vault password cannot be recovered. Emptying the vault deletes its ${count} saved ${count === 1 ? 'password' : 'passwords'} and removes the vault password. Empty it?`))) return;
+    try { onChanged(await desktop.vault.reset(), 'reset'); } catch (failure) { setError(bridgeText(failure)); }
+  }
+  return (
+    <form className="vault-form vault-unlock" ref={form} onSubmit={submit} autoComplete="off">
+      <p><Lock size={15} />{t(`密码箱已锁上，里面有 ${count} 个密码。`, `The vault is locked; it holds ${count} ${count === 1 ? 'password' : 'passwords'}.`)}</p>
+      <div className="vault-secret">
+        <input type="password" value={password} onChange={event => setPassword(event.target.value)} maxLength={32} autoComplete="off" placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required />
+        <button type="submit" className="button primary" disabled={busy}><LockOpen size={15} />{t('打开', 'Open')}</button>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+      <button type="button" className="link" onClick={reset}>{t('忘了开箱密码？', 'Forgot the vault password?')}</button>
+    </form>
+  );
+}
+
+// Setting, changing or taking off the vault password.
+function LockForm({ mode, onCancel, onDone }) {
+  const { t } = useI18n();
+  const form = useRef(null);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { unfold(form.current); }, []);
+  const wrong = message => { setError(message); shake(form.current); };
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (mode !== 'remove' && !VAULT_PASSWORD.test(next)) return wrong(t('开箱密码要 6–32 位，只能用字母或数字。', 'The vault password must be 6 to 32 letters or digits.'));
+    if (mode !== 'remove' && next !== again) return wrong(t('两次输入的开箱密码不一样。', 'The two new vault passwords are not the same.'));
+    setBusy(true);
+    try { onDone(mode === 'remove' ? await desktop.vault.removeLock(current) : await desktop.vault.setLock({ current, next }), mode); }
+    catch (failure) { wrong(bridgeText(failure)); }
+    finally { setBusy(false); }
+  }
+  const box = (label, value, set, complete) => (
+    <label>{label}<input type="password" value={value} onChange={event => set(event.target.value)} maxLength={32} autoComplete={complete} required /></label>
+  );
+  return (
+    <form className="vault-form" ref={form} onSubmit={submit} autoComplete="off">
+      {mode === 'set' ? <p className="hint">{t('设好后，每次打开 Dayjob 都要先输入开箱密码，才能查看密码和自动填写；电脑锁屏或睡眠时，密码箱也会锁上。开箱密码忘了没法找回，只能清空密码箱重来。',
+        'Once set, the vault must be opened with it each time Dayjob starts before passwords are listed or filled in, and it locks again when the computer locks or sleeps. A forgotten vault password cannot be recovered; the vault can only be emptied.')}</p> : null}
+      <div className="form-grid">
+        {mode !== 'set' ? box(t('现在的开箱密码', 'Current vault password'), current, setCurrent, 'current-password') : null}
+        {mode !== 'remove' ? box(t('新的开箱密码（6–32 位字母或数字）', 'New vault password (6–32 letters or digits)'), next, setNext, 'new-password') : null}
+        {mode !== 'remove' ? box(t('再输入一次', 'Type it again'), again, setAgain, 'new-password') : null}
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="button" onClick={onCancel}>{t('取消', 'Cancel')}</button>
+        <button type="submit" className="button primary" disabled={busy}>{mode === 'remove' ? t('取消开箱密码', 'Remove the vault password') : t('保存', 'Save')}</button>
+      </div>
+    </form>
+  );
+}
+
 function PasswordVault() {
   const { t } = useI18n();
   const [data, setData] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [lockMode, setLockMode] = useState(null);
   const [error, setError] = useState('');
+  const [note, setNote] = useState('');
   const [arrived, setArrived] = useState(null);
-  useEffect(() => { desktop?.vault?.list().then(setData).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!desktop?.vault) return undefined;
+    const load = () => desktop.vault.list().then(setData).catch(() => {});
+    load();
+    return desktop.vault.onChanged(load);
+  }, []);
+  useEffect(() => {
+    if (!note) return undefined;
+    const timer = setTimeout(() => setNote(''), 2500);
+    return () => clearTimeout(timer);
+  }, [note]);
   if (!desktop?.vault) return null;
+  const NOTES = { opened: ['密码箱已打开。', 'The vault is open.'], reset: ['密码箱已清空。', 'The vault is empty.'], set: ['开箱密码已设好。', 'The vault password is set.'],
+    change: ['开箱密码已修改。', 'The vault password is changed.'], remove: ['开箱密码已取消。', 'The vault password is removed.'], closed: ['密码箱已锁上。', 'The vault is locked.'] };
+  function changed(list, what) {
+    setData(list);
+    setLockMode(null);
+    setEditing(null);
+    setNote(NOTES[what] ? t(...NOTES[what]) : '');
+    cue('note');
+  }
+  async function closeVault() {
+    try { changed(await desktop.vault.close(), 'closed'); } catch (failure) { setError(bridgeText(failure)); }
+  }
   async function saved(entry) {
     setEditing(null);
     setData(await desktop.vault.list());
@@ -166,7 +269,9 @@ function PasswordVault() {
       <p className="hint">{t('密码只保存在这台电脑上，由系统加密；只会在 Dayjob 浏览器打开对应网站的登录页时自动填进去，不会再显示出来，也不会交给 Claude。',
         'Passwords stay on this computer, encrypted by the system. They are only filled into their own site\'s login page in the Dayjob browser, never shown again and never given to Claude.')}</p>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
-      {data?.entries.length ? (
+      {note ? <p className="vault-note"><CheckCircle2 size={14} />{note}</p> : null}
+      {data?.locked ? <VaultUnlock count={data.count} onChanged={changed} /> : null}
+      {data?.locked ? null : data?.entries.length ? (
         <ul className="vault-list">
           {data.entries.map(entry => (
             <li key={entry.id} className={arrived === entry.id ? 'arrived' : undefined}>
@@ -180,8 +285,20 @@ function PasswordVault() {
           ))}
         </ul>
       ) : data?.available ? <p className="hint">{t('还没有保存的密码。', 'No saved passwords yet.')}</p> : null}
-      {editing ? <VaultForm key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={saved} />
-        : <div className="form-actions"><button className="button" onClick={() => setEditing('new')} disabled={!data?.available}><Plus size={15} />{t('添加密码', 'Add a password')}</button></div>}
+      {data?.locked ? null : editing ? <VaultForm key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={saved} />
+        : lockMode ? <LockForm key={lockMode} mode={lockMode} onCancel={() => setLockMode(null)} onDone={changed} />
+        : (
+          <div className="form-actions vault-actions">
+            <button className="button" onClick={() => setEditing('new')} disabled={!data?.available}><Plus size={15} />{t('添加密码', 'Add a password')}</button>
+            {data?.lock ? (
+              <>
+                <button className="button" onClick={closeVault}><Lock size={15} />{t('锁上', 'Lock')}</button>
+                <button className="link" onClick={() => setLockMode('change')}>{t('修改开箱密码', 'Change the vault password')}</button>
+                <button className="link" onClick={() => setLockMode('remove')}>{t('取消开箱密码', 'Remove the vault password')}</button>
+              </>
+            ) : <button className="button" onClick={() => setLockMode('set')} disabled={!data?.available}><Lock size={15} />{t('设置开箱密码', 'Set a vault password')}</button>}
+          </div>
+        )}
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   );
