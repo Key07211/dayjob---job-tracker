@@ -422,7 +422,8 @@ async function boot() {
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) => capture(contents, permission, requestingOrigin));
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     if (process.platform !== 'win32' || !music?.following || !window || !request.audioRequested || !localUrl(request.frame?.url)) { callback(null); return; }
-    desktopCapturer.getSources({ types: ['screen'] })
+    // No thumbnails: only the sound is wanted, and a failed try may be repeated on the next click.
+    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
       .then(sources => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : null))
       .catch(() => callback(null));
   });

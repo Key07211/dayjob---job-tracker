@@ -54,8 +54,29 @@
 .sidebar { background: var(--side); color: var(--side-text); border-right: 0; padding: 22px 0 14px; gap: 18px; overflow: hidden; }
 .brand { padding: 0 14px 0 16px; gap: 8px; }
 .brand .brand-mark { width: 32px; height: 32px; flex: none; border-radius: 11px; display: grid; place-items: center; background: var(--acc); color: var(--on-acc);
-  font-family: var(--display); font-weight: 800; font-size: 19px; line-height: 1; }
+  transition: transform 78ms cubic-bezier(.3, 0, 0, 1); }
+.brand .brand-mark:active { transform: translateY(1px); }
+.brand .brand-mark:focus-visible { outline: 2px solid var(--side-text); outline-offset: 2px; }
 .brand strong { font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* The logo's note: a "d" whose bowl is a note head, with a stem and a small flag. */
+.note-glyph { width: 26px; height: 26px; overflow: visible; }
+.note-glyph * { fill: none; stroke: currentColor; stroke-width: 2.7; stroke-linecap: round; stroke-linejoin: round; }
+.note-glyph .bn-head ellipse { stroke-width: 3; }
+.note-glyph .bn-stem { stroke-dasharray: 15; }
+.note-glyph .bn-note, .note-glyph .bn-head { transform-box: fill-box; transform-origin: 50% 100%; }
+.note-glyph .bn-flag { transform-box: view-box; transform-origin: 19.2px 5.6px; }
+/* The wordmark's letters rise one after another when Dayjob opens, and ripple under the pointer. */
+.wordmark { display: inline-flex; }
+.wordmark > span { display: inline-block; font-size: inherit; color: inherit; animation: letter-up 468ms cubic-bezier(.2, .9, .3, 1.3) calc(156ms + var(--i) * 78ms) both; }
+@keyframes letter-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+/* Loading: the note hops on the beat (96 BPM) instead of a spinner. */
+.note-loader { display: inline-grid; place-items: center; color: var(--green); }
+.note-loader .note-glyph { width: 28px; height: 28px; }
+.note-loader .bn-note { animation: note-hop 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
+.note-loader .bn-flag { animation: flag-flick 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes note-hop { 0%, 100% { transform: none; } 35% { transform: translateY(-5px); } 62% { transform: scale(1.1, .88); } }
+@keyframes flag-flick { 35% { transform: rotate(-18deg); } 62% { transform: rotate(8deg); } }
 .brand .language-toggle { margin-left: 0; }
 .brand .sound-button { margin-left: auto; }
 .sound-button { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--side-muted); border: 1.5px solid var(--side-hover); transition: color 156ms, border-color 156ms, background 156ms; }
@@ -187,29 +208,14 @@
 .mw-rail { stroke: var(--line); stroke-width: 2; opacity: 0; transition: opacity 312ms; }
 .metronome.live .mw-rail { opacity: 1; }
 
-/* 02 · a faint staff beside the Today title; every score today is a note, and the button plays them. */
-.view-header > .title-block { flex: 1; min-width: 0; }
-.title-row { display: flex; align-items: flex-end; gap: 18px; min-width: 0; }
-.title-row h1 { flex: none; }
-.staff { position: relative; flex: 1; min-width: 140px; max-width: 460px; height: 72px; margin: -24px 0 -12px; }
-.staff-lines i { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); }
-.staff-lines i:nth-child(1) { top: 34px; }
-.staff-lines i:nth-child(2) { top: 42px; }
-.staff-lines i:nth-child(3) { top: 50px; }
-.staff-lines i:nth-child(4) { top: 58px; }
-.staff-lines i:nth-child(5) { top: 66px; }
-.nt { position: absolute; width: 16px; height: 40px; animation: note-drop 312ms cubic-bezier(.2, .9, .3, 1.3) both; }
-.nt > i { position: absolute; left: 0; bottom: 0; width: 13px; height: 9.5px; border-radius: 50%; transform: rotate(-22deg); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
-.nt > s { position: absolute; left: 11.5px; bottom: 4px; width: 1.5px; height: 28px; text-decoration: none; }
-.nt.hi > i, .nt.hi > s { background: var(--step-hi); }
-.nt.mid > i, .nt.mid > s { background: var(--step-mid); }
-.nt.lo > i { background: transparent; border: 1.5px solid var(--line-strong); }
-.nt.lo > s { background: var(--line-strong); }
-.nt.now > i { transform: rotate(-22deg) scale(1.45); }
-@keyframes note-drop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
-.staff-play { position: absolute; top: 38px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--card); color: var(--green); transition: transform 156ms cubic-bezier(.3, 0, 0, 1); }
-.staff-play:hover { transform: scale(1.08); }
-.staff-play:active { transform: scale(.94); }
+/* Each page's title block, with the date and the clock above the title. */
+.view-header > .title-block { flex: 0 1 auto; min-width: 0; }
+.view-date { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
+.clock { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.clock > svg { color: var(--step-hi); animation: sky-turn 937ms cubic-bezier(.2, .9, .3, 1.3) both; }
+.clock .fx-roll { font-weight: inherit; }
+.clock > span { white-space: nowrap; }
+@keyframes sky-turn { from { opacity: 0; transform: translateY(8px) rotate(-90deg) scale(.6); } to { opacity: 1; transform: none; } }
 
 /* 04 · ripples spread behind a job row, never over its text. */
 .posting-item > .ripples { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
@@ -233,12 +239,44 @@
 .toggle.on > i { transform: translateX(20px); background: var(--on-good); }
 .toggle:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
 
-/* 07 · the listening wave along the bottom of the page, behind the cards, only while a music app plays and following is on. */
-.listen-wave { position: fixed; left: 216px; right: 0; bottom: 0; height: 78px; pointer-events: none; z-index: -1; opacity: 0; transition: opacity 625ms; }
-.listen-wave.on { opacity: 1; }
+/* 07 · the listening wave at the top of every page, in the lid band above its lip, only while a music app plays and
+   following is on. It takes the room between the title and the buttons on the right, over the band's full height,
+   and fades at both ends so it never runs into either. */
+.view-header > .wave-slot { order: 1; position: relative; flex: 1 1 0; min-width: 0; align-self: stretch; margin: -26px 0 -13px; pointer-events: none; }
+.view-header > .header-actions { order: 2; }
+.wave-slot > .listen-wave { position: absolute; inset: 0; opacity: 0; transition: opacity 625ms;
+  mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent); }
+.wave-slot > .listen-wave.on { opacity: 1; }
 .listen-wave canvas { display: block; width: 100%; height: 100%; }
+.wave-hint { position: absolute; z-index: 2; left: 50%; top: 50%; translate: -50% -50%; max-width: 100%; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px;
+  border-radius: 999px; font-size: 12px; white-space: nowrap; overflow: hidden; color: var(--muted); background: var(--card); box-shadow: inset 0 -2px 0 var(--key-lip);
+  pointer-events: auto; animation: hint-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
+.wave-hint:hover { color: var(--text); }
+.wave-hint.failed { color: var(--text); }
+.wave-hint > svg { flex: none; color: var(--green); }
+@keyframes hint-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
   .pkey, .tonearm, .rim circle, .bar, .toggle, .toggle > i, .deck-text { transition: none; }
-  .nt, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
+  .clock > svg, .wave-hint, .wordmark > span, .note-loader .bn-note, .note-loader .bn-flag, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
 }
+
+/* The theme turning: the new one sweeps over the page with a soft edge, night falling from the top like dusk and
+   day rising from the bottom like dawn, while the old one warms (dusk) or brightens (dawn) under it. theme.js sets
+   the length: slow when the clock turns it, quick for a choice in Settings. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+:root.to-night::view-transition-new(root), :root.to-day::view-transition-new(root) { mask-size: 100% 250%; mask-repeat: no-repeat; }
+:root.to-night::view-transition-new(root) { mask-image: linear-gradient(to bottom, #000 40%, transparent 60%); animation: sweep-down var(--theme-sweep, 900ms) cubic-bezier(.45, 0, .55, 1) both; }
+:root.to-day::view-transition-new(root) { mask-image: linear-gradient(to top, #000 40%, transparent 60%); animation: sweep-up var(--theme-sweep, 900ms) cubic-bezier(.45, 0, .55, 1) both; }
+:root.to-night::view-transition-old(root) { animation: dusk var(--theme-sweep, 900ms) cubic-bezier(.45, 0, .55, 1) both; }
+:root.to-day::view-transition-old(root) { animation: dawn var(--theme-sweep, 900ms) cubic-bezier(.45, 0, .55, 1) both; }
+@keyframes sweep-down { from { mask-position: 0 100%; } to { mask-position: 0 0; } }
+@keyframes sweep-up { from { mask-position: 0 0; } to { mask-position: 0 100%; } }
+@keyframes dusk { to { filter: sepia(.35) saturate(1.2) brightness(.9); } }
+@keyframes dawn { to { filter: brightness(1.12) saturate(.9); } }
+
+/* Settings: when the theme follows the clock, the two times it turns at. */
+.theme-hours { display: flex; flex-wrap: wrap; gap: 8px 18px; flex-basis: 100%; }
+.theme-hours label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.theme-hours label > svg { color: var(--step-hi); }
+.theme-hours input { width: auto; padding: 4px 8px; }

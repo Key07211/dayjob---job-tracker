@@ -1,12 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, Hourglass, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
+import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, Hourglass, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { OPEN_STATUSES, dateInputToIso, daysSince, formatDay, formatTime, label, labels, localDateInput, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 import { emit } from './groove/bus.js';
 import { BEAT, cue } from './groove/sound.js';
 import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tint, underline, wiggle } from './groove/fx.js';
+import { NoteLoader } from './groove/BrandNote.jsx';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -173,7 +176,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
     });
   }
 
-  if (!item) return <div className="detail-empty">{error || <LoaderCircle className="spin" />}</div>;
+  if (!item) return <div className="detail-empty">{error || <NoteLoader />}</div>;
   const quiet = daysSince(item.statusChangedAt);
   return (
     <article className="application-detail" ref={card}>
@@ -204,7 +207,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
           ))}
         </div>
         <div className="form-grid">
-          <label>{t('发生日期', 'Date')}<input type="date" value={statusDay} max={localDateInput()} onChange={event => { flipIn(event.target); setStatusDay(event.target.value); }} /></label>
+          <label>{t('发生日期', 'Date')}<input type="date" value={statusDay} max={localDateInput()} onChange={event => setStatusDay(event.target.value)} /></label>
           <label className="grow">{t('备注（随状态一起记录）', 'Note (saved with the status)')}<input ref={noteInput} value={note} maxLength={2000} placeholder={t('例如：收到 HackerRank 邀请', 'e.g. got a HackerRank invite')} onChange={event => setNote(event.target.value)} /></label>
         </div>
         <div className="form-actions">
@@ -214,7 +217,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
       <section className="follow-up">
         <label>{t('下次跟进', 'Next follow-up')}
           <input type="date" ref={followInput} value={item.nextFollowUpAt ? localDateInput(item.nextFollowUpAt) : ''}
-            onChange={event => { flipIn(event.target); void patch({ nextFollowUpAt: event.target.value ? dateInputToIso(event.target.value) : null }); }} />
+            onChange={event => { void patch({ nextFollowUpAt: event.target.value ? dateInputToIso(event.target.value) : null }); }} />
         </label>
         <label className="grow">{t('联系人', 'Contact')}<input defaultValue={item.contact} key={`contact-${item.id}`} maxLength={500} placeholder={t('招聘人员姓名或邮箱', 'Recruiter name or email')}
           onBlur={event => { if (event.target.value !== item.contact) void patch({ contact: event.target.value }); }} /></label>
@@ -293,11 +296,12 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
   };
   const switchTab = id => { setTab(id); pop(document.querySelector(`.tabs [data-tab="${id}"] em`), 1.25); };
 
-  if (!items) return <section className="applications"><div className="list-empty">{error || <LoaderCircle className="spin" />}</div></section>;
+  if (!items) return <section className="applications"><div className="list-empty">{error || <NoteLoader />}</div></section>;
   return (
     <section className="applications">
       <header className="view-header">
-        <div><h1>{t('投递追踪', 'Applications')}</h1></div>
+        <ListenWave />
+        <div className="title-block"><ViewDate /><h1>{t('投递追踪', 'Applications')}</h1></div>
         <div className="header-actions"><button className="button" onClick={toggleAdding}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div>
       </header>
       {items.length ? <Funnel items={items} /> : null}

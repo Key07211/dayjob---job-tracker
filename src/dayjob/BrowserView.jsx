@@ -7,6 +7,7 @@ import { useI18n } from '../i18n.jsx';
 import { emit } from './groove/bus.js';
 import { cue, reducedMotion } from './groove/sound.js';
 import { Q, flyTo, holdToConfirm, leave, shake } from './groove/fx.js';
+import { NoteLoader } from './groove/BrandNote.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
 export const hasBrowser = Boolean(desktop);
@@ -417,7 +418,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     keep('dayjob-browser-assist', value ? 'collapsed' : 'open');
   }
 
-  if (!state) return <div className="browser-page"><div className="detail-empty"><LoaderCircle className="spin" /></div></div>;
+  if (!state) return <div className="browser-page"><div className="detail-empty"><NoteLoader /></div></div>;
   return (
     <section className={`browser-page${arriving ? ' arriving' : ''}`}>
       <div className="browser-tabs">

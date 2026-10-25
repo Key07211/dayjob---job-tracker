@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, LoaderCircle, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -14,15 +14,16 @@ import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import { PianoNav } from './dayjob/groove/PianoNav.jsx';
+import { BrandNote, NoteLoader, Wordmark } from './dayjob/groove/BrandNote.jsx';
 import { Turntable } from './dayjob/groove/Turntable.jsx';
 import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
-import { ListenWave } from './dayjob/groove/ListenWave.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
 import { BEAT, cue, playApply, playBatchEnd, playHello, playNeedle, playScore } from './dayjob/groove/sound.js';
-import { installClickFx, pop, rings } from './dayjob/groove/fx.js';
+import { installClickFx, pop, rings, wiggle } from './dayjob/groove/fx.js';
 import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
+import { startThemeClock } from './dayjob/theme.js';
 import '@fontsource-variable/nunito/wght.css';
 import './dayjob/fonts/fonts.css';
 import './dayjob/dayjob.css';
@@ -194,6 +195,16 @@ function App() {
     api('/api/status').then(setStatus).catch(() => {});
   });
   useEffect(() => installClickFx(), []);
+  // A new notification rings the bell once.
+  const bell = useRef(null);
+  const unread = (status?.stats || boot?.stats)?.unreadNotifications || 0;
+  const lastUnread = useRef(unread);
+  useEffect(() => {
+    if (unread > lastUnread.current) wiggle(bell.current, 18);
+    lastUnread.current = unread;
+  }, [unread]);
+  // The clock in each header, and the theme turning by it.
+  useEffect(() => startThemeClock(), []);
   // Following music was turned on before: start listening again (the sound itself waits for a first click).
   useEffect(() => { if (prefs.get().followMusic) setFollow(true); }, []);
 
@@ -221,7 +232,7 @@ function App() {
   if (!boot) {
     return (
       <div className="boot-screen">
-        {error ? <><p>{error}</p><button className="button primary" onClick={reload}>{t('重试', 'Retry')}</button></> : <LoaderCircle className="spin" />}
+        {error ? <><p>{error}</p><button className="button primary" onClick={reload}>{t('重试', 'Retry')}</button></> : <NoteLoader />}
       </div>
     );
   }
@@ -240,7 +251,6 @@ function App() {
     : scheduler.running ? (scheduler.phase === 'track' ? t('正在更新投递状态…', 'Updating applications…') : t(`正在抓取 ${Math.round(deckProgress * 100)}%`, `Fetching ${Math.round(deckProgress * 100)}%`)) : '';
   const track = groove.followMusic ? nowPlaying.track : null;
   const trackSub = track ? [track.artist, appName(track.app, t)].filter(Boolean).join(' · ') : '';
-  const todayScores = (stats.todayScores || []).slice(0, Math.max(0, (stats.todayScores || []).length - pending));
   const weekTotal = (stats.week || []).reduce((sum, value) => sum + value, 0);
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
@@ -297,8 +307,8 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">d</span>
-          <strong>dayjob</strong>
+          <BrandNote label={t('回到主页', 'Back to Home')} onClick={() => goTo('home')} />
+          <Wordmark />
           <button type="button" className={`sound-button${groove.sound ? ' on' : ''}`} onClick={toggleSound} aria-pressed={groove.sound}
             title={groove.sound ? t('关闭提示音', 'Turn sounds off') : t('打开提示音', 'Turn sounds on')} aria-label={t('提示音', 'Sounds')}>
             {groove.sound ? <Volume2 size={15} /> : <VolumeX size={15} />}
@@ -308,8 +318,8 @@ function App() {
         <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
-          <button className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
-            <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em>{stats.unreadNotifications}</em> : null}
+          <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
+            <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
           </button>
           <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
             total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
@@ -328,12 +338,11 @@ function App() {
         </div>
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
-      <ListenWave on={Boolean(track) && !nowPlaying.browser} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
       <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}`}>
         <div className="main-view">
           {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} todayScores={todayScores} {...shared} /> : null}
+          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
           {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
           {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
           {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
