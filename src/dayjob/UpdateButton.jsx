@@ -18,6 +18,19 @@ export function useUpdateState() {
   return state;
 }
 
+// Why an update has not been installed yet, in the interface language.
+export function updateProblem(t, state) {
+  if (state?.problem === 'in-use') {
+    return t('Claude 正在通过 MCP 使用 Dayjob，Dayjob 没能关掉这个连接，安装文件还被占着。请先关闭 Claude Code（或在 Claude 的 /mcp 里断开 dayjob），再点“重启并更新”。',
+      'Claude is using Dayjob over MCP and Dayjob could not stop that connection, so its files are still in use. Close Claude Code (or disconnect dayjob under /mcp in Claude), then click “Restart to update”.');
+  }
+  if (state?.problem === 'not-installed') {
+    return t(`v${state.latest} 上次没有装上。点“重启并更新”再试一次；如果还不行，先关闭 Claude Code 再试。`,
+      `Version ${state.latest} was not installed last time. Click “Restart to update” to try again; if it still fails, close Claude Code first.`);
+  }
+  return state?.error || '';
+}
+
 // Download progress drawn as a ring around the round button.
 function Ring({ progress }) {
   const radius = 13;
@@ -71,8 +84,8 @@ export function UpdateItem({ state }) {
   } else if (status === 'available') {
     icon = <span className="update-circle"><Download size={15} /></span>;
     label = t(`下载 v${state.latest}`, `Download v${state.latest}`);
-    detail = state.error ? t('下载失败', 'Failed') : t('新版本', 'New');
-    title = state.error || (state.portable ? t('免安装版会在浏览器里下载新版本。', 'The portable app downloads the new version in your browser.') : t('下载后重启即可更新，数据会保留。', 'Download, then restart to update. Your data stays.'));
+    detail = state.problem ? t('没装上', 'Not installed') : state.error ? t('下载失败', 'Failed') : t('新版本', 'New');
+    title = updateProblem(t, state) || (state.portable ? t('免安装版会在浏览器里下载新版本。', 'The portable app downloads the new version in your browser.') : t('下载后重启即可更新，数据会保留。', 'Download, then restart to update. Your data stays.'));
     action = () => run(updates.download);
   } else if (status === 'downloading') {
     icon = <span className="update-circle downloading"><Ring progress={state.progress} /><Download size={13} /></span>;
@@ -82,12 +95,18 @@ export function UpdateItem({ state }) {
   } else if (status === 'downloaded') {
     icon = <span className="update-circle ready"><RotateCw size={15} /></span>;
     label = t('重启并更新', 'Restart to update');
-    detail = `v${state.latest}`;
-    title = t('Dayjob 会关闭、安装新版本并重新打开。', 'Dayjob closes, installs the new version and opens again.');
-    action = () => updates.install();
+    detail = state.problem ? t('没装上', 'Not installed') : `v${state.latest}`;
+    title = updateProblem(t, state) || t('Dayjob 会关闭、安装新版本并重新打开。Claude 和 Dayjob 的连接会断开，更新后在 Claude 里重新连接即可。',
+      'Dayjob closes, installs the new version and opens again. Claude’s connection to Dayjob drops; reconnect it in Claude afterwards.');
+    action = () => run(updates.install);
+  } else if (status === 'installing') {
+    icon = <LoaderCircle size={18} className="spin" />;
+    label = t('正在准备安装…', 'Preparing to install…');
+    detail = '';
+    action = null;
   }
   return (
-    <button className={`nav-item update-item ${status}`} data-fx={['idle', 'latest', 'error'].includes(status) ? 'refresh' : status === 'available' ? 'pop' : undefined}
+    <button className={`nav-item update-item ${status}${state.problem ? ' problem' : ''}`} data-fx={['idle', 'latest', 'error'].includes(status) ? 'refresh' : status === 'available' ? 'pop' : undefined}
       onClick={action || undefined} disabled={!action || busy} title={title} aria-live="polite">
       {icon}<span>{label}</span>{detail ? <small>{detail}</small> : null}
     </button>
