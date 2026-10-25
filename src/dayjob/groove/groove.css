@@ -222,11 +222,8 @@
 .view-header > .title-block { flex: 0 1 auto; min-width: 0; }
 .view-date { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
 .clock { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
-.clock > svg { color: var(--step-hi); animation: sky-turn 937ms cubic-bezier(.2, .9, .3, 1.3) both; }
-.clock > svg.still { animation: none; }
 .clock .fx-roll { font-weight: inherit; }
 .clock > span { white-space: nowrap; }
-@keyframes sky-turn { from { opacity: 0; transform: translateY(8px) rotate(-90deg) scale(.6); } to { opacity: 1; transform: none; } }
 
 /* 04 · ripples spread behind a job row, never over its text. */
 .posting-item > .ripples { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
@@ -269,7 +266,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pkey, .tonearm, .rim circle, .bar, .toggle, .toggle > i, .deck-text { transition: none; }
-  .clock > svg, .wave-hint, .wordmark > span, .note-loader .bn-note, .note-loader .bn-flag, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
+  .wave-hint, .wordmark > span, .note-loader .bn-note, .note-loader .bn-flag, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
 }
 
 /* The theme turning: the new one sweeps over the page with a soft edge, night falling from the top like dusk and
@@ -290,4 +287,5 @@
 .theme-hours { display: flex; flex-wrap: wrap; gap: 8px 18px; flex-basis: 100%; }
 .theme-hours label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .theme-hours label > svg { color: var(--step-hi); }
-.theme-hours input { width: auto; padding: 4px 8px; }
+.theme-hours .picker { padding: 4px 8px; min-height: 0; }
+.theme-hold { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; color: var(--muted); }

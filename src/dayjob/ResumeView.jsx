@@ -9,6 +9,7 @@ import { leaveThen, pop, scatter, shake, typeIn, unfold } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
+import { Select } from './groove/Picker.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 import { EMPTY_EDUCATION, EMPTY_EXPERIENCE, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from '../../server/jobs/applicant.mjs';
 
@@ -232,25 +233,25 @@ function AiSettings({ boot, reload, status }) {
             <small>{t(`找不到时填写，例如 ${cliPath.example.replace('{you}', '你')}`, `Fill in if it is not found, e.g. ${cliPath.example.replace('{you}', 'you')}`)}</small></label>
         )}
         <label>{t('模型', 'Model')}
-          <select value={modelValue} onChange={event => chooseModel(event.target.value)}>
+          <Select value={modelValue} onChange={event => chooseModel(event.target.value)}>
             {CLI_DEFAULT[form.provider] ? <option value="">{t(...CLI_DEFAULT[form.provider])}</option> : null}
             {provider.models.map(item => <option key={item.id} value={item.id}>{item.name}{item.tag ? ` · ${t(...MODEL_TAGS[item.tag])}` : ''}</option>)}
             <option value={CUSTOM}>{t('其他（输入模型 ID）', 'Other (type a model id)')}</option>
-          </select>
+          </Select>
           {custom ? <input value={form.model} onChange={event => set('model', event.target.value)} placeholder={provider.family === 'claude' ? 'claude-opus-5-5' : 'gpt-6.1-sol'}
             maxLength={100} aria-label={t('模型 ID', 'Model id')} autoFocus /> : null}
         </label>
         <label>{t('推理强度', 'Reasoning effort')}
-          <select value={efforts.length ? form.effort : ''} onChange={event => set('effort', event.target.value)} disabled={!efforts.length}>
+          <Select value={efforts.length ? form.effort : ''} onChange={event => set('effort', event.target.value)} disabled={!efforts.length}>
             <option value="">{efforts.length ? t('模型默认', 'Model default') : t('这个模型不支持', 'Not supported by this model')}</option>
             {efforts.map(level => <option key={level} value={level}>{t(...EFFORT_LABELS[level])}</option>)}
-          </select>
+          </Select>
           <small>{t('越高分析越细，但更慢、用量更多。', 'Higher looks closer, but is slower and uses more.')}</small>
         </label>
         <label>{t('分析语言', 'Analysis language')}
-          <select value={form.language} onChange={event => set('language', event.target.value)}>
+          <Select value={form.language} onChange={event => set('language', event.target.value)}>
             <option value="zh">中文</option><option value="en">English</option>
-          </select>
+          </Select>
         </label>
         <label>{t('每次最多打分', 'Scores per run')}<input type="number" min={1} max={200} value={form.maxPerRun} onChange={event => set('maxPerRun', event.target.value)} /><small>{t('一次抓取或一次批量打分最多打这么多个。', 'The most jobs scored by one search or one batch.')}</small></label>
       </div>
@@ -319,9 +320,9 @@ function ProfileField({ name, rule, type, placeholder, value, onChange, disabled
   const { t } = useI18n();
   if (rule === 'yes-no') {
     return (
-      <select name={name} value={value} onChange={event => onChange(event.target.value)}>
+      <Select name={name} value={value} onChange={event => onChange(event.target.value)}>
         <option value="">{t('不填', 'Leave blank')}</option><option value="yes">{t('是', 'Yes')}</option><option value="no">{t('否', 'No')}</option>
-      </select>
+      </Select>
     );
   }
   // A month (2024-08) or a year; "Aug 2024" and the like turn into that when the box is left.

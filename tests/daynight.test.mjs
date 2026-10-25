@@ -58,6 +58,14 @@ test('the theme set before paint matches the running page', () => {
   assert.equal(run('light', null, at(23)), 'day');
   assert.equal(run('system', null, at(12), true), 'night');
   assert.equal(run('system', null, at(23), false), 'day');
+  // A turn of the header's day/night switch holds until the clock's next turn, and only by the clock.
+  const held = (night, until) => ({ 'dayjob-theme-clock': '1', 'dayjob-theme-hold': JSON.stringify({ night, until: until.getTime() }) });
+  assert.equal(run('time', null, at(21), false, held(false, at(31))), 'day');
+  assert.equal(run(null, null, at(12), false, held(true, at(19))), 'night');
+  assert.equal(run('time', null, at(7, 1), false, held(false, at(7))), 'day');
+  assert.equal(run('time', null, at(19, 1), false, held(false, at(19))), 'night');
+  assert.equal(run('light', null, at(12), false, held(true, at(19))), 'day');
+  assert.equal(run('dark', null, at(12), false, held(false, at(19))), 'night');
 });
 
 test('the first start of 0.11.0 moves an earlier choice over to the clock, once', () => {

@@ -10,6 +10,7 @@ import { cue } from './groove/sound.js';
 import { flyTo, keyBump, leave } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
 import { NoteLoader } from './groove/BrandNote.jsx';
+import { DateField } from './groove/Picker.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -105,7 +106,7 @@ function ApplyForm({ onApply, onCancel, busy }) {
   const form = useRef(null);
   return (
     <form className="apply-form" ref={form} onSubmit={event => { event.preventDefault(); onApply({ appliedAt: day === localDateInput() ? undefined : dateInputToIso(day), note }); }}>
-      <label>{t('投递日期', 'Applied on')}<input type="date" value={day} max={localDateInput()} onChange={event => setDay(event.target.value)} required /></label>
+      <label>{t('投递日期', 'Applied on')}<DateField value={day} max={localDateInput()} onChange={event => setDay(event.target.value)} required /></label>
       <label className="grow">{t('备注（可选）', 'Note (optional)')}<input value={note} maxLength={2000} placeholder={t('例如：内推人、用的简历版本', 'e.g. referrer, resume version')} onChange={event => setNote(event.target.value)} /></label>
       <div className="form-actions">
         <button type="button" className="button" onClick={() => leave(form.current, 'up', onCancel)}>{t('取消', 'Cancel')}</button>

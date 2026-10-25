@@ -355,12 +355,6 @@ function onClick(event) {
     if (!group.classList.contains('status-buttons')) cue('knob');
   }
 }
-// A changed dropdown presses like a key, and a picked date or time flips over to its new value.
-function onChange(event) {
-  const el = event.target;
-  if (el.matches?.('select')) press(el);
-  else if (el.matches?.('input[type="date"], input[type="time"]')) flipIn(el);
-}
 // Something that failed answers with one dull note; its message shakes in by itself (fx.css).
 function watchErrors() {
   if (typeof MutationObserver === 'undefined') return () => {};
@@ -374,7 +368,6 @@ function watchErrors() {
 }
 export function installClickFx() {
   document.addEventListener('click', onClick, true);
-  document.addEventListener('change', onChange, true);
   const stop = watchErrors();
-  return () => { document.removeEventListener('click', onClick, true); document.removeEventListener('change', onChange, true); stop(); };
+  return () => { document.removeEventListener('click', onClick, true); stop(); };
 }

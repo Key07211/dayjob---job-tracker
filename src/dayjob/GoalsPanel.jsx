@@ -6,6 +6,7 @@ import { splitTarget } from '../../server/jobs/goal-weeks.mjs';
 import { BEAT, cue } from './groove/sound.js';
 import { floatNote, leave, sweep } from './groove/fx.js';
 import { Roll } from './groove/Fx.jsx';
+import { Select } from './groove/Picker.jsx';
 
 const COLLAPSED_KEY = 'dayjob-goals-collapsed';
 const MAX_GOALS = 8;
@@ -284,9 +285,9 @@ export function GoalsPanel({ version }) {
           <div className="goal-card chart">
             <h3>{t('每周完成', 'By week')}
               {report.goals.length > 1 ? (
-                <select value={shown.id} onChange={event => setChartGoal(event.target.value)} aria-label={t('图表显示的目标', 'Goal shown in the chart')}>
+                <Select value={shown.id} onChange={event => setChartGoal(event.target.value)} aria-label={t('图表显示的目标', 'Goal shown in the chart')}>
                   {report.goals.map(goal => <option key={goal.id} value={goal.id}>{goalName(goal)}</option>)}
-                </select>
+                </Select>
               ) : <span>{goalName(shown)}</span>}
             </h3>
             <WeekChart weeks={report.weeks} data={shown.weeks} lit={justSet} />
