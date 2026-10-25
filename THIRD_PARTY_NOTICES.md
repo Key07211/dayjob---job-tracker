@@ -37,11 +37,14 @@ SOFTWARE.
 ## Fonts
 
 The interface bundles two fonts under the SIL Open Font License 1.1
-(https://openfontlicense.org), from the Fontsource packages
-`@fontsource-variable/bricolage-grotesque` and `@fontsource/dm-mono`:
+(https://openfontlicense.org; the full text is in `src/dayjob/fonts/OFL.txt`):
 
-- Bricolage Grotesque: Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage)
-- DM Mono: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)
+- LXGW 975 Yuan SC (霞鹜975圆体): Copyright 2021-2026 LXGW (https://github.com/lxgw/LxgwWenKai);
+  Copyright 2020 The Klee Project Authors (https://github.com/fontworks-fonts/Klee).
+  Taken from the `@free-fonts/lxgw-975-yuan` package and cut down to GB2312 plus the
+  characters the app itself uses, in `src/dayjob/fonts`.
+- Nunito: Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito),
+  from the Fontsource package `@fontsource-variable/nunito`.
 
 ## Melodies
 

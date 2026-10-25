@@ -1,9 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Building2, Check, CheckCircle2, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime, label, labels, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { BEAT, cue, playNeedle } from './groove/sound.js';
+import { E8, flyTo, leave, leaveThen } from './groove/fx.js';
+import { Eq } from './groove/Fx.jsx';
+
+// A search or company that was just added drops in like a new track on a mixing desk, its level meter jumping for a moment.
+function useArrived() {
+  const [arrived, setArrived] = useState(null);
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const mark = id => {
+    setArrived(id);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setArrived(null), BEAT * 2);
+  };
+  return [arrived, mark];
+}
 
 const POSTED = [{ value: 24, label: ['24 小时内', 'Past 24 hours'] }, { value: 72, label: ['3 天内', 'Past 3 days'] }, { value: 168, label: ['7 天内', 'Past week'] },
   { value: 336, label: ['14 天内', 'Past 2 weeks'] }, { value: '', label: ['不限', 'Any time'] }];
@@ -25,6 +41,8 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
     titleInclude: initial.titleInclude.join(', '), excludeKeywords: initial.excludeKeywords.join(', ') } : EMPTY);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const own = useRef(null);
+  const close = () => leave(own.current, 'up', onCancel);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const toggleSite = site => set('sites', form.sites.includes(site) ? form.sites.filter(item => item !== site) : [...form.sites, site]);
   async function submit(event) {
@@ -40,8 +58,8 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   return (
-    <form className="panel-form" onSubmit={submit}>
-      <div className="form-head"><h3>{existing ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={onCancel}><X size={16} /></button></div>
+    <form className="panel-form" ref={own} onSubmit={submit}>
+      <div className="form-head"><h3>{existing ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={close}><X size={16} /></button></div>
       <div className="form-grid">
         <label>{t('关键词', 'Keywords')}<input value={form.keywords} onChange={event => set('keywords', event.target.value)} required maxLength={200}
           placeholder="Data Scientist, Machine Learning Engineer" /><small>{t('用逗号分隔表示“任一”。', 'Separate with commas to match any of them.')}</small></label>
@@ -84,7 +102,7 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
       </div>
       {error ? <p className="notice error">{error}</p> : null}
       <div className="form-actions">
-        <button type="button" className="button" onClick={onCancel}>{t('取消', 'Cancel')}</button>
+        <button type="button" className="button" onClick={close}>{t('取消', 'Cancel')}</button>
         <button type="submit" className="button primary" disabled={busy || !form.sites.length}>{t('保存', 'Save')}</button>
       </div>
     </form>
@@ -98,13 +116,15 @@ const draftSearch = (item, sites) => ({ name: item.name, keywords: item.keywords
   jobType: item.jobType, titleInclude: item.titleInclude, excludeKeywords: item.excludeKeywords, hoursOld: 72, resultsWanted: 25, enabled: true,
   sites: sites.filter(site => site.engine === 'native' && site.available).map(site => site.id).filter(id => ['linkedin', 'indeed'].includes(id)) });
 
-function Suggestions({ boot, reload, onEdit, setView }) {
+function Suggestions({ boot, reload, onEdit, setView, onAdded }) {
   const { t } = useI18n();
   const [state, setState] = useState({ result: null, running: false });
   const [preference, setPreference] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [adding, setAdding] = useState('');
+  // The suggestion just added or followed: its ✓ turns in from the ＋.
+  const [just, setJust] = useState('');
   const result = state.result;
 
   useEffect(() => {
@@ -128,20 +148,30 @@ function Suggestions({ boot, reload, onEdit, setView }) {
     setError('');
     setMessage('');
     setState(current => ({ ...current, running: true, mine: true }));
-    try { setState(await api('/api/recommendations', { method: 'POST', body: { preference } })); }
+    try { setState(await api('/api/recommendations', { method: 'POST', body: { preference } })); cue('triplet'); }
     catch (failure) { setError(serverText(failure.message)); setState(current => ({ ...current, running: false, mine: false })); }
   }
-  async function addSearch(item, key) {
+  async function addSearch(item, key, card) {
     setAdding(key);
     setError('');
-    try { await api('/api/searches', { method: 'POST', body: draftSearch(item, boot.sites) }); await reload(); setMessage(t(`已添加搜索“${item.name}”，会在下次每日抓取时运行。`, `Added “${item.name}”; it runs with the next daily search.`)); }
-    catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
+    try {
+      const saved = await api('/api/searches', { method: 'POST', body: draftSearch(item, boot.sites) });
+      // The card flies into Saved searches, where the new search drops in.
+      flyTo(card, document.querySelector('.saved-searches h2'), 'page');
+      cue('note');
+      setJust(key);
+      await reload();
+      onAdded(saved.id);
+      setMessage(t(`已添加搜索“${item.name}”，会在下次每日抓取时运行。`, `Added “${item.name}”; it runs with the next daily search.`));
+    } catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
   }
   async function follow(item, key) {
     setAdding(key);
     setError('');
     try {
       const company = await api('/api/companies', { method: 'POST', body: { ats: item.ats, slug: item.slug, name: item.name } });
+      cue('success');
+      setJust(key);
       await reload();
       setMessage(company.listed !== null && company.listed !== undefined
         ? t(`已关注 ${company.name}，目前有 ${company.listed} 个公开岗位。`, `Following ${company.name}: ${company.listed} open ${company.listed === 1 ? 'job' : 'jobs'} right now.`)
@@ -149,6 +179,8 @@ function Suggestions({ boot, reload, onEdit, setView }) {
     } catch (failure) { setError(serverText(failure.message)); } finally { setAdding(''); }
   }
   // Closed suggestions stay saved and can be opened again.
+  // Closing folds the panel up into its one-line "show again"; opening deals the cards out again.
+  const close = event => leave(event.currentTarget.closest('.suggestion-result'), 'up', () => setHidden(true));
   async function setHidden(hidden) {
     setError('');
     setMessage('');
@@ -169,8 +201,8 @@ function Suggestions({ boot, reload, onEdit, setView }) {
         <form className="inline-form" onSubmit={ask}>
           <input value={preference} onChange={event => setPreference(event.target.value)} maxLength={500}
             placeholder={t('补充偏好（可选），例如：只看湾区和远程、需要 H-1B 担保、New Grad', 'Preferences (optional), e.g. Bay Area or remote only, needs H-1B sponsorship, new grad')} />
-          <button className="button primary" type="submit" disabled={state.running}>
-            {state.running ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{result ? t('重新推荐', 'Suggest again') : t('让 AI 推荐', 'Ask the AI')}
+          <button className="button primary" type="submit" data-fx="sparkle" disabled={state.running}>
+            {state.running ? <Eq /> : <Sparkles size={15} />}{result ? t('重新推荐', 'Suggest again') : t('让 AI 推荐', 'Ask the AI')}
           </button>
         </form>
       )}
@@ -187,7 +219,7 @@ function Suggestions({ boot, reload, onEdit, setView }) {
         <div className="suggestion-result">
           <div className="suggestion-bar">
             <strong>{t('推荐结果', 'Suggestions')}</strong>
-            <button type="button" className="icon-button" title={t('关闭推荐', 'Close the suggestions')} aria-label={t('关闭推荐', 'Close the suggestions')} onClick={() => setHidden(true)}><X size={16} /></button>
+            <button type="button" className="icon-button" title={t('关闭推荐', 'Close the suggestions')} aria-label={t('关闭推荐', 'Close the suggestions')} onClick={close}><X size={16} /></button>
           </div>
           {result.summary ? <p className="suggestion-summary">{result.summary}</p> : null}
           {result.searches.length ? (
@@ -198,7 +230,7 @@ function Suggestions({ boot, reload, onEdit, setView }) {
                   const key = `search-${index}`;
                   const added = boot.searches.some(search => sameSearch(search, item));
                   return (
-                    <li key={key}>
+                    <li key={key} className="dealt" style={{ animationDelay: `${index * E8}ms` }}>
                       <div className="search-main">
                         <strong>{item.name}</strong>
                         <span>{item.keywords}{item.location ? ` · ${item.location}` : ''}{item.isRemote ? t(' · 远程', ' · remote') : ''}</span>
@@ -211,10 +243,10 @@ function Suggestions({ boot, reload, onEdit, setView }) {
                         {item.reason ? <small>{item.reason}</small> : null}
                       </div>
                       <div className="search-actions">
-                        {added ? <span className="added-tag"><Check size={14} />{t('已添加', 'Added')}</span> : (
+                        {added ? <span className={`added-tag${just === key ? ' just' : ''}`}><Check size={14} />{t('已添加', 'Added')}</span> : (
                           <>
-                            <button className="icon-button" title={t('编辑后添加', 'Edit, then add')} onClick={() => onEdit(draftSearch(item, boot.sites))}><Pencil size={15} /></button>
-                            <button className="button small" onClick={() => addSearch(item, key)} disabled={Boolean(adding)}>{adding === key ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}{t('添加', 'Add')}</button>
+                            <button className="icon-button" data-fx="wiggle" title={t('编辑后添加', 'Edit, then add')} onClick={() => onEdit(draftSearch(item, boot.sites))}><Pencil size={15} /></button>
+                            <button className="button small" onClick={event => addSearch(item, key, event.currentTarget.closest('li'))} disabled={Boolean(adding)}>{adding === key ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}{t('添加', 'Add')}</button>
                           </>
                         )}
                       </div>
@@ -232,13 +264,13 @@ function Suggestions({ boot, reload, onEdit, setView }) {
                   const key = `company-${index}`;
                   const following = boot.companies.some(company => sameBoard(company, item));
                   return (
-                    <li key={key}>
+                    <li key={key} className="dealt" style={{ animationDelay: `${(result.searches.length + index) * E8}ms` }}>
                       <div className="search-main">
                         <strong>{item.name}</strong>
                         <span>{label('site', item.ats)} · {item.slug}{item.openJobs !== null && item.openJobs !== undefined ? t(` · 目前 ${item.openJobs} 个公开岗位`, ` · ${item.openJobs} open ${item.openJobs === 1 ? 'job' : 'jobs'}`) : ''}</span>
                         {item.reason ? <small>{item.reason}</small> : null}
                       </div>
-                      {following ? <span className="added-tag"><Check size={14} />{t('已关注', 'Following')}</span>
+                      {following ? <span className={`added-tag${just === key ? ' just' : ''}`}><Check size={14} />{t('已关注', 'Following')}</span>
                         : <button className="button small" onClick={() => follow(item, key)} disabled={Boolean(adding)}>{adding === key ? <LoaderCircle size={14} className="spin" /> : <Plus size={14} />}{t('关注', 'Follow')}</button>}
                     </li>
                   );
@@ -252,7 +284,7 @@ function Suggestions({ boot, reload, onEdit, setView }) {
               {result.dropped ? t(`；另有 ${result.dropped} 家公司的招聘页不存在，已去掉`, `; ${result.dropped} more ${result.dropped === 1 ? 'company was' : 'companies were'} dropped because their board does not exist`) : ''}
               {t('。', '.')}
             </p>
-            <button type="button" className="button small" onClick={() => setHidden(true)}><X size={14} />{t('选好了，关闭推荐', 'Done, close the suggestions')}</button>
+            <button type="button" className="button small" onClick={close}><X size={14} />{t('选好了，关闭推荐', 'Done, close the suggestions')}</button>
           </div>
         </div>
       ) : null}
@@ -262,6 +294,7 @@ function Suggestions({ boot, reload, onEdit, setView }) {
 
 function Companies({ companies, onChange }) {
   const { t } = useI18n();
+  const [arrived, markArrived] = useArrived();
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -279,17 +312,22 @@ function Companies({ companies, onChange }) {
         : t(`已关注 ${company.name}。`, `Following ${company.name}.`));
       setUrl('');
       setName('');
-      onChange();
+      cue('success');
+      await onChange();
+      markArrived(company.id);
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   async function toggle(company) {
     try { await api(`/api/companies/${company.id}`, { method: 'PATCH', body: { enabled: !company.enabled } }); onChange(); }
     catch (failure) { setError(failure.message); }
   }
-  async function remove(company) {
+  async function remove(company, row) {
     if (!window.confirm(t(`不再关注 ${company.name}？已抓到的岗位会保留。`, `Stop following ${company.name}? Jobs already found are kept.`))) return;
-    try { await api(`/api/companies/${company.id}`, { method: 'DELETE' }); onChange(); }
-    catch (failure) { setError(failure.message); }
+    // The chip shrinks away first and comes back if the request fails.
+    leaveThen(row, 'shrink', async () => {
+      try { await api(`/api/companies/${company.id}`, { method: 'DELETE' }); await onChange(); return true; }
+      catch (failure) { setError(failure.message); return false; }
+    });
   }
   return (
     <section className="card-section">
@@ -306,10 +344,10 @@ function Companies({ companies, onChange }) {
       {companies.length ? (
         <ul className="company-list">
           {companies.map(company => (
-            <li key={company.id} className={company.enabled ? '' : 'disabled'}>
+            <li key={company.id} className={`${company.enabled ? '' : 'disabled'}${arrived === company.id ? ' dropped' : ''}`}>
               <strong>{company.name}</strong><span>{label('site', company.ats)} · {company.slug}</span>
               <label className="switch"><input type="checkbox" checked={company.enabled} onChange={() => toggle(company)} />{company.enabled ? t('启用', 'On') : t('暂停', 'Paused')}</label>
-              <button className="icon-button" title={t('取消关注', 'Unfollow')} onClick={() => remove(company)}><Trash2 size={15} /></button>
+              <button className="icon-button" title={t('取消关注', 'Unfollow')} onClick={event => remove(company, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
             </li>
           ))}
         </ul>
@@ -358,7 +396,11 @@ export function SearchesView({ boot, reload, status, setView }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [runs, setRuns] = useState(boot.runs);
+  const [arrived, markArrived] = useArrived();
+  // The search started from its own ▶, which turns into a spinning record until the run ends.
+  const [playing, setPlaying] = useState(null);
   const running = status?.scheduler?.running;
+  useEffect(() => { if (!running) setPlaying(null); }, [running]);
 
   useEffect(() => {
     api('/api/runs?limit=10').then(setRuns).catch(() => {});
@@ -368,45 +410,50 @@ export function SearchesView({ boot, reload, status, setView }) {
     setError('');
     setMessage('');
     try {
+      setPlaying(search.id);
+      playNeedle();
       await api('/api/runs', { method: 'POST', body: { searchIds: [search.id] } });
       setMessage(t(`已开始抓取“${search.name}”。`, `Started “${search.name}”.`));
-    } catch (failure) { setError(failure.message); }
+    } catch (failure) { setPlaying(null); setError(failure.message); }
   }
   async function toggle(search) {
     try { await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { enabled: !search.enabled } }); await reload(); }
     catch (failure) { setError(failure.message); }
   }
-  async function remove(search) {
+  // The card folds up and away, and the ones below move up; it comes back if the delete fails.
+  async function remove(search, row) {
     if (!window.confirm(t(`删除搜索“${search.name}”？已抓到的岗位会保留。`, `Delete the search “${search.name}”? Jobs already found are kept.`))) return;
-    try { await api(`/api/searches/${search.id}`, { method: 'DELETE' }); await reload(); }
-    catch (failure) { setError(failure.message); }
+    leaveThen(row, 'up', async () => {
+      try { await api(`/api/searches/${search.id}`, { method: 'DELETE' }); await reload(); return true; }
+      catch (failure) { setError(failure.message); return false; }
+    });
   }
 
   return (
     <section className="settings-page searches-page">
       <header className="view-header">
         <div><h1>{t('搜索与公司', 'Searches & companies')}</h1></div>
-        <div className="header-actions"><button className="button primary" onClick={() => setEditing('new')}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
+        <div className="header-actions"><button className="button primary" onClick={() => (editing === 'new' ? leave(document.querySelector('.searches-page > .panel-form'), 'up', () => setEditing(null)) : setEditing('new'))}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
       </header>
       {editing ? (
         <SearchForm initial={editing === 'new' ? null : editing} sites={boot.sites} countries={boot.countries}
-          onCancel={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />
+          onCancel={() => setEditing(null)} onSaved={async saved => { setEditing(null); cue('note'); await reload(); markArrived(saved.id); }} />
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       {/* Searches on the left and companies on the right once the page is wide. */}
       <div className="searches-columns">
         <div className="searches-column">
-          <Suggestions boot={boot} reload={reload} setView={setView} onEdit={draft => { setEditing(draft); for (const node of [document.querySelector('.main-view'), window]) node?.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
-          <section className="card-section">
+          <Suggestions boot={boot} reload={reload} setView={setView} onAdded={markArrived} onEdit={draft => { setEditing(draft); for (const node of [document.querySelector('.main-view'), window]) node?.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
+          <section className="card-section saved-searches">
             <h2>{t('保存的搜索', 'Saved searches')}</h2>
             {!boot.searches.length ? <p className="hint">{t('还没有搜索。新建一个，例如关键词“Data Scientist, Data Analyst”、地点“New York, NY”、发布时间 3 天内。',
               'No searches yet. Create one, for example keywords “Data Scientist, Data Analyst”, location “New York, NY”, posted in the past 3 days.')}</p> : null}
             <ul className="search-list">
               {boot.searches.map(search => (
-                <li key={search.id} className={search.enabled ? '' : 'disabled'}>
+                <li key={search.id} className={`${search.enabled ? '' : 'disabled'}${arrived === search.id ? ' dropped' : ''}`}>
                   <div className="search-main">
-                    <strong>{search.name}</strong>
+                    <strong>{search.name}{arrived === search.id ? <Eq /> : null}</strong>
                     <span>{search.keywords}{search.location ? ` · ${search.location}` : ''}{search.isRemote ? t(' · 远程', ' · remote') : ''}</span>
                     <span className="chips">
                       {search.sites.map(site => <em key={site}>{label('site', site)}</em>)}
@@ -414,13 +461,14 @@ export function SearchesView({ boot, reload, status, setView }) {
                       {search.jobType ? <em>{label('jobType', search.jobType)}</em> : null}
                       {search.excludeKeywords.length ? <em>{t(`排除 ${search.excludeKeywords.join('、')}`, `Excludes ${search.excludeKeywords.join(', ')}`)}</em> : null}
                     </span>
-                    <small>{search.lastRunAt ? t(`上次运行 ${relativeDay(search.lastRunAt)} ${lastTime(search.lastRunAt)}`, `Last run ${relativeDay(search.lastRunAt)} at ${lastTime(search.lastRunAt)}`) : t('还没有运行过', 'Not run yet')}</small>
+                    <small key={search.lastRunAt || 'never'} className={search.lastRunAt ? 'fx-roll' : undefined}>{search.lastRunAt ? t(`上次运行 ${relativeDay(search.lastRunAt)} ${lastTime(search.lastRunAt)}`, `Last run ${relativeDay(search.lastRunAt)} at ${lastTime(search.lastRunAt)}`) : t('还没有运行过', 'Not run yet')}</small>
                   </div>
                   <div className="search-actions">
                     <label className="switch"><input type="checkbox" checked={search.enabled} onChange={() => toggle(search)} />{search.enabled ? t('每日', 'Daily') : t('暂停', 'Paused')}</label>
-                    <button className="icon-button" title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}><Play size={15} /></button>
-                    <button className="icon-button" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
-                    <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(search)}><Trash2 size={15} /></button>
+                    <button className={`icon-button${playing === search.id ? ' playing' : ''}`} title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}>
+                      {playing === search.id ? <span className="mini-disc" aria-hidden="true" /> : <Play size={15} />}</button>
+                    <button className="icon-button" data-fx="wiggle" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
+                    <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(search, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
                   </div>
                 </li>
               ))}

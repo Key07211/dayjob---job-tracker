@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, FileUp, LoaderCircle, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { CheckCircle2, FileUp, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { BEAT, cue } from './groove/sound.js';
+import { leaveThen, pop, scatter, shake, typeIn } from './groove/fx.js';
+import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -25,6 +28,13 @@ function Resumes({ resumes, reload }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  // The resume just read: the wave turns into a ✓ and the new card drops into the list.
+  const [arrived, setArrived] = useState(null);
+  useEffect(() => {
+    if (!arrived) return undefined;
+    const timer = setTimeout(() => setArrived(null), BEAT * 3);
+    return () => clearTimeout(timer);
+  }, [arrived]);
   const full = resumes.length >= MAX_RESUMES;
   async function upload(file) {
     if (!file || full) return;
@@ -32,14 +42,19 @@ function Resumes({ resumes, reload }) {
     if (file.size > MAX_BYTES) { setError(t('文件超过 8 MB。', 'The file is larger than 8 MB.')); return; }
     setBusy(true);
     try {
-      await api('/api/resumes', { method: 'POST', body: { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) } });
+      const created = await api('/api/resumes', { method: 'POST', body: { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) } });
       await reload();
+      setArrived(created?.id || true);
+      cue('done');
     } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); if (input.current) input.current.value = ''; }
   }
-  async function remove(resume) {
+  // The resume shrinks away and the others move up; it comes back if the delete fails.
+  async function remove(resume, row) {
     if (!window.confirm(t(`删除简历“${resume.name}”？基于它的打分也会删除，相关岗位会改用其他简历。`, `Delete the resume “${resume.name}”? Scores based on it are deleted too, and its jobs move to your other resumes.`))) return;
-    try { await api(`/api/resumes/${resume.id}`, { method: 'DELETE' }); await reload(); }
-    catch (failure) { setError(serverText(failure.message)); }
+    leaveThen(row, 'shrink', async () => {
+      try { await api(`/api/resumes/${resume.id}`, { method: 'DELETE' }); await reload(); return true; }
+      catch (failure) { setError(serverText(failure.message)); return false; }
+    });
   }
   return (
     <section className="card-section">
@@ -49,9 +64,10 @@ function Resumes({ resumes, reload }) {
       {full ? <p className="notice">{t('已经有 3 份简历。删除一份后才能再上传。', 'You have 3 resumes. Delete one to upload another.')}</p> : (
         <div className={`dropzone${dragging ? ' dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files[0]); }}>
-          {busy ? <LoaderCircle className="spin" /> : <FileUp size={24} />}
+          {busy ? <span className="rec-wave" aria-hidden="true">{[0, 1, 2, 3, 4, 5, 6].map(bar => <i key={bar} />)}</span>
+            : arrived ? <CheckCircle2 size={24} className="pop-in ok-icon" /> : <FileUp size={24} />}
           <p>{busy ? t('正在读取简历…', 'Reading your resume…') : t('把简历拖到这里，或', 'Drop a resume here, or')}</p>
-          <button className="button" onClick={() => input.current?.click()} disabled={busy}>{t('选择文件', 'Choose a file')}</button>
+          <button className="button" data-fx="press" onClick={() => input.current?.click()} disabled={busy}>{t('选择文件', 'Choose a file')}</button>
           <input ref={input} type="file" hidden accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
             onChange={event => upload(event.target.files[0])} />
         </div>
@@ -60,11 +76,11 @@ function Resumes({ resumes, reload }) {
       {resumes.length ? (
         <ul className="resume-list">
           {resumes.map(resume => (
-            <li key={resume.id}>
+            <li key={resume.id} className={arrived === resume.id ? 'dropped' : undefined}>
               <div><strong>{resume.name}</strong><span>{formatTime(resume.uploadedAt)} · {t(`${resume.characters.toLocaleString()} 字符`, `${resume.characters.toLocaleString()} characters`)}</span>
                 <details className="resume-preview"><summary>{t('查看提取出的文字（前 600 字）', 'Show the extracted text (first 600 characters)')}</summary><pre>{resume.preview}</pre></details>
               </div>
-              <button className="icon-button" title={t('删除', 'Delete')} onClick={() => remove(resume)}><Trash2 size={15} /></button>
+              <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(resume, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
             </li>
           ))}
         </ul>
@@ -111,6 +127,9 @@ function AiSettings({ boot, reload, status }) {
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [saved, flashSaved] = useSaved();
+  const check = useRef(null);
+  const statusIcon = useRef(null);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const provider = PROVIDERS[form.provider];
   const model = modelInfo(form.provider, form.model);
@@ -130,9 +149,15 @@ function AiSettings({ boot, reload, status }) {
     setForm({ ...form, model: value, effort: effortFor(form.provider, value, form.effort) });
   }
 
-  async function refresh() {
+  // Checked by hand: found answers with a ✓ that pops and two rising notes, not found with a small shake of the button.
+  async function refresh({ loud = false } = {}) {
     setChecking(true);
-    try { setScoring(await api('/api/scoring/status?refresh=1')); } catch (failure) { setError(failure.message); } finally { setChecking(false); }
+    try {
+      const next = await api('/api/scoring/status?refresh=1');
+      setScoring(next);
+      if (loud && next.available) { cue('success'); requestAnimationFrame(() => pop(statusIcon.current, 1.35)); }
+      else if (loud) shake(check.current);
+    } catch (failure) { setError(failure.message); } finally { setChecking(false); }
   }
   useEffect(() => { if (status?.scoring) setScoring(status.scoring); }, [status?.scoring]);
 
@@ -148,11 +173,13 @@ function AiSettings({ boot, reload, status }) {
       setForm(current => ({ ...current, apiKey: '', openaiApiKey: '' }));
       await reload();
       await refresh();
-      setMessage(t('已保存。', 'Saved.'));
+      flashSaved();
     } catch (failure) { setError(failure.message); }
   }
-  async function clearKey(key) {
-    try { await api('/api/settings', { method: 'PATCH', body: { ai: { [key]: null } } }); await reload(); await refresh(); }
+  // The saved key breaks into a few dots that scatter out of the box.
+  async function clearKey(key, event) {
+    const box = event.currentTarget.closest('label')?.querySelector('input');
+    try { await api('/api/settings', { method: 'PATCH', body: { ai: { [key]: null } } }); scatter(box); await reload(); await refresh(); }
     catch (failure) { setError(failure.message); }
   }
   async function scoreAll() {
@@ -173,8 +200,8 @@ function AiSettings({ boot, reload, status }) {
     <form className="card-section" onSubmit={save}>
       <h2><Sparkles size={18} />{t('AI 打分', 'AI scoring')}</h2>
       <p className={`status-line ${scoring.available ? 'ok' : 'off'}`}>
-        {scoring.available ? <CheckCircle2 size={15} /> : null}{serverText(scoring.detail)}
-        <button type="button" className="icon-button" title={t('重新检测', 'Check again')} onClick={refresh} disabled={checking}>{checking ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}</button>
+        {scoring.available ? <CheckCircle2 size={15} ref={statusIcon} /> : null}{serverText(scoring.detail)}
+        <button type="button" className="icon-button" ref={check} title={t('重新检测', 'Check again')} onClick={() => refresh({ loud: true })} disabled={checking}>{checking ? <span className="dots" aria-hidden="true"><i /><i /><i /></span> : <RefreshCw size={14} />}</button>
       </p>
       {PROVIDER_GROUPS.map(group => (
         <div key={group.name} className="provider-group">
@@ -194,7 +221,7 @@ function AiSettings({ boot, reload, status }) {
           <label>{form.provider === 'anthropic-api' ? 'Anthropic API key' : 'OpenAI API key'}
             <input type="password" value={form[keyField.key]} onChange={event => set(keyField.key, event.target.value)} autoComplete="off"
               placeholder={keyField.saved ? t('已保存（输入新的可替换）', 'Saved (type a new one to replace it)') : keyField.env ? t(`使用环境变量 ${keyField.env}`, `Using ${keyField.env} from the environment`) : keyField.placeholder} />
-            {keyField.saved ? <button type="button" className="link" onClick={() => clearKey(keyField.key)}>{t('清除已保存的 key', 'Remove the saved key')}</button>
+            {keyField.saved ? <button type="button" className="link" onClick={event => clearKey(keyField.key, event)}>{t('清除已保存的 key', 'Remove the saved key')}</button>
               : <small>{t('只保存在本机数据库，不会显示回界面。', 'Stored only in the local database and never shown again.')}</small>}
           </label>
         ) : (
@@ -244,8 +271,8 @@ function AiSettings({ boot, reload, status }) {
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       <div className="form-actions">
-        <button type="button" className="button" onClick={scoreAll} disabled={!boot.resumes.length}><Sparkles size={15} />{t('给未打分的岗位打分', 'Score unscored jobs')}</button>
-        <button type="submit" className="button primary">{t('保存', 'Save')}</button>
+        <button type="button" className="button" data-fx="sparkle" onClick={scoreAll} disabled={!boot.resumes.length} title={boot.resumes.length ? undefined : t('先上传简历', 'Upload a resume first')}><Sparkles size={15} />{t('给未打分的岗位打分', 'Score unscored jobs')}</button>
+        <button type="submit" className="button primary"><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button>
       </div>
     </form>
   );
@@ -282,6 +309,7 @@ function ApplicantProfile({ boot, reload, focused }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [saved, flashSaved] = useSaved();
   useEffect(() => { if (focused) card.current?.scrollIntoView({ block: 'start' }); }, [focused]);
   const set = (key, value) => { setForm(current => ({ ...current, [key]: value })); setMessage(''); };
   async function fromResume() {
@@ -291,6 +319,8 @@ function ApplicantProfile({ boot, reload, focused }) {
       const found = await api('/api/applicant/from-resume');
       const empty = Object.entries(found).filter(([key, value]) => value && !String(form[key] || '').trim());
       setForm(current => ({ ...current, ...Object.fromEntries(empty) }));
+      // Each box that was filled lights up in turn, as if typed into.
+      if (empty.length) requestAnimationFrame(() => typeIn(card.current.querySelectorAll(empty.map(([key]) => `[name="${key}"]`).join(','))));
       setMessage(empty.length ? t(`已从简历填入 ${empty.length} 项，检查后点保存。`, `Filled ${empty.length} fields from your resume. Check them, then save.`)
         : t('简历里没有找到还没填的联系方式。', 'Your resume has no contact details that are not already filled in.'));
     } catch (failure) { setError(serverText(failure.message)); }
@@ -301,10 +331,10 @@ function ApplicantProfile({ boot, reload, focused }) {
     setError('');
     setMessage('');
     try {
-      const saved = await api('/api/settings', { method: 'PATCH', body: { applicant: form } });
-      setForm(saved.applicant);
+      const stored = await api('/api/settings', { method: 'PATCH', body: { applicant: form } });
+      setForm(stored.applicant);
       await reload();
-      setMessage(t('已保存。', 'Saved.'));
+      flashSaved();
     } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); }
   }
   return (
@@ -319,10 +349,10 @@ function ApplicantProfile({ boot, reload, focused }) {
             {group.fields.map(([key, zh, en, rule, type]) => (
               <label key={key}>{t(zh, en)}
                 {rule === 'yes-no' ? (
-                  <select value={form[key]} onChange={event => set(key, event.target.value)}>
+                  <select name={key} value={form[key]} onChange={event => set(key, event.target.value)}>
                     <option value="">{t('不填', 'Leave blank')}</option><option value="yes">{t('是', 'Yes')}</option><option value="no">{t('否', 'No')}</option>
                   </select>
-                ) : <input type={type || 'text'} value={form[key]} maxLength={rule} onChange={event => set(key, event.target.value)} />}
+                ) : <input type={type || 'text'} name={key} value={form[key]} maxLength={rule} onChange={event => set(key, event.target.value)} />}
               </label>
             ))}
           </div>
@@ -336,8 +366,8 @@ function ApplicantProfile({ boot, reload, focused }) {
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       <div className="form-actions">
-        <button type="button" className="button" onClick={fromResume} disabled={!boot.resumes.length}><FileUp size={15} />{t('从简历读取', 'Read from my resume')}</button>
-        <button type="submit" className="button primary" disabled={busy}>{t('保存', 'Save')}</button>
+        <button type="button" className="button" onClick={fromResume} disabled={!boot.resumes.length} title={boot.resumes.length ? undefined : t('先上传简历', 'Upload a resume first')}><FileUp size={15} />{t('从简历读取', 'Read from my resume')}</button>
+        <button type="submit" className="button primary" disabled={busy}><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button>
       </div>
     </form>
   );

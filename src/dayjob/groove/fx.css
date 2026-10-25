@@ -1,0 +1,194 @@
+/* ---------- Click motion: the pieces fx.js moves, and the moves that CSS can do alone ---------- */
+.fx-fly { position: fixed; z-index: 60; width: 22px; height: 22px; pointer-events: none; color: var(--green); }
+.fx-fly.page { color: var(--text); width: 26px; height: 26px; }
+.fx-fly svg { display: block; width: 100%; height: 100%; }
+.fx-ring-host { position: relative; }
+.fx-ring { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--blue); pointer-events: none; z-index: 0; }
+.fx-ring.yellow { border-color: var(--step-hi); }
+.fx-stamp { position: absolute; top: 18px; right: 22px; z-index: 3; padding: 4px 14px 4px 12px; border-radius: 10px; background: var(--good); color: var(--on-good);
+  font-weight: 800; font-size: 15px; letter-spacing: 0.04em; pointer-events: none; }
+/* The final barline of a piece: one thin line and one thick. */
+.fx-stamp::after { content: ""; display: inline-block; width: 4px; height: 14px; margin-left: 9px; vertical-align: -2px; border-left: 1.5px solid; border-right: 3px solid; }
+.fx-glide-host { position: relative; isolation: isolate; }
+.fx-glide { position: absolute; z-index: -1; pointer-events: none; }
+
+/* Text links draw their underline from the left. */
+.link { text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: linear-gradient(currentColor, currentColor) left calc(100% - 1px) / 0 1.5px no-repeat; transition: background-size 156ms cubic-bezier(.3, 0, 0, 1); }
+.link:hover, .link:focus-visible { background-size: 100% 1.5px; }
+
+/* A switch: the yellow spreads out from the knob when it turns on and draws back into it when it turns off. */
+.toggle, .toggle.on { background: var(--sw-off); overflow: hidden; }
+.toggle::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--good); clip-path: circle(0 at 13px 50%);
+  transition: clip-path 234ms cubic-bezier(.3, 0, 0, 1); }
+.toggle.on::before { clip-path: circle(60px at 33px 50%); }
+.toggle > i { z-index: 1; }
+
+/* A ticked box stands up like a note's stem. */
+input[type="checkbox"]:checked:focus { animation: tick-up 234ms cubic-bezier(.2, .9, .3, 1.4); }
+@keyframes tick-up { from { transform: scale(.6) translateY(3px); } to { transform: none; } }
+
+/* Scoring in progress: a small equaliser instead of a spinner. */
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; width: 15px; height: 14px; }
+.eq i { flex: 1; height: 100%; border-radius: 2px; background: currentColor; transform-origin: bottom; animation: eq 625ms cubic-bezier(.45, 0, .55, 1) infinite alternate; }
+.eq i:nth-child(2) { animation-delay: -234ms; }
+.eq i:nth-child(3) { animation-delay: -468ms; }
+@keyframes eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+
+/* A number that changed rolls in from below, like an odometer. */
+.fx-roll { display: inline-block; animation: roll-in 234ms cubic-bezier(.2, .8, .2, 1); }
+.score-number.roll { animation: roll-in 312ms cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes roll-in { from { opacity: 0; transform: translateY(60%); } to { opacity: 1; transform: none; } }
+
+/* The bookmark fills with yellow from the bottom up when a job is saved. */
+.fx-bookmark { position: relative; display: inline-grid; width: 15px; height: 15px; }
+.fx-bookmark > svg { grid-area: 1 / 1; }
+.fx-bookmark > .fill { color: var(--step-hi); fill: var(--step-hi); }
+.fx-bookmark.just > .fill { animation: fill-up 468ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes fill-up { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+.fx-bookmark.draining > .fill { animation: drain 312ms cubic-bezier(.6, 0, .8, .2) both; }
+@keyframes drain { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(0 0 100% 0); } }
+
+/* A tick that draws itself (I applied). */
+.fx-draw svg path, .fx-draw svg polyline { stroke-dasharray: 30; animation: draw 468ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes draw { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+
+/* Details, panels and pages arrive instead of switching. */
+.posting-detail, .application-detail { animation: detail-in 234ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes detail-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.notifications { animation: panel-in 234ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes panel-in { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.panel-form, .apply-form, .goal-editor, .assist-confirm { animation: form-in 312ms cubic-bezier(.2, .8, .2, 1); transform-origin: top; }
+@keyframes form-in { from { opacity: 0; transform: translateY(-6px) scaleY(.96); } to { opacity: 1; transform: none; } }
+.notice { animation: notice-in 234ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes notice-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Rows that come back (undo) spring into place, newest gap first. */
+.posting-item.returning { animation: row-back 468ms cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes row-back { from { opacity: 0; transform: translateX(-24px); max-height: 0; } to { opacity: 1; transform: none; max-height: 140px; } }
+/* Low scores folding away one by one, from the bottom up. */
+.posting-item.folding { animation: row-fold 312ms cubic-bezier(.6, 0, .8, .2) both; pointer-events: none; }
+@keyframes row-fold { from { opacity: 1; max-height: 140px; } to { opacity: 0; max-height: 0; transform: scaleY(.6); } }
+/* Matching text lights up for a moment while typing a search. */
+mark.fx-hit { background: transparent; color: inherit; border-radius: 3px; animation: hit 625ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes hit { from { background: var(--good); } to { background: transparent; } }
+
+/* A pen stroke under a field; a new timeline entry drops in at the top. */
+.fx-underline { background-image: linear-gradient(var(--green), var(--green)); background-repeat: no-repeat; background-position: left bottom; animation: underline 625ms cubic-bezier(.3, 0, 0, 1) both; }
+@keyframes underline { 0% { background-size: 0 2px; } 60% { background-size: 100% 2px; } 100% { background-size: 100% 2px; background-position: right bottom; } }
+.timeline li.fresh { animation: drop-in 390ms cubic-bezier(.2, .9, .3, 1.3) both; }
+@keyframes drop-in { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+/* A list that changed tab cross-fades in. */
+.posting-list.tabbed { animation: list-in 234ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes list-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Searches and companies: suggestion cards dealt out an eighth note apart, a new one dropping in with its meter jumping,
+   the ✓ turning in from the ＋, and a run's ▶ turned into a spinning record. */
+.suggestion-result li.dealt { animation: deal 312ms cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes deal { from { opacity: 0; transform: translate(-14px, -6px) rotate(-1.5deg); } to { opacity: 1; transform: none; } }
+.search-list li.dropped, .company-list li.dropped { animation: drop-in 390ms cubic-bezier(.2, .9, .3, 1.3) both; }
+.search-main strong .eq { margin-left: 8px; color: var(--green); vertical-align: -1px; }
+.added-tag.just svg { animation: plus-check 390ms cubic-bezier(.2, .9, .3, 1.4) both; }
+@keyframes plus-check { from { transform: rotate(-135deg) scale(.4); opacity: 0; } 60% { transform: rotate(8deg) scale(1.3); opacity: 1; } to { transform: none; } }
+.mini-disc { display: block; width: 16px; height: 16px; border-radius: 50%; animation: spin 1.2s linear infinite;
+  background: radial-gradient(circle, var(--step-hi) 0 2.5px, var(--key-black) 3px 4px, transparent 4.5px), repeating-radial-gradient(circle, var(--key-black) 0 1.2px, color-mix(in srgb, var(--key-black) 70%, white) 1.2px 2px); }
+.icon-button.playing:disabled { opacity: 1; }
+
+/* Resume & AI: three dots on the beat while checking, a recorded wave while reading, a ✓ that pops in, dots scattering. */
+.dots { display: inline-flex; gap: 3px; align-items: center; height: 14px; }
+.dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: dot-hop 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
+.dots i:nth-child(2) { animation-delay: 78ms; }
+.dots i:nth-child(3) { animation-delay: 156ms; }
+@keyframes dot-hop { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-4px); } }
+.pop-in { animation: pop-in 390ms cubic-bezier(.2, .9, .3, 1.4) both; }
+@keyframes pop-in { from { transform: scale(.3); opacity: 0; } 60% { transform: scale(1.2); opacity: 1; } to { transform: none; } }
+.fx-dot { position: fixed; z-index: 60; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); pointer-events: none; }
+.resume-list li.dropped { animation: drop-in 390ms cubic-bezier(.2, .9, .3, 1.3) both; }
+
+/* Goals: the month slides a page, showing unfolds, a reached ring closes in yellow, goals just set light each week's task in turn. */
+.goal-grid.from-right { animation: page-from-right 390ms cubic-bezier(.3, 0, 0, 1) both; }
+.goal-grid.from-left { animation: page-from-left 390ms cubic-bezier(.3, 0, 0, 1) both; }
+.goal-grid.home { animation: page-from-left 468ms cubic-bezier(.2, .9, .3, 1.25) both; }
+.goal-grid.unfold { animation: form-in 390ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: top; }
+@keyframes page-from-right { from { opacity: 0; transform: translateX(36px); } to { opacity: 1; transform: none; } }
+@keyframes page-from-left { from { opacity: 0; transform: translateX(-36px); } to { opacity: 1; transform: none; } }
+.goal-ring.done .bar { stroke: var(--step-hi); }
+.goal-ring .bar { transition: stroke-dashoffset 312ms cubic-bezier(.2, .9, .3, 1.2), stroke 312ms; }
+.week-chart.lit .target { animation: target-lit 468ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i) * 78ms); }
+@keyframes target-lit { 0% { stroke: var(--line); } 40% { stroke: var(--step-hi); stroke-width: 2.4; } 100% { stroke-width: 1.2; } }
+.goal-row.added { animation: form-in 312ms cubic-bezier(.2, .8, .2, 1); transform-origin: top; }
+.chevron { transition: transform 234ms cubic-bezier(.3, 0, 0, 1); }
+.chevron.down { transform: rotate(180deg); }
+
+/* Home: after switching, the bars stand up from the baseline one week after another, or the table's rows arrive in turn. */
+.trend-chart.grow path.applied, .trend-chart.grow path.interviews { transform-box: fill-box; transform-origin: bottom; animation: bar-up 390ms cubic-bezier(.2, .9, .3, 1.2) both; animation-delay: calc(var(--i) * 26ms); }
+@keyframes bar-up { from { transform: scaleY(0); } to { transform: none; } }
+.home-table.dealt tbody tr { animation: row-in 312ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i) * 39ms); }
+@keyframes row-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* Browser: it slides in from the right, a new tab slides out of the ＋, the chosen tab lifts, the assistant folds to an edge,
+   autofill's list of filled fields arrives line by line. */
+.browser-page.arriving { animation: pane-in 234ms cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes pane-in { from { opacity: .4; transform: translateX(48px); } to { opacity: 1; transform: none; } }
+.browser-tab.fresh { animation: tab-in 234ms cubic-bezier(.2, .9, .3, 1.2) both; transform-origin: left bottom; }
+@keyframes tab-in { from { opacity: 0; max-width: 0; transform: scale(.8); } to { opacity: 1; max-width: 200px; transform: none; } }
+.browser-tab { transition: background-color 156ms, color 156ms, transform 156ms cubic-bezier(.3, 0, 0, 1); }
+.browser-tab.active { transform: translateY(-1px); }
+.browser-assist { animation: assist-in 234ms cubic-bezier(.2, .8, .2, 1); }
+@keyframes assist-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.assist-result li { animation: row-in 234ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 78ms); }
+
+/* Notifications: an unread dot that shrinks away when read; marking all read takes them out in a wave from the top. */
+.notifications li button { position: relative; transition: background-color 312ms cubic-bezier(.45, 0, .55, 1), color 312ms; transition-delay: calc(var(--i, 0) * 78ms); }
+.notifications li button::after { content: ""; position: absolute; right: 14px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+  transform: scale(0); transition: transform 234ms cubic-bezier(.6, 0, .8, .2); transition-delay: calc(var(--i, 0) * 78ms); }
+.notifications li button.unread::after { transform: scale(1); }
+.notifications li button > div { padding-right: 12px; }
+/* The update button pops when the new version is ready. */
+.update-item.downloaded .update-circle { animation: pop-in 468ms cubic-bezier(.2, .9, .3, 1.4); }
+
+/* The theme choices carry their own small picture: a screen, a sun, a desk lamp. */
+.segmented button:has(> svg) { display: inline-flex; align-items: center; gap: 6px; }
+
+/* What can be undone rises from the bottom of the page and waits there. */
+.undo-bar { position: fixed; z-index: 30; bottom: 22px; left: calc(216px + (100vw - 216px) / 2); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; max-width: min(640px, calc(100vw - 216px - 48px)); padding: 8px 8px 8px 18px; border-radius: 16px;
+  background: var(--card); color: var(--text); font-size: 13.5px; box-shadow: inset 0 -4px 0 var(--key-lip), 0 10px 30px rgb(0 0 0 / 16%);
+  animation: undo-up 312ms cubic-bezier(.2, .9, .3, 1.2); }
+.undo-bar > span { flex: 1; min-width: 0; }
+@keyframes undo-up { from { opacity: 0; transform: translate(-50%, 24px); } to { opacity: 1; transform: translateX(-50%); } }
+/* "✓ Saved" in a button sits in line with its label. */
+.button .fx-roll { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Hold to confirm: the ring around the button fills in 0.6 s. */
+.button.holding { position: relative; }
+.button.holding::after { content: ""; position: absolute; inset: -4px; border-radius: inherit; padding: 3px; pointer-events: none;
+  background: conic-gradient(var(--step-hi) calc(var(--hold, 0) * 360deg), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+
+/* A recording wave while a resume is read. */
+.rec-wave { display: inline-flex; align-items: center; gap: 2px; height: 22px; }
+.rec-wave i { width: 3px; height: 100%; border-radius: 2px; background: var(--green); animation: eq 468ms cubic-bezier(.45, 0, .55, 1) infinite alternate; }
+.rec-wave i:nth-child(2n) { animation-delay: -156ms; }
+.rec-wave i:nth-child(3n) { animation-delay: -312ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle::before, .link { transition: none; }
+  input[type="checkbox"]:checked:focus, .eq i, .rec-wave i, .fx-roll, .score-number.roll, .fx-bookmark > .fill, .fx-draw svg path, .fx-draw svg polyline,
+  .posting-detail, .application-detail, .notifications, .panel-form, .apply-form, .goal-editor, .assist-confirm, .notice,
+  .posting-item.returning, .posting-item.folding, mark.fx-hit, .undo-bar, .timeline li.fresh, .posting-list.tabbed,
+  .suggestion-result li.dealt, .search-list li.dropped, .company-list li.dropped, .added-tag.just svg, .mini-disc, .dots i, .pop-in, .resume-list li.dropped,
+  .goal-grid.from-right, .goal-grid.from-left, .goal-grid.home, .goal-grid.unfold, .week-chart.lit .target, .goal-row.added,
+  .trend-chart.grow path.applied, .trend-chart.grow path.interviews, .home-table.dealt tbody tr,
+  .browser-page.arriving, .browser-tab.fresh, .browser-assist, .assist-result li { animation: none; }
+  .browser-tab, .notifications li button, .notifications li button::after { transition: none; }
+  .update-item.downloaded .update-circle { animation: none; }
+  .goal-ring .bar, .chevron { transition: none; }
+}
+
+/* Errors: a small shake, no more than 4 px, and a line saying what happened. */
+.notice.error { animation: error-in 468ms linear; }
+@keyframes error-in { 0% { opacity: 0; transform: translateX(0); } 15% { opacity: 1; transform: translateX(-4px); } 35% { transform: translateX(4px); } 55% { transform: translateX(-3px); } 75% { transform: translateX(2px); } 100% { transform: none; } }
+.fx-sweep { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--good) 45%, transparent) 70%, transparent); }
+@media (prefers-reduced-motion: reduce) { .notice.error { animation: none; } }

@@ -1,0 +1,24 @@
+/* LXGW 975 Yuan SC (霞鹜975圆体), cut down to GB2312 plus every character Dayjob's own text uses.
+   Latin letters and numbers come from Nunito, which is listed first; anything missing from both falls back to the system font.
+   The 500 face also serves 600, and the 700 face serves 800, so nothing is ever synthesised. */
+@font-face {
+  font-family: "LXGW 975 Yuan SC";
+  font-style: normal;
+  font-weight: 100 400;
+  font-display: block;
+  src: url("./lxgw-975-yuan-sc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "LXGW 975 Yuan SC";
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: block;
+  src: url("./lxgw-975-yuan-sc-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "LXGW 975 Yuan SC";
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: block;
+  src: url("./lxgw-975-yuan-sc-700.woff2") format("woff2");
+}

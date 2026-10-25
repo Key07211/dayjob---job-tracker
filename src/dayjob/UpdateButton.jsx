@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, LoaderCircle, RefreshCw, RotateCw } from 'lucide-react';
 import { useI18n } from '../i18n.jsx';
+import { cue } from './groove/sound.js';
 
 const updates = typeof window !== 'undefined' ? window.dayjobDesktop?.updates : null;
 export const hasUpdates = Boolean(updates);
@@ -34,6 +35,12 @@ function Ring({ progress }) {
 export function UpdateItem({ state }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  // Downloaded: one clear note as the button turns into "Restart to update" (fx.css pops it).
+  const was = useRef(state?.status);
+  useEffect(() => {
+    if (state?.status === 'downloaded' && was.current === 'downloading') cue('done');
+    was.current = state?.status;
+  }, [state?.status]);
   if (!updates || !state) return null;
   const run = async work => {
     setBusy(true);
@@ -80,7 +87,8 @@ export function UpdateItem({ state }) {
     action = () => updates.install();
   }
   return (
-    <button className={`nav-item update-item ${status}`} onClick={action || undefined} disabled={!action || busy} title={title} aria-live="polite">
+    <button className={`nav-item update-item ${status}`} data-fx={['idle', 'latest', 'error'].includes(status) ? 'refresh' : status === 'available' ? 'pop' : undefined}
+      onClick={action || undefined} disabled={!action || busy} title={title} aria-live="polite">
       {icon}<span>{label}</span>{detail ? <small>{detail}</small> : null}
     </button>
   );
