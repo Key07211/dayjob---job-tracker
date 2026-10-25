@@ -462,6 +462,14 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .browser-approval p { flex: 1 1 240px; font-size: 13.5px; line-height: 1.5; }
 .browser-approval strong { display: block; }
 .browser-approval span { display: block; color: var(--muted); font-size: 12.5px; }
+/* Keeping a password just typed: a strip over the page, in the theme's soft colour. */
+.browser-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--green-soft); border-bottom: 1px solid var(--line); color: var(--text); }
+.browser-offer > svg { color: var(--step-hi); flex: none; }
+.browser-offer > p { flex: 1 1 220px; font-size: 13.5px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.browser-offer > input { flex: 0 1 200px; min-width: 120px; height: 32px; }
+.browser-offer > .notice { flex-basis: 100%; margin: 0; }
+.browser-kept { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--green-soft); border-bottom: 1px solid var(--line); color: var(--text); font-size: 13.5px; line-height: 1.5; }
+.browser-kept > svg { color: var(--green); flex: none; }
 .browser-save { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .browser-save label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .browser-save input { min-height: 30px; padding: 5px 8px; font-size: 13px; }
@@ -483,6 +491,9 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .assist-section > small { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .assist-section .hint { font-size: 12.5px; line-height: 1.5; }
 .assist-section > .link { align-self: flex-start; font-size: 12.5px; }
+.assist-unlock { display: flex; flex-direction: column; gap: 6px; }
+.assist-unlock small { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.assist-unlock input { flex: 1; min-width: 0; height: 30px; }
 .assist-posting { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .assist-posting strong { font-size: 13.5px; line-height: 1.35; }
 .assist-posting span { font-size: 12.5px; color: var(--muted); }
@@ -736,6 +747,13 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .vault-list small { font-size: 12px; }
 .vault-form { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
 .vault-secret { display: flex; gap: 6px; align-items: center; }
+.vault-unlock > p { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.vault-unlock > p > svg { color: var(--step-hi); }
+.vault-unlock .vault-secret input { flex: 1; min-width: 0; max-width: 260px; }
+.vault-unlock > .link { align-self: flex-start; margin-left: 0; font-size: 12.5px; }
+.vault-actions { justify-content: flex-start; align-items: center; }
+.vault-actions .link { font-size: 13px; }
+.vault-note { display: flex; align-items: center; gap: 6px; color: var(--green); font-size: 13px; animation: notice-in 234ms cubic-bezier(.2, .8, .2, 1); }
 .vault-secret input { flex: 1; min-width: 0; }
 .assist-accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .assist-accounts li { display: flex; align-items: center; gap: 6px; font-size: 12.5px; min-width: 0; }

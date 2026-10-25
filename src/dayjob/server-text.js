@@ -71,11 +71,16 @@ const EXACT = {
   'Saved passwords are only filled into https pages.': '保存的密码只会填进 https 网页。',
   'That saved password is not for this site.': '这个密码不属于当前网站。',
   'There is no login form on this page.': '这个页面上没有登录框。',
+  'Open the password vault with its password first.': '请先输入开箱密码打开密码箱。',
+  'That is not the vault password.': '开箱密码不对。',
+  'The vault password must be 6 to 32 letters or digits.': '开箱密码要 6–32 位，只能用字母或数字。',
+  'Enter the user name or email for this password.': '请填写这个密码对应的用户名或邮箱。',
 };
 
 const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
 
 const PATTERNS = [
+  [/^Too many wrong tries\. Try again in (\d+) seconds\.$/, (all, seconds) => `输错太多次了，请 ${seconds} 秒后再试。`],
   [/^(\d+) of (\d+) could not be scored: (.*)$/s, (all, failed, total, reason) => `${total} 个岗位中有 ${failed} 个没能打分：${serverText(reason)}`],
   [/^No (\w+) job board named "(.+)" was found\.$/, (all, ats, slug) => `没有找到 ${ats} 上名为“${slug}”的招聘页，请检查链接。`],
   [/^Could not read this (\w+) file: (.*)$/s, (all, type, detail) => `无法读取这个 ${type} 文件：${detail}`],

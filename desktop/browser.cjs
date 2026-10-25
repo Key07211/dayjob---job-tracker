@@ -162,6 +162,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   let login = { url: '', site: '', form: null, filled: null };
   let typed = null;
   let offer = null;
+  // The user name from the first page of a two-step sign-in, for the password typed on the next.
+  let lastUser = null;
   let checking = false;
   const declined = new Set();
   // Only on https pages (and this computer's own, for the smoke test).
@@ -173,9 +175,11 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   };
   function loginState() {
     if (!vault) return null;
-    const accounts = login.site ? vault.forHost(login.site).map(({ id, username }) => ({ id, username })) : [];
-    return { site: login.site, form: login.form, accounts, filled: login.filled, offer: offer && { site: offer.site, username: offer.username } };
+    const locked = vault.locked();
+    const accounts = login.site && !locked ? vault.forHost(login.site).map(({ id, username }) => ({ id, username })) : [];
+    return { site: login.site, form: login.form, accounts, filled: login.filled, locked, offer: offer && { site: offer.site, username: offer.username } };
   }
+  const userFor = (site, username) => username || (lastUser && lastUser.site === site && Date.now() - lastUser.at < OFFER_MS ? lastUser.username : '');
   async function inLogin(tab, method, args) {
     try { return await tab.view.webContents.executeJavaScriptInIsolatedWorld(LOGIN_WORLD, [{ code: loginScript(method, args) }]); } catch { return null; }
   }
@@ -184,7 +188,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   function moveOn() {
     const candidate = typed;
     typed = null;
-    if (!candidate?.username || declined.has(`${candidate.site}\n${candidate.username}`) || vault.knows(candidate.site, candidate.username, candidate.password)) return;
+    if (!candidate || declined.has(`${candidate.site}\n${candidate.username}`) || vault.knows(candidate.site, candidate.username, candidate.password)) return;
     offer = { ...candidate, at: Date.now() };
     broadcast();
   }
@@ -193,7 +197,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const site = loginSite(tab.view.webContents.getURL());
     if (!site) return;
     const seen = await inLogin(tab, 'probe');
-    if (seen?.typed?.password) typed = { site, username: seen.typed.username, password: seen.typed.password, url: tab.view.webContents.getURL() };
+    if (seen?.typed?.password) typed = { site, username: userFor(site, seen.typed.username), password: seen.typed.password, url: tab.view.webContents.getURL() };
   }
   async function fillWith(tab, entry, replace) {
     let password;
@@ -220,10 +224,11 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (!login.site) return;
       const seen = await inLogin(tab, 'probe');
       if (!seen || tab !== active || tab.view.webContents.getURL() !== url) return;
-      if (seen.typed?.password) typed = { site: login.site, username: seen.typed.username, password: seen.typed.password, url };
+      if (seen.user) lastUser = { site: login.site, username: seen.user, at: Date.now() };
+      if (seen.typed?.password) typed = { site: login.site, username: userFor(login.site, seen.typed.username), password: seen.typed.password, url };
       else if (!seen.form && typed) moveOn();
       if (seen.form !== login.form) { login.form = seen.form; broadcast(); }
-      if (seen.form === 'login' && seen.empty && !seen.filledByDayjob && !login.filled) {
+      if (seen.form === 'login' && seen.empty && !seen.filledByDayjob && !login.filled && !vault.locked()) {
         const [latest] = vault.forHost(login.site);
         if (latest) await fillWith(tab, latest, false);
       }
@@ -238,9 +243,17 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (!(await fillWith(tab, entry, true))) fail(409, 'There is no login form on this page.');
     return state();
   }
-  function answerOffer(keep) {
-    if (offer && keep) vault.save({ site: offer.site, username: offer.username, password: offer.password });
-    else if (offer) declined.add(`${offer.site}\n${offer.username}`);
+  // Keep or not. Keeping may bring the user name (when the page never showed one) and, while the vault is
+  // closed, its password to open it first; on a mistake the offer stays for another try.
+  async function answerOffer(answer) {
+    const { keep = answer === true, username = '', unlock = '' } = answer && typeof answer === 'object' ? answer : {};
+    if (!offer) return state();
+    if (keep) {
+      const name = String(offer.username || username).trim();
+      if (!name) fail(400, 'Enter the user name or email for this password.');
+      if (vault.locked()) await vault.unlock(String(unlock));
+      vault.save({ site: offer.site, username: name, password: offer.password });
+    } else declined.add(`${offer.site}\n${offer.username}`);
     offer = null;
     broadcast();
     return state();

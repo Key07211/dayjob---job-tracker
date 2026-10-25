@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer, safeStorage, powerMonitor } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
@@ -128,11 +128,19 @@ function setupIpc() {
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
   handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
-  handle('dayjob:browser-login-offer', keep => browser.answerOffer(keep === true));
-  // The password vault: the interface sends a password in to be kept, and only ever gets user names back.
+  handle('dayjob:browser-login-offer', answer => browser.answerOffer(answer && typeof answer === 'object'
+    ? { keep: answer.keep === true, username: String(answer.username ?? ''), unlock: String(answer.unlock ?? '') } : answer === true));
+  // The password vault: the interface sends passwords in (to keep, or the vault's own to open it), and only ever
+  // gets user names back.
+  const vaultChanged = result => { browser.refreshLogin(); if (window && !window.isDestroyed()) window.webContents.send('dayjob:vault-changed'); return result; };
   handle('dayjob:vault-list', () => vault.list());
-  handle('dayjob:vault-save', entry => { const saved = vault.save(entry && typeof entry === 'object' ? entry : {}); browser.refreshLogin(); return saved; });
-  handle('dayjob:vault-delete', id => { vault.remove(String(id)); browser.refreshLogin(); return vault.list(); });
+  handle('dayjob:vault-save', entry => vaultChanged(vault.save(entry && typeof entry === 'object' ? entry : {})));
+  handle('dayjob:vault-delete', id => { vault.remove(String(id)); return vaultChanged(vault.list()); });
+  handle('dayjob:vault-unlock', async password => vaultChanged(await vault.unlock(String(password ?? ''))));
+  handle('dayjob:vault-close', () => vaultChanged(vault.close()));
+  handle('dayjob:vault-set-lock', async input => vaultChanged(await vault.setLock({ current: String(input?.current ?? ''), next: String(input?.next ?? '') })));
+  handle('dayjob:vault-remove-lock', async current => vaultChanged(await vault.removeLock(String(current ?? ''))));
+  handle('dayjob:vault-reset', () => vaultChanged(vault.reset()));
   handle('dayjob:update-state', () => updates.state());
   handle('dayjob:update-check', () => updates.check());
   handle('dayjob:update-download', () => updates.download());
@@ -204,6 +212,12 @@ async function createWindow() {
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
+  // A vault with its own password closes again when the computer locks or goes to sleep.
+  const closeVault = () => {
+    if (!vault.locked() && vault.list().lock) { vault.close(); browser.refreshLogin(); if (!window.isDestroyed()) window.webContents.send('dayjob:vault-changed'); }
+  };
+  powerMonitor.on('lock-screen', closeVault);
+  powerMonitor.on('suspend', closeVault);
 
   tray = new Tray(image.resize({ width: 32, height: 32 }));
   buildTray();
@@ -337,6 +351,7 @@ async function smokeBrowser(token) {
     // Claude's read only sees that the password box is filled; it is kept
     // encrypted on disk; a password typed into a sign-up form is offered for
     // keeping once the page moves on. The interface never gets a password.
+    vault.reset();
     vault.save({ site: '127.0.0.1', username: 'smoke@example.com', password: 'Sm0ke-pass!' });
     steps.vaultEncrypted = !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0ke-pass!');
     await call('open', { url: `${base}/login` });
@@ -355,8 +370,19 @@ async function smokeBrowser(token) {
     await call('click', { ref: signup.elements.find(item => item.name === 'Create account').ref });
     steps.vaultOffered = await until(() => browser.state().login?.offer?.username === 'new@example.com', 6000);
     steps.vaultNoSecrets = !/Sm0ke-pass!|N3w-pass!/.test(JSON.stringify(browser.state()) + JSON.stringify(vault.list()));
-    browser.answerOffer(true);
+    await browser.answerOffer(true);
     steps.vaultKept = vault.list().entries.some(entry => entry.site === '127.0.0.1' && entry.username === 'new@example.com') && !browser.state().login.offer;
+    // With a vault password, the closed vault lists nothing and fills nothing; opening it fills the login form.
+    await vault.setLock({ next: 'Sm0keVault1' });
+    vault.close();
+    browser.refreshLogin();
+    steps.vaultClosed = vault.list().locked && !vault.list().entries.length && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0keVault1');
+    await call('open', { url: `${base}/login` });
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    steps.vaultClosedNoFill = browser.state().login?.locked === true && !browser.state().login?.filled && !browser.state().login?.accounts.length;
+    await vault.unlock('Sm0keVault1');
+    browser.refreshLogin();
+    steps.vaultOpened = await until(() => Boolean(browser.state().login?.filled), 6000);
     browser.setAutoSubmit(false);
   } catch (error) {
     steps.error = error.message;
@@ -366,7 +392,7 @@ async function smokeBrowser(token) {
   }
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
-    'vaultNoSecrets', 'vaultKept'].every(step => steps[step] === true);
+    'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedNoFill', 'vaultOpened'].every(step => steps[step] === true);
   return steps;
 }
 

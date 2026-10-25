@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, ChevronsRight, CircleCheck, ExternalLink, FileUp, Globe, KeyRound, LoaderCircle, Maximize2,
+import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, ChevronsRight, CircleCheck, ExternalLink, FileUp, Globe, KeyRound, LoaderCircle, Lock, LockOpen, Maximize2,
   Minimize2, Plus, RotateCw, ShieldAlert, Square, WandSparkles, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatDay } from './format.js';
@@ -137,28 +137,72 @@ const STATUS = { new: ['新岗位', 'New'], saved: ['已收藏', 'Saved'], dismi
 const APPLICATION = { applied: ['已投递', 'Applied'], oa: ['测评', 'Assessment'], interview: ['面试', 'Interview'], offer: ['Offer', 'Offer'], accepted: ['已接受', 'Accepted'],
   rejected: ['被拒', 'Rejected'], withdrawn: ['已撤回', 'Withdrawn'], ghosted: ['无回音', 'Ghosted'] };
 
-// 密码保管 for this page: the sign-ins saved for its site (by user name only),
-// which one was filled in, and an offer to keep a password just typed.
+// A password the user just typed on a site, offered for the vault in a strip over the page, so it is seen even
+// with the side panel folded away. It asks for the user name when the page never showed one, and for the
+// vault password while the vault is locked. The password itself never comes here.
+function SaveOffer({ offer, locked, onKept }) {
+  const { t } = useI18n();
+  const bar = useRef(null);
+  const [username, setUsername] = useState('');
+  const [unlock, setUnlock] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function answer(event, keep) {
+    event?.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await desktop.answerOffer({ keep, username, unlock });
+      if (keep) { cue('success'); onKept(offer.site); }
+    } catch (failure) {
+      setError(serverText(bridgeMessage(failure)));
+      setUnlock('');
+      shake(bar.current);
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="browser-offer" ref={bar} role="alertdialog" aria-live="polite" onSubmit={event => answer(event, true)} autoComplete="off">
+      <KeyRound size={18} />
+      <p>{offer.username ? t(`把 ${offer.username} 在 ${offer.site} 的密码存进密码箱？`, `Save the password for ${offer.username} on ${offer.site} in the vault?`)
+        : t(`把刚才在 ${offer.site} 输入的密码存进密码箱？`, `Save the password you just typed on ${offer.site} in the vault?`)}</p>
+      {offer.username ? null : <input value={username} onChange={event => setUsername(event.target.value)} maxLength={200} placeholder={t('用户名或邮箱', 'User name or email')} aria-label={t('用户名或邮箱', 'User name or email')} required />}
+      {locked ? <input type="password" value={unlock} onChange={event => setUnlock(event.target.value)} maxLength={32} placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required /> : null}
+      <div className="form-actions">
+        <button type="button" className="button" onClick={() => answer(null, false)} disabled={busy}>{t('不用', 'No thanks')}</button>
+        <button type="submit" className="button primary" data-fx="pop" disabled={busy}><KeyRound size={15} />{t('存进密码箱', 'Save it')}</button>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+    </form>
+  );
+}
+
+// 密码保管 for this page: the sign-ins saved for its site (by user name only), and which one was filled in. While
+// the vault is locked it can be opened here.
 function Passwords({ login, openItem }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
+  const [unlock, setUnlock] = useState('');
   useEffect(() => setError(''), [login?.site]);
-  if (!login || (!login.offer && !login.accounts.length && !login.form)) return null;
+  if (!login || (!login.accounts.length && !login.form)) return null;
   const fill = id => { setError(''); desktop.fillLogin(id).then(() => cue('type')).catch(failure => setError(serverText(bridgeMessage(failure)))); };
-  const answer = keep => { desktop.answerOffer(keep).then(() => { if (keep) cue('note'); }).catch(failure => setError(serverText(bridgeMessage(failure)))); };
+  const open = event => {
+    event.preventDefault();
+    setError('');
+    desktop.vault.unlock(unlock).then(() => { setUnlock(''); cue('note'); }).catch(failure => { setUnlock(''); setError(serverText(bridgeMessage(failure))); });
+  };
   return (
     <section className="assist-section">
       <h3>{t('密码', 'Passwords')}</h3>
-      {login.offer ? (
-        <div className="assist-confirm" role="alertdialog">
-          <p>{t(`记住 ${login.offer.username} 在 ${login.offer.site} 的密码？`, `Keep the password for ${login.offer.username} on ${login.offer.site}?`)}</p>
-          <div className="form-actions">
-            <button className="button small" onClick={() => answer(false)}>{t('不用', 'No thanks')}</button>
-            <button className="button small primary" onClick={() => answer(true)}><KeyRound size={14} />{t('记住', 'Keep it')}</button>
+      {login.locked ? (
+        <form className="assist-unlock" onSubmit={open} autoComplete="off">
+          <small><Lock size={12} />{t('密码箱已锁上，打开后才能自动填写。', 'The vault is locked; open it to fill in passwords.')}</small>
+          <div className="vault-secret">
+            <input type="password" value={unlock} onChange={event => setUnlock(event.target.value)} maxLength={32} placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required />
+            <button type="submit" className="button small"><LockOpen size={13} />{t('打开', 'Open')}</button>
           </div>
-        </div>
-      ) : null}
-      {login.accounts.length ? (
+        </form>
+      ) : login.accounts.length ? (
         <ul className="assist-accounts">
           {login.accounts.map(account => (
             <li key={account.id}>
@@ -168,7 +212,7 @@ function Passwords({ login, openItem }) {
             </li>
           ))}
         </ul>
-      ) : login.form === 'login' && !login.offer ? <small>{t('这个网站还没有保存的密码，登录后可以让 Dayjob 记住。', 'No saved password for this site yet; Dayjob can keep it after you sign in.')}</small> : null}
+      ) : login.form === 'login' ? <small>{t('这个网站还没有保存的密码，登录后 Dayjob 会问你要不要存进密码箱。', 'No saved password for this site yet; after you sign in, Dayjob asks whether to save it.')}</small> : null}
       {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
       <button className="link" onClick={() => openItem('settings', 'vault')}>{t('管理密码', 'Manage passwords')}</button>
     </section>
@@ -393,6 +437,13 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
   // The browser slides in from the right and out to the right; the page itself is a native view, so it waits until the slide is done.
   const [arriving, setArriving] = useState(() => !reducedMotion());
   const [closing, setClosing] = useState(false);
+  // A short word once a password went into the vault, where the question was.
+  const [kept, setKept] = useState('');
+  useEffect(() => {
+    if (!kept) return undefined;
+    const timer = setTimeout(() => setKept(''), 2200);
+    return () => clearTimeout(timer);
+  }, [kept]);
   useEffect(() => {
     if (!arriving) return undefined;
     const timer = setTimeout(() => setArriving(false), Q * 1.5);
@@ -492,6 +543,8 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
       {state.approval ? <Approval key={state.approval.id} approval={state.approval} /> : null}
+      {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.locked} onKept={setKept} />
+        : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p> : null}
       {error ? <p className="notice error browser-notice" onClick={() => setError('')}>{error}</p> : null}
       <div className="browser-body">
         <div className="browser-frame" ref={frame}>

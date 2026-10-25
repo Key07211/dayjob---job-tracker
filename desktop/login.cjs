@@ -49,9 +49,19 @@ function installLogin() {
     }
     return null;
   }
+  // A user name typed on a page without a password box: the first step of a two-step sign-in.
+  function loneUser() {
+    for (const root of roots()) {
+      for (const input of root.querySelectorAll('input')) {
+        if (!usable(input) || !['text', 'email', 'tel'].includes(input.type) || !input.value) continue;
+        if (/username|email/.test(input.autocomplete || '') || input.type === 'email' || USERISH.test(describe(input))) return clean(input.value);
+      }
+    }
+    return '';
+  }
   function probe() {
     const found = form();
-    if (!found) return { form: null };
+    if (!found) return { form: null, user: loneUser() };
     const { kind, password, again, user } = found;
     const value = password.value;
     const typed = value && mine.get(password) !== value && (!again || again.value === value) ? { username: clean(user?.value), password: value } : null;
