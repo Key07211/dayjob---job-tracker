@@ -22,7 +22,7 @@ const BAR = 2;
 export function ListenWave() {
   const { t } = useI18n();
   const groove = usePrefs();
-  const { track, browser, capture } = useNowPlaying();
+  const { track, browser, capture, captureError } = useNowPlaying();
   const on = groove.followMusic && Boolean(track) && !browser;
   const canvas = useRef(null);
   const live = useRef({ frame: 0, last: 0, due: 0, cols: [], gain: 0.05, lowAvg: undefined, lastBeat: 0, time: null, freq: null, level: 0 });
@@ -128,7 +128,7 @@ export function ListenWave() {
     <div className="wave-slot">
       <div className={`listen-wave${on ? ' on' : ''}`} aria-hidden="true">{drawing ? <canvas ref={canvas} /> : null}</div>
       {offer ? (
-        <button type="button" className={`wave-hint${capture === 'failed' ? ' failed' : ''}`} onClick={retryCapture}>
+        <button type="button" className={`wave-hint${capture === 'failed' ? ' failed' : ''}`} onClick={retryCapture} title={capture === 'failed' ? captureError : undefined}>
           <AudioLines size={13} />{capture === 'failed' ? t('没读到系统声音，点这里重试', 'Could not hear the system sound; click to retry') : t('点一下，让声浪跟上音乐', 'Click to let the wave hear the music')}
         </button>
       ) : null}
