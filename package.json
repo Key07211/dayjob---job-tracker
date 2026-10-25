@@ -84,6 +84,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "shortcutName": "Dayjob",
+      "include": "desktop/installer.nsh",
       "artifactName": "Dayjob-Setup-${version}.${ext}"
     },
     "portable": {
