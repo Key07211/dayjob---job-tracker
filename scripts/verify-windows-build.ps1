@@ -105,6 +105,15 @@ try {
       Select-Object -First 1
     if (-not $installed) { throw 'Setup finished but Dayjob.exe is not under %LOCALAPPDATA%\Programs' }
     Write-Output "installed to $($installed.DirectoryName)"
+    # The Start menu entry, which Windows needs to list Dayjob and show its notifications, and which an update puts
+    # back when it went missing (by itself an update keeps the shortcuts as they are).
+    $startLink = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Dayjob.lnk'
+    if (-not (Test-Path -LiteralPath $startLink)) { throw "Setup did not create $startLink" }
+    Remove-Item -LiteralPath $startLink -Force
+    $update = Start-Process -FilePath $setup -ArgumentList @('/S', '--updated') -Wait -PassThru
+    if ($update.ExitCode -ne 0) { throw "Setup run as an update exited with $($update.ExitCode)" }
+    if (-not (Test-Path -LiteralPath $startLink)) { throw 'An update did not put the missing Start menu shortcut back' }
+    Write-Output 'Start menu shortcut: created by Setup, and put back by an update'
     $env:DAYJOB_SMOKE_UPDATE_FEED = $release
     try { Invoke-Smoke 'installed' $installed.FullName } finally { Remove-Item Env:DAYJOB_SMOKE_UPDATE_FEED -ErrorAction SilentlyContinue }
   }

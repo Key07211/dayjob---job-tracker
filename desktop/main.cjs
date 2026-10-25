@@ -26,6 +26,8 @@ const dataDir = path.join(profileDir, 'data');
 const parsedPort = Number(process.env.DAYJOB_PORT || 4318);
 const port = Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <= 65535 ? parsedPort : 4318;
 const icon = path.join(__dirname, 'assets', 'icon.png');
+// On Windows the window and the tray take the .ico, which has a plainer drawing (no record grooves, a bolder note) for the small sizes.
+const windowIcon = process.platform === 'win32' ? path.join(__dirname, 'assets', 'icon.ico') : icon;
 // What the updater did, so a failed update can be looked into afterwards.
 const updateLog = path.join(profileDir, 'logs', 'update.log');
 function logUpdate(message) {
@@ -169,7 +171,7 @@ function setLanguage(next) {
 }
 
 async function createWindow() {
-  const image = nativeImage.createFromPath(icon);
+  const image = nativeImage.createFromPath(windowIcon);
   window = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640,
     title: text().title, backgroundColor: '#F4F8FB', icon: image,
@@ -219,7 +221,7 @@ async function createWindow() {
   powerMonitor.on('lock-screen', closeVault);
   powerMonitor.on('suspend', closeVault);
 
-  tray = new Tray(image.resize({ width: 32, height: 32 }));
+  tray = new Tray(process.platform === 'win32' ? windowIcon : image.resize({ width: 32, height: 32 }));
   buildTray();
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);

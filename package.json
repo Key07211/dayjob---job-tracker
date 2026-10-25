@@ -1,6 +1,6 @@
 {
   "name": "dayjob",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "type": "module",
   "description": "Dayjob · 本地岗位抓取、AI 简历匹配与投递追踪",
@@ -84,6 +84,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "shortcutName": "Dayjob",
+      "include": "desktop/installer.nsh",
       "artifactName": "Dayjob-Setup-${version}.${ext}"
     },
     "portable": {
