@@ -1,11 +1,13 @@
 const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
 const { createBrowser } = require('./browser.cjs');
 const { createUpdater } = require('./updater.cjs');
+const { freeInstallFolder } = require('./install-lock.cjs');
 const nowPlaying = require('./now-playing.cjs');
 
 app.setName('Dayjob');
@@ -23,6 +25,15 @@ const dataDir = path.join(profileDir, 'data');
 const parsedPort = Number(process.env.DAYJOB_PORT || 4318);
 const port = Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <= 65535 ? parsedPort : 4318;
 const icon = path.join(__dirname, 'assets', 'icon.png');
+// What the updater did, so a failed update can be looked into afterwards.
+const updateLog = path.join(profileDir, 'logs', 'update.log');
+function logUpdate(message) {
+  try {
+    fs.mkdirSync(path.dirname(updateLog), { recursive: true });
+    if (fs.statSync(updateLog, { throwIfNoEntry: false })?.size > 512 * 1024) fs.renameSync(updateLog, `${updateLog}.old`);
+    fs.appendFileSync(updateLog, `${new Date().toISOString()} ${String(message).replace(/^\[dayjob\] update: /, '')}\n`);
+  } catch { /* logging never stops an update */ }
+}
 let service;
 let window;
 let tray;
@@ -339,12 +350,23 @@ async function smokeUpdate() {
     steps.downloaded = await until(() => updates.state().status === 'downloaded', 180000);
     steps.restartButton = await until(() => window.webContents.executeJavaScript("Boolean(document.querySelector('.update-item.downloaded'))"), 5000);
     if (updates.state().error) steps.error = updates.state().error;
+    // A process left running from Dayjob's folder, as Claude's MCP bridge is,
+    // is stopped before the installer starts.
+    if (process.platform === 'win32') {
+      const bridge = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', path.join(app.getAppPath(), 'integrations', 'mcp-server.mjs')],
+        { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'ignore', windowsHide: true });
+      const exited = new Promise(resolve => bridge.once('exit', () => resolve(true)));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const left = await freeInstallFolder({ dir: path.dirname(process.execPath), log: logUpdate });
+      steps.freed = left.length === 0 && await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 5000))]);
+    }
+    steps.logged = /Checking for update|stopping/i.test(fs.readFileSync(updateLog, 'utf8'));
   } catch (error) {
     steps.error = error.message;
   } finally {
     site.close();
   }
-  steps.ok = !steps.error && ['item', 'found', 'roundButton', 'downloaded', 'restartButton'].every(step => steps[step] === true);
+  steps.ok = !steps.error && ['item', 'found', 'roundButton', 'downloaded', 'restartButton', 'logged', ...(process.platform === 'win32' ? ['freed'] : [])].every(step => steps[step] === true);
   return steps;
 }
 
@@ -440,6 +462,12 @@ async function boot() {
     autoCheck: () => service.repo.getSettings().updates.autoCheck,
     lastCheck: () => service.repo.getMeta('lastUpdateCheck'),
     saveLastCheck: at => service.repo.setMeta('lastUpdateCheck', at),
+    // Claude Code runs the MCP bridge from Dayjob's folder; it has to stop
+    // before the installer can replace the files there.
+    freeInstall: () => (process.platform === 'win32' && !smoke ? freeInstallFolder({ dir: path.dirname(process.execPath), log: logUpdate }) : []),
+    lastAttempt: () => (smoke ? null : service.repo.getMeta('updateAttempt')),
+    saveAttempt: value => { if (!smoke) service.repo.setMeta('updateAttempt', value); },
+    log: logUpdate,
     onState: state => { if (window && !window.isDestroyed()) window.webContents.send('dayjob:update-state', state); },
   });
   music = nowPlaying.createNowPlaying({ onChange: state => { if (window && !window.isDestroyed()) window.webContents.send('dayjob:now-playing', state); } });

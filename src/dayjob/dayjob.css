@@ -427,7 +427,8 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .update-item > span:not(.update-circle) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .update-item:disabled { cursor: default; }
 .update-item:disabled:hover { background: transparent; }
-.update-item.checking:disabled, .update-item.downloading:disabled { opacity: 1; }
+.update-item.checking:disabled, .update-item.downloading:disabled, .update-item.installing:disabled { opacity: 1; }
+.update-item.problem small { color: var(--orange); font-weight: 600; }
 .update-item.latest > svg { color: var(--green); }
 .update-item.error > svg { color: var(--orange); }
 .update-item .update-circle { position: relative; width: 28px; height: 28px; margin: -5px -5px -5px -5px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;

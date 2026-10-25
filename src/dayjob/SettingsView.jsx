@@ -9,6 +9,7 @@ import { pop, shake } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { setThemeChoice, setThemeHours, useThemeSettings } from './theme.js';
 import { ViewDate } from './ViewDate.jsx';
+import { updateProblem } from './UpdateButton.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
@@ -111,6 +112,7 @@ function Background({ boot, reload }) {
 
 const UPDATE_STATES = { idle: ['还没有检查', 'Not checked yet'], checking: ['正在检查…', 'Checking…'], latest: ['已是最新版本', 'Dayjob is up to date'],
   error: ['检查失败', 'The check failed'], downloading: ['正在下载新版本…', 'Downloading the new version…'], downloaded: ['新版本已下载，重启即可更新', 'Downloaded; restart to update'],
+  installing: ['正在准备安装…', 'Preparing to install…'],
   unsupported: ['开发版不检查更新', 'Development builds do not check for updates'] };
 
 function Updates({ boot, reload, update }) {
@@ -128,18 +130,18 @@ function Updates({ boot, reload, update }) {
       <h2><Download size={18} />{t('更新', 'Updates')}</h2>
       <p className="hint">{t('从 GitHub Releases 检查新版本。有新版本时，左侧栏的“检查更新”会变成圆形下载按钮；下载完点“重启并更新”，数据会保留。',
         'Dayjob looks for new versions on GitHub Releases. When one is out, “Check for updates” in the sidebar turns into a round download button; once downloaded, click “Restart to update”. Your data stays.')}</p>
-      <p className={`status-line ${update.status === 'error' ? 'off' : 'ok'}`}>
+      <p className={`status-line ${update.status === 'error' || update.problem ? 'off' : 'ok'}`}>
         {update.status === 'latest' ? <CheckCircle2 size={15} /> : null}{t(`当前 v${update.version} · `, `Current v${update.version} · `)}{text}
         {update.checkedAt ? <span className="muted">{t(` · 上次检查 ${new Date(update.checkedAt).toLocaleString('zh-CN')}`, ` · last checked ${new Date(update.checkedAt).toLocaleString('en-US')}`)}</span> : null}
       </p>
-      {update.error ? <p className="notice error">{update.error}</p> : null}
+      {update.problem || update.error ? <p className="notice error">{updateProblem(t, update)}</p> : null}
       {error ? <p className="notice error">{error}</p> : null}
       <div className="form-grid">
         <label className="check-line"><input type="checkbox" checked={boot.settings.updates.autoCheck} onChange={toggle} />{t('每天自动检查一次', 'Check once a day')}</label>
       </div>
       {update.portable ? <p className="hint">{t('免安装版不能自己替换，下载按钮会在浏览器里下载新的免安装版。', 'The portable app cannot replace itself; its download button gets the new portable app in your browser.')}</p> : null}
       <div className="form-actions">
-        <button className="button" data-fx="refresh" onClick={() => desktop.updates.check()} disabled={['checking', 'downloading', 'downloaded', 'unsupported'].includes(update.status)}>
+        <button className="button" data-fx="refresh" onClick={() => desktop.updates.check()} disabled={['checking', 'downloading', 'downloaded', 'installing', 'unsupported'].includes(update.status)}>
           {update.status === 'checking' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}{t('立即检查', 'Check now')}
         </button>
       </div>
