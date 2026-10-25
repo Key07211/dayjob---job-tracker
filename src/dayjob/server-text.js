@@ -60,6 +60,17 @@ const EXACT = {
   'Education dates must look like 2024-08 or 2024.': '教育经历的日期请写成 2024-08 或 2024。',
   'Work experience dates must look like 2024-08 or 2024.': '工作经历的日期请写成 2024-08 或 2024。',
   'The AI is already reading the resume; wait for it to finish.': 'AI 正在读简历，请等它读完。',
+  'Enter the site as a web address, such as myworkdayjobs.com.': '网站请填网址，例如 myworkdayjobs.com。',
+  'Enter the user name or email, up to 200 characters.': '请填写用户名或邮箱（最多 200 个字符）。',
+  'Enter the password.': '请填写密码。',
+  'The password must be 500 characters or fewer.': '密码最多 500 个字符。',
+  'That site already has a saved password for this user name.': '这个网站已经保存了这个用户名的密码。',
+  'This computer cannot encrypt saved passwords, so none can be saved.': '这台电脑不能加密保存密码，所以没法保存。',
+  'No such saved password.': '找不到这个保存的密码。',
+  'Up to 200 passwords can be saved.': '最多保存 200 个密码。',
+  'Saved passwords are only filled into https pages.': '保存的密码只会填进 https 网页。',
+  'That saved password is not for this site.': '这个密码不属于当前网站。',
+  'There is no login form on this page.': '这个页面上没有登录框。',
 };
 
 const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };

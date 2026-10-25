@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { PAGE_SOURCE } = require('./browser-page.cjs');
 const { autofillScript, planFill } = require('./autofill.cjs');
+const { loginScript } = require('./login.cjs');
 
 // The Dayjob browser: tabs shown inside the Dayjob window, with their own
 // sign-ins kept on this computer, which the user browses and Claude can drive
@@ -14,6 +15,11 @@ const MAX_TABS = 12;
 const APPROVAL_MS = 2 * 60 * 1000;
 const PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write']);
 const KEY_CODES = { ArrowDown: 'Down', ArrowUp: 'Up', ArrowLeft: 'Left', ArrowRight: 'Right' };
+// 密码保管: the login script's own isolated world, how often the active page is
+// looked at for a login form, and how long an offer to keep a password stays.
+const LOGIN_WORLD = 1078;
+const LOGIN_MS = 1200;
+const OFFER_MS = 3 * 60 * 1000;
 
 class BrowserError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -23,7 +29,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const host = url => { try { return new URL(url).host; } catch { return ''; } };
 const AUTO_NOTE = 'Auto-submit is on in Dayjob, so this went ahead without asking the user.';
 
-function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () => ({}), onApproval = () => {}, devTools = false }) {
+function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () => ({}), onApproval = () => {}, vault = null, devTools = false }) {
   const browserSession = session.fromPartition(PARTITION);
   // Some sites turn away browsers that name Electron.
   browserSession.setUserAgent(browserSession.getUserAgent().replace(/\s(?:Electron|Dayjob|dayjob)\/\S+/g, ''));
@@ -61,7 +67,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
   function state() {
     return { tabs: tabs.map(info), activeId: active?.id || null, agentControl, autoSubmit, agentBusy: busy,
-      approval: approval && { id: approval.id, action: approval.action, name: approval.name, site: approval.site } };
+      approval: approval && { id: approval.id, action: approval.action, name: approval.name, site: approval.site }, login: loginState() };
   }
   function broadcast() {
     if (pending) return;
@@ -150,6 +156,96 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     contents.on('before-input-event', (event, input) => shortcut(event, input, contents));
   }
 
+  // 密码保管. The interface only ever learns user names: which sign-ins the
+  // active page has, which one was filled in, and an offer to keep a password
+  // the user typed. Passwords stay in this process and the page's login form.
+  let login = { url: '', site: '', form: null, filled: null };
+  let typed = null;
+  let offer = null;
+  let checking = false;
+  const declined = new Set();
+  // Only on https pages (and this computer's own, for the smoke test).
+  const loginSite = url => {
+    try {
+      const { protocol, hostname } = new URL(url);
+      return protocol === 'https:' || (protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(hostname)) ? hostname.replace(/^www\./, '') : '';
+    } catch { return ''; }
+  };
+  function loginState() {
+    if (!vault) return null;
+    const accounts = login.site ? vault.forHost(login.site).map(({ id, username }) => ({ id, username })) : [];
+    return { site: login.site, form: login.form, accounts, filled: login.filled, offer: offer && { site: offer.site, username: offer.username } };
+  }
+  async function inLogin(tab, method, args) {
+    try { return await tab.view.webContents.executeJavaScriptInIsolatedWorld(LOGIN_WORLD, [{ code: loginScript(method, args) }]); } catch { return null; }
+  }
+  // A typed password becomes an offer once the page moves on or its form goes
+  // away, so a half-typed or mistyped one is not offered.
+  function moveOn() {
+    const candidate = typed;
+    typed = null;
+    if (!candidate?.username || declined.has(`${candidate.site}\n${candidate.username}`) || vault.knows(candidate.site, candidate.username, candidate.password)) return;
+    offer = { ...candidate, at: Date.now() };
+    broadcast();
+  }
+  async function keepTyped(tab) {
+    if (!vault || tab !== active) return;
+    const site = loginSite(tab.view.webContents.getURL());
+    if (!site) return;
+    const seen = await inLogin(tab, 'probe');
+    if (seen?.typed?.password) typed = { site, username: seen.typed.username, password: seen.typed.password, url: tab.view.webContents.getURL() };
+  }
+  async function fillWith(tab, entry, replace) {
+    let password;
+    try { password = vault.password(entry.id); } catch { return false; }
+    const done = await inLogin(tab, 'fill', { username: entry.username, password, replace });
+    if (!done?.filled) return false;
+    login.filled = entry.id;
+    vault.used(entry.id);
+    broadcast();
+    return true;
+  }
+  async function checkLogin() {
+    if (!vault || checking || !active || window.isDestroyed()) return;
+    checking = true;
+    try {
+      const tab = active;
+      const url = tab.view.webContents.getURL();
+      if (offer && Date.now() - offer.at > OFFER_MS) { offer = null; broadcast(); }
+      if (url !== login.url) {
+        if (typed && typed.url !== url) moveOn();
+        login = { url, site: loginSite(url), form: null, filled: null };
+        broadcast();
+      }
+      if (!login.site) return;
+      const seen = await inLogin(tab, 'probe');
+      if (!seen || tab !== active || tab.view.webContents.getURL() !== url) return;
+      if (seen.typed?.password) typed = { site: login.site, username: seen.typed.username, password: seen.typed.password, url };
+      else if (!seen.form && typed) moveOn();
+      if (seen.form !== login.form) { login.form = seen.form; broadcast(); }
+      if (seen.form === 'login' && seen.empty && !seen.filledByDayjob && !login.filled) {
+        const [latest] = vault.forHost(login.site);
+        if (latest) await fillWith(tab, latest, false);
+      }
+    } finally { checking = false; }
+  }
+  if (vault) setInterval(() => { void checkLogin(); }, LOGIN_MS);
+  // The user picked a sign-in in the side panel: it replaces what is in the form.
+  async function fillLogin(id) {
+    const tab = current();
+    const site = loginSite(tab.view.webContents.getURL()) || fail(409, 'Saved passwords are only filled into https pages.');
+    const entry = vault.forHost(site).find(item => item.id === id) || fail(404, 'That saved password is not for this site.');
+    if (!(await fillWith(tab, entry, true))) fail(409, 'There is no login form on this page.');
+    return state();
+  }
+  function answerOffer(keep) {
+    if (offer && keep) vault.save({ site: offer.site, username: offer.username, password: offer.password });
+    else if (offer) declined.add(`${offer.site}\n${offer.username}`);
+    offer = null;
+    broadcast();
+    return state();
+  }
+
   function openTab(url, { activate = true } = {}) {
     if (tabs.length >= MAX_TABS) fail(409, `The Dayjob browser already has ${MAX_TABS} tabs open. Close one first (dayjob_browser_tabs).`);
     const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false,
@@ -162,6 +258,10 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     for (const name of ['did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-navigate-in-page', 'render-process-gone']) contents.on(name, broadcast);
     // A new document starts a fresh isolated world, so refs read before it are gone.
     contents.on('did-navigate', () => { tab.documents += 1; broadcast(); });
+    // A password typed just before the page goes on (Enter, or a sign-in button) is read while the form is still there.
+    contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) void keepTyped(tab); });
+    contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown' && input.key === 'Enter') void keepTyped(tab); });
+    contents.on('did-stop-loading', () => { void checkLogin(); });
     contents.on('page-favicon-updated', (_event, icons) => { tab.favicon = icons.find(icon => /^https:/i.test(icon)) || null; broadcast(); });
     // A page can close its own tab with window.close().
     contents.once('destroyed', () => forget(tab));
@@ -194,6 +294,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     active = tab;
     layout();
     broadcast();
+    void checkLogin();
     return tab;
   }
   // Opens a page for the user: an existing tab with that page, or a new one.
@@ -538,7 +639,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     await browserSession.clearAuthCache();
   }
 
-  return { state, setBounds, agent, answer, command, go, show, setAgentControl, setAutoSubmit, extract, clearData,
+  return { state, setBounds, agent, answer, command, go, show, setAgentControl, setAutoSubmit, extract, clearData, fillLogin, answerOffer, refreshLogin: () => broadcast(),
     autofill: options => autofill(current(), { submit: Boolean(options?.submit) && autoSubmit }) };
 }
 
