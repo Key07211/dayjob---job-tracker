@@ -29,6 +29,10 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
     fillLogin: id => ipcRenderer.invoke('dayjob:browser-login-fill', id),
     answerOffer: answer => ipcRenderer.invoke('dayjob:browser-login-offer', answer),
+    // 自动登录: on or off, and after a sign-in that did not go through, try again or let it be.
+    setAutoLogin: value => ipcRenderer.invoke('dayjob:browser-auto-login', value),
+    retryLogin: () => ipcRenderer.invoke('dayjob:browser-login-retry'),
+    dismissLogin: () => ipcRenderer.invoke('dayjob:browser-login-dismiss'),
   }),
   // Saved passwords: in to be kept, never back out; the list has sites and user names only.
   vault: Object.freeze({
@@ -41,6 +45,9 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     setLock: input => ipcRenderer.invoke('dayjob:vault-set-lock', input),
     removeLock: current => ipcRenderer.invoke('dayjob:vault-remove-lock', current),
     reset: () => ipcRenderer.invoke('dayjob:vault-reset'),
+    // A browser's password export: Dayjob asks for the file and reads it; only the counts come back.
+    importCsv: () => ipcRenderer.invoke('dayjob:vault-import'),
+    trashImport: () => ipcRenderer.invoke('dayjob:vault-trash-import'),
     onChanged: callback => listen('dayjob:vault-changed', callback),
   }),
   music: Object.freeze({

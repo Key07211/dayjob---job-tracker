@@ -20,6 +20,12 @@ const KEY_CODES = { ArrowDown: 'Down', ArrowUp: 'Up', ArrowLeft: 'Left', ArrowRi
 const LOGIN_WORLD = 1078;
 const LOGIN_MS = 1200;
 const OFFER_MS = 3 * 60 * 1000;
+// 自动登录: a site's login form coming back this soon after Dayjob sent it means the sign-in did not go through
+// (a changed password, or a check the site wanted), so it is not sent again by itself. Before SEND_WAIT_MS the
+// page may still be busy sending.
+const GUARD_MS = 2 * 60 * 1000;
+const SEND_WAIT_MS = 2500;
+const SENT_NOTE_MS = 3500;
 
 class BrowserError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -46,9 +52,16 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   let queue = Promise.resolve();
   let pending = null;
   let agentControl = true;
+  // Saved sign-ins are sent by themselves once filled in, unless the user turned that off.
+  let autoLogin = true;
   // Never saved: every time Dayjob opens, submitting asks first again.
   let autoSubmit = false;
-  try { agentControl = JSON.parse(fs.readFileSync(settingsFile, 'utf8')).agentControl !== false; } catch { /* first run */ }
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    agentControl = saved.agentControl !== false;
+    autoLogin = saved.autoLogin !== false;
+  } catch { /* first run */ }
+  const saveSettings = () => { try { fs.writeFileSync(settingsFile, JSON.stringify({ agentControl, autoLogin })); } catch { /* applies until Dayjob restarts */ } };
 
   // Web pages only, and never Dayjob's own server.
   function pageUrl(value) {
@@ -66,7 +79,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       canGoBack: contents.navigationHistory.canGoBack(), canGoForward: contents.navigationHistory.canGoForward(), favicon: tab.favicon };
   }
   function state() {
-    return { tabs: tabs.map(info), activeId: active?.id || null, agentControl, autoSubmit, agentBusy: busy,
+    return { tabs: tabs.map(info), activeId: active?.id || null, agentControl, autoSubmit, autoLogin, agentBusy: busy,
       approval: approval && { id: approval.id, action: approval.action, name: approval.name, site: approval.site }, login: loginState() };
   }
   function broadcast() {
@@ -166,6 +179,15 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   let lastUser = null;
   let checking = false;
   const declined = new Set();
+  // 自动登录: when Dayjob last sent each site's sign-in (step 'user' is the first page of a two-step one), and
+  // what the interface shows about it: sending, sent, or not gone through.
+  const sent = new Map();
+  let auto = null;
+  const setAuto = value => {
+    auto = value;
+    broadcast();
+    if (value?.state === 'sent') setTimeout(() => { if (auto === value) { auto = null; broadcast(); } }, SENT_NOTE_MS);
+  };
   // Only on https pages (and this computer's own, for the smoke test).
   const loginSite = url => {
     try {
@@ -177,7 +199,9 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (!vault) return null;
     const locked = vault.locked();
     const accounts = login.site && !locked ? vault.forHost(login.site).map(({ id, username }) => ({ id, username })) : [];
-    return { site: login.site, form: login.form, accounts, filled: login.filled, locked, offer: offer && { site: offer.site, username: offer.username } };
+    // While locked, only whether anything is saved at all, for the strip that asks to open the vault.
+    return { site: login.site, form: login.form, accounts, filled: login.filled, locked, stored: locked && vault.list().count > 0,
+      offer: offer && { site: offer.site, username: offer.username }, auto };
   }
   const userFor = (site, username) => username || (lastUser && lastUser.site === site && Date.now() - lastUser.at < OFFER_MS ? lastUser.username : '');
   async function inLogin(tab, method, args) {
@@ -209,6 +233,35 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     broadcast();
     return true;
   }
+  // Sends what was just filled in, once. Sites check the boxes as they change and some turn their button on
+  // only after that, so it waits a moment first, and once more for a button that is still off.
+  async function sendLogin(tab, entry, step = 'password') {
+    const url = tab.view.webContents.getURL();
+    const site = loginSite(url);
+    setAuto({ site, username: entry.username, state: 'sending' });
+    for (const wait of [500, 1200]) {
+      await new Promise(resolve => setTimeout(resolve, wait));
+      if (!tabs.includes(tab) || tab.view.webContents.getURL() !== url) break;
+      const done = await inLogin(tab, step === 'user' ? 'sendUser' : 'submit');
+      if (done?.enter) press(tab.view.webContents, 'Enter');
+      if (done?.sent || done?.enter) {
+        sent.set(site, { at: Date.now(), step, username: entry.username });
+        setAuto(step === 'user' ? null : { site, username: entry.username, state: 'sent' });
+        return true;
+      }
+      if (!done?.waiting) break;
+    }
+    // Left filled in for the user to send.
+    setAuto(null);
+    return false;
+  }
+  // The saved sign-in to use on this site: the user name from a two-step sign-in's first page, or the most
+  // recently used one.
+  function pick(site) {
+    const entries = vault.forHost(site);
+    const named = lastUser && lastUser.site === site && Date.now() - lastUser.at < OFFER_MS ? entries.find(entry => entry.username === lastUser.username) : null;
+    return named || entries[0] || null;
+  }
   async function checkLogin() {
     if (!vault || checking || !active || window.isDestroyed()) return;
     checking = true;
@@ -228,19 +281,58 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (seen.typed?.password) typed = { site: login.site, username: userFor(login.site, seen.typed.username), password: seen.typed.password, url };
       else if (!seen.form && typed) moveOn();
       if (seen.form !== login.form) { login.form = seen.form; broadcast(); }
-      if (seen.form === 'login' && seen.empty && !seen.filledByDayjob && !login.filled && !vault.locked()) {
-        const [latest] = vault.forHost(login.site);
-        if (latest) await fillWith(tab, latest, false);
+      if (!seen.form && auto?.state === 'failed') setAuto(null);
+      if (vault.locked()) return;
+      const last = sent.get(login.site);
+      const recent = last && Date.now() - last.at < GUARD_MS ? last : null;
+      // The login form is back, empty, soon after Dayjob sent it: say so (once the page had time to send it), and
+      // leave it to the user.
+      if (seen.form === 'login' && seen.empty && recent?.step === 'password') {
+        if (Date.now() - recent.at > SEND_WAIT_MS && (auto?.state !== 'failed' || auto.site !== login.site)) setAuto({ site: login.site, username: recent.username, state: 'failed' });
+        return;
+      }
+      if (seen.form === 'login' && seen.empty && !seen.filledByDayjob && !login.filled) {
+        const entry = pick(login.site);
+        if (entry && await fillWith(tab, entry, false) && autoLogin) await sendLogin(tab, entry);
+      } else if (seen.step === 'empty' && autoLogin && !recent && !login.filled) {
+        const entry = pick(login.site);
+        if (entry && (await inLogin(tab, 'fillUser', { username: entry.username }))?.filled) await sendLogin(tab, entry, 'user');
       }
     } finally { checking = false; }
   }
   if (vault) setInterval(() => { void checkLogin(); }, LOGIN_MS);
   // The user picked a sign-in in the side panel: it replaces what is in the form.
+  // With 自动登录 on, it is sent too, even after one that did not go through.
   async function fillLogin(id) {
     const tab = current();
     const site = loginSite(tab.view.webContents.getURL()) || fail(409, 'Saved passwords are only filled into https pages.');
     const entry = vault.forHost(site).find(item => item.id === id) || fail(404, 'That saved password is not for this site.');
     if (!(await fillWith(tab, entry, true))) fail(409, 'There is no login form on this page.');
+    if (autoLogin) {
+      sent.delete(site);
+      await sendLogin(tab, entry);
+    }
+    return state();
+  }
+  // 再试一次 after a sign-in that did not go through: the same saved sign-in, filled in again and sent.
+  async function retryLogin() {
+    const tab = current();
+    const site = loginSite(tab.view.webContents.getURL()) || fail(409, 'Saved passwords are only filled into https pages.');
+    const entry = pick(site) || fail(404, 'That saved password is not for this site.');
+    sent.delete(site);
+    setAuto(null);
+    if (!(await fillWith(tab, entry, true))) fail(409, 'There is no login form on this page.');
+    await sendLogin(tab, entry);
+    return state();
+  }
+  function dismissLogin() {
+    if (auto?.state === 'failed') setAuto(null);
+    return state();
+  }
+  function setAutoLogin(value) {
+    autoLogin = Boolean(value);
+    saveSettings();
+    broadcast();
     return state();
   }
   // Keep or not. Keeping may bring the user name (when the page never showed one) and, while the vault is
@@ -636,7 +728,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
   function setAgentControl(value) {
     agentControl = Boolean(value);
-    try { fs.writeFileSync(settingsFile, JSON.stringify({ agentControl })); } catch { /* applies until Dayjob restarts */ }
+    saveSettings();
     if (!agentControl && approval) approval.resolve(false);
     broadcast();
     return state();
@@ -652,7 +744,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     await browserSession.clearAuthCache();
   }
 
-  return { state, setBounds, agent, answer, command, go, show, setAgentControl, setAutoSubmit, extract, clearData, fillLogin, answerOffer, refreshLogin: () => broadcast(),
+  return { state, setBounds, agent, answer, command, go, show, setAgentControl, setAutoSubmit, extract, clearData, fillLogin, answerOffer, retryLogin, dismissLogin, setAutoLogin,
+    refreshLogin: () => broadcast(),
     autofill: options => autofill(current(), { submit: Boolean(options?.submit) && autoSubmit }) };
 }
 

@@ -11,6 +11,7 @@ import { Q, flyTo, holdToConfirm, leave, shake } from './groove/fx.js';
 import { NoteLoader } from './groove/BrandNote.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
+const vaultBridge = typeof window !== 'undefined' ? window.dayjobDesktop?.vault : undefined;
 export const hasBrowser = Boolean(desktop);
 
 const START = [
@@ -177,9 +178,68 @@ function SaveOffer({ offer, locked, onKept }) {
   );
 }
 
+// 自动登录 over the page: signing in, signed in, or a sign-in that did not go through (the login form came back);
+// and on a login page while the vault is locked, a box for the vault password, without saying whether this site
+// has a saved sign-in.
+function LoginStrip({ login, autoLogin }) {
+  const { t } = useI18n();
+  const bar = useRef(null);
+  const [unlock, setUnlock] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [later, setLater] = useState(() => new Set());
+  const auto = login?.auto;
+  useEffect(() => setError(''), [login?.site, auto?.state]);
+  if (!login) return null;
+  const failed = failure => { setError(serverText(bridgeMessage(failure))); shake(bar.current); setBusy(false); };
+  if (auto?.state === 'sending' || auto?.state === 'sent') {
+    return (
+      <p className="browser-kept browser-login" role="status">{auto.state === 'sending' ? <LoaderCircle size={17} className="spin" /> : <CircleCheck size={17} />}
+        {auto.state === 'sending' ? t(`正在用 ${auto.username} 登录 ${auto.site}…`, `Signing in to ${auto.site} as ${auto.username}…`)
+          : t(`已用 ${auto.username} 自动登录 ${auto.site}。`, `Signed in to ${auto.site} as ${auto.username}.`)}</p>
+    );
+  }
+  // While the vault is locked, opening it comes first.
+  if (auto?.state === 'failed' && !login.locked) {
+    const retry = () => { setBusy(true); setError(''); desktop.retryLogin().then(() => setBusy(false)).catch(failed); };
+    return (
+      <div className="browser-offer browser-login failed" ref={bar} role="alert">
+        <ShieldAlert size={18} />
+        <p>{t(`${auto.site} 又回到了登录页，自动登录好像没成功，可能密码改过了。Dayjob 不会反复重试；你自己登录后，它会问要不要更新密码。`,
+          `${auto.site} came back to its login page, so signing in by itself did not seem to work; the password may have changed. Dayjob does not keep retrying; sign in yourself and it offers to update the password.`)}</p>
+        <div className="form-actions">
+          <button className="button" onClick={() => desktop.dismissLogin().catch(() => {})} disabled={busy}>{t('知道了', 'OK')}</button>
+          <button className="button primary" onClick={retry} disabled={busy}><RotateCw size={15} />{t('再试一次', 'Try again')}</button>
+        </div>
+        {error ? <p className="notice error">{error}</p> : null}
+      </div>
+    );
+  }
+  if (!login.locked || !login.stored || login.form !== 'login' || later.has(login.site)) return null;
+  const open = event => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    vaultBridge.unlock(unlock).then(() => { setUnlock(''); setBusy(false); cue('note'); }).catch(failure => { setUnlock(''); failed(failure); });
+  };
+  return (
+    <form className="browser-offer browser-login" ref={bar} onSubmit={open} autoComplete="off">
+      <Lock size={18} />
+      <p>{autoLogin ? t('密码箱锁着。输入开箱密码，Dayjob 就能替你登录。', 'The vault is locked. Enter the vault password and Dayjob signs you in.')
+        : t('密码箱锁着。输入开箱密码，Dayjob 就能填好登录框。', 'The vault is locked. Enter the vault password and Dayjob fills in the login form.')}</p>
+      <input type="password" value={unlock} onChange={event => setUnlock(event.target.value)} maxLength={32} placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required />
+      <div className="form-actions">
+        <button type="button" className="button" onClick={() => setLater(sites => new Set(sites).add(login.site))}>{t('这次不用', 'Not now')}</button>
+        <button type="submit" className="button primary" disabled={busy}><LockOpen size={15} />{t('打开', 'Open')}</button>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+    </form>
+  );
+}
+
 // 密码保管 for this page: the sign-ins saved for its site (by user name only), and which one was filled in. While
 // the vault is locked it can be opened here.
-function Passwords({ login, openItem }) {
+function Passwords({ login, autoLogin, openItem }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
   const [unlock, setUnlock] = useState('');
@@ -189,7 +249,7 @@ function Passwords({ login, openItem }) {
   const open = event => {
     event.preventDefault();
     setError('');
-    desktop.vault.unlock(unlock).then(() => { setUnlock(''); cue('note'); }).catch(failure => { setUnlock(''); setError(serverText(bridgeMessage(failure))); });
+    vaultBridge.unlock(unlock).then(() => { setUnlock(''); cue('note'); }).catch(failure => { setUnlock(''); setError(serverText(bridgeMessage(failure))); });
   };
   return (
     <section className="assist-section">
@@ -208,12 +268,14 @@ function Passwords({ login, openItem }) {
             <li key={account.id}>
               <KeyRound size={13} /><span>{account.username}</span>
               {login.filled === account.id ? <em className="chip">{t('已填入', 'Filled in')}</em>
-                : login.form === 'login' ? <button className="link" onClick={() => fill(account.id)}>{t('填入', 'Fill in')}</button> : null}
+                : login.form === 'login' ? <button className="link" onClick={() => fill(account.id)}>{autoLogin !== false ? t('登录', 'Sign in') : t('填入', 'Fill in')}</button> : null}
             </li>
           ))}
         </ul>
       ) : login.form === 'login' ? <small>{t('这个网站还没有保存的密码，登录后 Dayjob 会问你要不要存进密码箱。', 'No saved password for this site yet; after you sign in, Dayjob asks whether to save it.')}</small> : null}
       {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
+      <label className="check-line assist-auto-login"><input type="checkbox" checked={autoLogin !== false} onChange={event => desktop.setAutoLogin(event.target.checked).catch(() => {})} />
+        {t('打开登录页时自动登录', 'Sign in by itself on login pages')}</label>
       <button className="link" onClick={() => openItem('settings', 'vault')}>{t('管理密码', 'Manage passwords')}</button>
     </section>
   );
@@ -409,7 +471,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
         <button className="link" onClick={() => openItem('resume', 'applicant')}>{t('编辑申请资料', 'Edit the application profile')}</button>
       </section>
 
-      <Passwords login={state.login} openItem={openItem} />
+      <Passwords login={state.login} autoLogin={state.autoLogin} openItem={openItem} />
 
       <section className="assist-section">
         <h3>Claude</h3>
@@ -544,7 +606,8 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
       </form>
       {state.approval ? <Approval key={state.approval.id} approval={state.approval} /> : null}
       {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.locked} onKept={setKept} />
-        : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p> : null}
+        : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p>
+        : <LoginStrip login={state.login} autoLogin={state.autoLogin} />}
       {error ? <p className="notice error browser-notice" onClick={() => setError('')}>{error}</p> : null}
       <div className="browser-body">
         <div className="browser-frame" ref={frame}>

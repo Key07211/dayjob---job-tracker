@@ -6,7 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
 const { createBrowser } = require('./browser.cjs');
-const { createVault } = require('./vault.cjs');
+const { createVault, readPasswordCsv, VaultError } = require('./vault.cjs');
 const { createUpdater } = require('./updater.cjs');
 const { freeInstallFolder } = require('./install-lock.cjs');
 const nowPlaying = require('./now-playing.cjs');
@@ -44,6 +44,8 @@ let origin;
 let claude;
 let browser;
 let vault;
+// The password file last imported, kept here (never in the interface) so that it can be moved to the Recycle Bin.
+let importedFile = null;
 let updates;
 let music;
 let quitting = false;
@@ -132,6 +134,9 @@ function setupIpc() {
   handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
   handle('dayjob:browser-login-offer', answer => browser.answerOffer(answer && typeof answer === 'object'
     ? { keep: answer.keep === true, username: String(answer.username ?? ''), unlock: String(answer.unlock ?? '') } : answer === true));
+  handle('dayjob:browser-login-retry', () => browser.retryLogin());
+  handle('dayjob:browser-login-dismiss', () => browser.dismissLogin());
+  handle('dayjob:browser-auto-login', value => browser.setAutoLogin(value === true));
   // The password vault: the interface sends passwords in (to keep, or the vault's own to open it), and only ever
   // gets user names back.
   const vaultChanged = result => { browser.refreshLogin(); if (window && !window.isDestroyed()) window.webContents.send('dayjob:vault-changed'); return result; };
@@ -143,12 +148,39 @@ function setupIpc() {
   handle('dayjob:vault-set-lock', async input => vaultChanged(await vault.setLock({ current: String(input?.current ?? ''), next: String(input?.next ?? '') })));
   handle('dayjob:vault-remove-lock', async current => vaultChanged(await vault.removeLock(String(current ?? ''))));
   handle('dayjob:vault-reset', () => vaultChanged(vault.reset()));
+  // A browser's password export, chosen here and read here: the interface gets the counts and the file's name.
+  handle('dayjob:vault-import', async () => {
+    if (vault.locked()) throw new VaultError('Open the password vault with its password first.');
+    const zh = text() === TEXT.zh;
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: zh ? '选择浏览器导出的密码文件（CSV）' : 'Choose the passwords file your browser exported (CSV)',
+      filters: [{ name: 'CSV', extensions: ['csv'] }], properties: ['openFile'] });
+    if (canceled || !filePaths[0]) return null;
+    const result = importPasswords(filePaths[0]);
+    importedFile = filePaths[0];
+    return vaultChanged(result);
+  });
+  // The export holds every password in plain text, so after importing it can go to the Recycle Bin (and back).
+  handle('dayjob:vault-trash-import', async () => {
+    if (!importedFile) return false;
+    await shell.trashItem(importedFile);
+    importedFile = null;
+    return true;
+  });
   handle('dayjob:update-state', () => updates.state());
   handle('dayjob:update-check', () => updates.check());
   handle('dayjob:update-download', () => updates.download());
   handle('dayjob:update-install', () => updates.install());
   handle('dayjob:music-follow', value => music.setFollow(value === true));
   handle('dayjob:music-state', () => music.current());
+}
+
+// Reads a password export (UTF-8, or UTF-16 from some tools) into the vault.
+function importPasswords(file) {
+  if (fs.statSync(file).size > 10 * 1024 * 1024) throw new VaultError('That file is too big to be a password export.');
+  const data = fs.readFileSync(file);
+  const content = data[0] === 0xff && data[1] === 0xfe ? data.toString('utf16le') : data.toString('utf8');
+  const rows = readPasswordCsv(content);
+  return { ...vault.importMany(rows), rows: rows.length, file: path.basename(file) };
 }
 
 function buildTray() {
@@ -259,6 +291,12 @@ const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
 const SIGNUP_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Create account · Smoke Co</title></head>
 <body><h1>Create account</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email"></label>
 <label>Password <input name="password" type="password"></label> <label>Confirm password <input name="confirm" type="password"></label> <button>Create account</button></form></body></html>`;
+// A two-step sign-in: the user name on one page, the password on the next.
+const STEP_ONE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
+<body><h1>Sign in</h1><form action="/login-step2" method="get"><label>Email <input name="email" type="email" autocomplete="username"></label> <button>Next</button></form></body></html>`;
+const STEP_TWO_PAGE = email => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Enter password · Smoke Co</title></head>
+<body><h1>Welcome back, ${email}</h1><form action="/signed-in" method="post"><input type="hidden" name="email" value="${email}">
+<label>Password <input name="password" type="password" autocomplete="current-password"></label> <button>Sign in</button></form></body></html>`;
 
 async function until(check, ms) {
   const deadline = Date.now() + ms;
@@ -290,6 +328,8 @@ async function smokeBrowser(token) {
     }
     if (url.pathname === '/login') return response.end(LOGIN_PAGE);
     if (url.pathname === '/signup') return response.end(SIGNUP_PAGE);
+    if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
+    if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
@@ -352,7 +392,8 @@ async function smokeBrowser(token) {
     // 密码保管: a saved sign-in is filled into its site's login form, where
     // Claude's read only sees that the password box is filled; it is kept
     // encrypted on disk; a password typed into a sign-up form is offered for
-    // keeping once the page moves on. The interface never gets a password.
+    // keeping once the page moves on. The interface never gets a password. 自动登录 waits until the end.
+    browser.setAutoLogin(false);
     vault.reset();
     vault.save({ site: '127.0.0.1', username: 'smoke@example.com', password: 'Sm0ke-pass!' });
     steps.vaultEncrypted = !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0ke-pass!');
@@ -381,11 +422,46 @@ async function smokeBrowser(token) {
     steps.vaultClosed = vault.list().locked && !vault.list().entries.length && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0keVault1');
     await call('open', { url: `${base}/login` });
     await new Promise(resolve => setTimeout(resolve, 3000));
-    steps.vaultClosedNoFill = browser.state().login?.locked === true && !browser.state().login?.filled && !browser.state().login?.accounts.length;
+    steps.vaultClosedNoFill = browser.state().login?.locked === true && browser.state().login?.stored === true && !browser.state().login?.filled && !browser.state().login?.accounts.length;
     await vault.unlock('Sm0keVault1');
     browser.refreshLogin();
     steps.vaultOpened = await until(() => Boolean(browser.state().login?.filled), 6000);
     browser.setAutoSubmit(false);
+
+    // A password export from Edge (UTF-8 with a BOM, quoted fields): new sign-ins are added, a saved one with
+    // the same password is left, phone apps and rows without a user name are skipped, and only counts come back.
+    const exported = path.join(path.dirname(smokeOutput), 'smoke-passwords.csv');
+    fs.writeFileSync(exported, '\uFEFFname,url,username,password,note\r\n'
+      + 'jobs.example.com,https://jobs.example.com/login,ana@example.com,"An@, ""quoted"" pass",\r\n'
+      + '127.0.0.1,http://127.0.0.1/login,smoke@example.com,Sm0ke-pass!,same as saved\r\n'
+      + 'app,android://key@com.example.app/,ana,Andr0id-pass,\r\n'
+      + 'nouser.example.com,https://nouser.example.com/,,N0-user-pass,\r\n'
+      + 'board.example.org,https://www.board.example.org/,ana,"Two\nlines",note\r\n');
+    const imported = importPasswords(exported);
+    const importedEntry = vault.list().entries.find(entry => entry.site === 'jobs.example.com' && entry.username === 'ana@example.com');
+    steps.vaultImported = imported.rows === 5 && imported.added === 2 && imported.same === 1 && imported.updated === 0 && imported.skipped.site === 1 && imported.skipped.username === 1
+      && Boolean(importedEntry) && vault.password(importedEntry.id) === 'An@, "quoted" pass' && vault.list().entries.some(entry => entry.site === 'board.example.org')
+      && !/An@|Sm0ke-pass|Andr0id|N0-user|Two/.test(JSON.stringify(imported) + JSON.stringify(vault.list())) && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('An@');
+
+    // 自动登录: the open vault fills the login form and sends it. When the login page comes straight back (as after
+    // a wrong password) it is not sent again and the user is told; 再试一次 sends it once more.
+    const pageAt = start => window.contentView.children.find(child => child.webContents?.getURL().startsWith(start))?.webContents;
+    const signedInAs = async (who, start = `${base}/signed-in`) => (await pageAt(start)?.executeJavaScript('document.body.innerText').catch(() => ''))?.includes(`Signed in as ${who}`);
+    browser.setAutoLogin(true);
+    await browser.go(`${base}/login?auto=1`);
+    steps.autoLoggedIn = await until(() => signedInAs('smoke@example.com'), 10000);
+    steps.autoNoted = browser.state().login?.auto?.state === 'sent' && browser.state().login.auto.username === 'smoke@example.com';
+    await browser.go(`${base}/login?again=1`);
+    steps.autoGuarded = await until(() => browser.state().login?.auto?.state === 'failed', 10000) && !browser.state().login.filled
+      && Boolean(pageAt(`${base}/login?again=1`)) && !JSON.stringify(browser.state()).includes('Sm0ke-pass!');
+    await browser.retryLogin();
+    steps.autoRetried = await until(() => signedInAs('smoke@example.com'), 10000);
+    // A two-step sign-in: the user name, Next, then the password and Sign in.
+    vault.save({ site: 'localhost', username: 'two@example.com', password: 'Tw0-step!' });
+    const local = `http://localhost:${site.address().port}`;
+    await browser.go(`${local}/login-step1`);
+    steps.autoTwoStep = await until(() => signedInAs('two@example.com', `${local}/signed-in`), 12000);
+    browser.setAutoLogin(false);
   } catch (error) {
     steps.error = error.message;
   } finally {
@@ -394,7 +470,8 @@ async function smokeBrowser(token) {
   }
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
-    'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedNoFill', 'vaultOpened'].every(step => steps[step] === true);
+    'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedNoFill', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
+    'autoTwoStep'].every(step => steps[step] === true);
   return steps;
 }
 

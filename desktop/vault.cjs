@@ -13,7 +13,7 @@ const { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } = re
 // the same Windows user. The vault opens with that password once per start of
 // Dayjob and closes again when Dayjob quits, the computer locks or sleeps, or
 // the user closes it. Neither password is ever stored.
-const MAX_ENTRIES = 200;
+const MAX_ENTRIES = 2000;
 // 6 to 32 letters or digits.
 const LOCK_RULE = /^[A-Za-z0-9]{6,32}$/;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -37,6 +37,46 @@ function siteOf(value) {
   return /^[a-z0-9.-]+$/.test(host) && (host.includes('.') || host === 'localhost') && !host.startsWith('.') && !host.endsWith('.') ? host : null;
 }
 const covers = (site, host) => host === site || host.endsWith(`.${site}`);
+
+// A CSV file as rows of fields: quoted fields may hold commas, line breaks and doubled quotes.
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  const source = String(text).replace(/^\uFEFF/, '');
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i];
+    if (quoted) {
+      if (char === '"' && source[i + 1] === '"') { field += '"'; i += 1; } else if (char === '"') quoted = false; else field += char;
+    } else if (char === '"' && !field) quoted = true;
+    else if (char === ',') { row.push(field); field = ''; }
+    else if (char === '\n' || char === '\r') {
+      if (char === '\r' && source[i + 1] === '\n') i += 1;
+      row.push(field);
+      if (row.some(value => value !== '')) rows.push(row);
+      row = [];
+      field = '';
+    } else field += char;
+  }
+  row.push(field);
+  if (row.some(value => value !== '')) rows.push(row);
+  return rows;
+}
+// The sign-ins in a browser's password export: Microsoft Edge and Chrome write name,url,username,password,note;
+// Firefox, Safari and password managers name the same columns a little differently.
+const COLUMNS = {
+  url: ['url', 'origin', 'origin_url', 'website', 'web site', 'login_uri', 'login uri', 'hostname', '网址', '网站'],
+  username: ['username', 'user name', 'login', 'login_username', 'user', 'email', '用户名', '账号'],
+  password: ['password', 'login_password', '密码'],
+};
+function readPasswordCsv(text) {
+  const [header, ...rows] = parseCsv(text);
+  const names = (header || []).map(name => name.trim().toLowerCase());
+  const at = Object.fromEntries(Object.entries(COLUMNS).map(([key, options]) => [key, names.findIndex(name => options.includes(name))]));
+  if (at.url < 0 || at.password < 0) fail('This file is not a password export from a browser: it needs url and password columns.');
+  return rows.map(row => ({ url: row[at.url] ?? '', username: at.username < 0 ? '' : row[at.username] ?? '', password: row[at.password] ?? '' }));
+}
 
 const derive = (password, salt) => new Promise((resolve, reject) => scrypt(password, salt, 32, SCRYPT, (error, key) => (error ? reject(error) : resolve(key))));
 function wrap(key, text) {
@@ -113,6 +153,36 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     entries.push(entry);
     persist();
     return shown(entry);
+  }
+  // Many sign-ins at once, from a browser's export. Each new one is added, a saved one with another password is
+  // updated, and the counts say what was left out and why. Only the counts go back.
+  function importMany(rows) {
+    mustBeOpen();
+    if (!available()) fail('This computer cannot encrypt saved passwords, so none can be saved.');
+    const result = { added: 0, updated: 0, same: 0, skipped: { site: 0, username: 0, password: 0, full: 0 } };
+    const at = now().toISOString();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const site = siteOf(row?.url);
+      const username = typeof row?.username === 'string' ? row.username.trim() : '';
+      const password = typeof row?.password === 'string' ? row.password : '';
+      if (!site) { result.skipped.site += 1; continue; }
+      if (!username || username.length > 200) { result.skipped.username += 1; continue; }
+      if (!password || password.length > 500) { result.skipped.password += 1; continue; }
+      const existing = entries.find(entry => entry.site === site && entry.username === username);
+      if (existing) {
+        let known = false;
+        try { known = plain(existing) === password; } catch { known = false; }
+        if (known) { result.same += 1; continue; }
+        Object.assign(existing, { secret: seal(password), wrapped: Boolean(lock), updatedAt: at });
+        result.updated += 1;
+      } else if (entries.length >= MAX_ENTRIES) result.skipped.full += 1;
+      else {
+        entries.push({ id: randomUUID(), site, username, secret: seal(password), wrapped: Boolean(lock), createdAt: at, updatedAt: at, usedAt: null });
+        result.added += 1;
+      }
+    }
+    if (result.added || result.updated) persist();
+    return result;
   }
   function remove(id) {
     mustBeOpen();
@@ -204,7 +274,7 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     persist();
   }
 
-  return { available, locked, list, save, remove, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
+  return { available, locked, list, save, importMany, remove, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
 }
 
-module.exports = { createVault, siteOf, VaultError, LOCK_RULE };
+module.exports = { createVault, siteOf, parseCsv, readPasswordCsv, VaultError, LOCK_RULE };

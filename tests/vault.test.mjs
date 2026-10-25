@@ -6,7 +6,7 @@ import path from 'node:path';
 import vaultModule from '../desktop/vault.cjs';
 import loginModule from '../desktop/login.cjs';
 
-const { createVault, siteOf } = vaultModule;
+const { createVault, siteOf, parseCsv, readPasswordCsv } = vaultModule;
 const { loginScript } = loginModule;
 
 // Stands in for Electron's safeStorage: the stored text must not be the password.
@@ -103,6 +103,65 @@ test('the login script for the page is plain script text with its arguments quot
   assert.match(script, /\.fill\(\{"username":"a\\"b","password":"<\/script>'x"\}\)$/);
   assert.doesNotThrow(() => new Function(script));
   assert.match(loginScript('probe'), /\.probe\(\)$/);
+  assert.match(loginScript('submit'), /\.submit\(\)$/);
+  assert.doesNotThrow(() => new Function(loginScript('fillUser', { username: 'two@example.com' })));
+});
+
+test('a CSV file keeps quoted commas, quotes and line breaks in their fields', () => {
+  assert.deepEqual(parseCsv('﻿name,url\r\n"a, b","say ""hi"""\r\n\r\n"two\nlines",x\n,\nlast,row'), [
+    ['name', 'url'], ['a, b', 'say "hi"'], ['two\nlines', 'x'], ['last', 'row']]);
+  assert.deepEqual(parseCsv(''), []);
+});
+
+test('password exports from Edge, Chrome and Firefox are read by their column names', () => {
+  const edge = readPasswordCsv('name,url,username,password,note\r\nacme,https://acme.example.com/login,ana@example.com,"p,w",\r\n');
+  assert.deepEqual(edge, [{ url: 'https://acme.example.com/login', username: 'ana@example.com', password: 'p,w' }]);
+  const firefox = readPasswordCsv('"url","username","password","httpRealm","formActionOrigin","guid"\n"https://jobs.example.org","ana","fx-pass","","https://jobs.example.org",""');
+  assert.deepEqual(firefox, [{ url: 'https://jobs.example.org', username: 'ana', password: 'fx-pass' }]);
+  for (const bad of ['', 'a,b,c\n1,2,3', 'url,username\nhttps://x.example.com,ana']) assert.throws(() => readPasswordCsv(bad), /not a password export/, bad);
+});
+
+test('an import adds new sign-ins, updates changed ones, leaves the same ones and counts what it skipped', async () => {
+  const file = vaultFile();
+  const vault = createVault({ file, safeStorage: fakeSafeStorage(), now });
+  const kept = vault.save({ site: 'linkedin.com', username: 'yuan', password: 'linked-secret' });
+  const changed = vault.save({ site: 'acme.wd5.myworkdayjobs.com', username: 'yuan@example.com', password: 'old-pass' });
+  const rows = readPasswordCsv(['name,url,username,password,note',
+    'linkedin,https://www.linkedin.com/login,yuan,linked-secret,',
+    'workday,https://acme.wd5.myworkdayjobs.com/en-US/careers/login,yuan@example.com,new-pass,',
+    'greenhouse,https://boards.greenhouse.io/acme,ana@example.com,gh-pass,',
+    'app,android://key@com.example.app/,ana,app-pass,',
+    'nouser,https://nouser.example.com,,lonely-pass,',
+    'empty,https://empty.example.com,ana,,',
+    `long,https://long.example.com,ana,${'x'.repeat(501)},`].join('\r\n'));
+  const result = vault.importMany(rows);
+  assert.deepEqual(result, { added: 1, updated: 1, same: 1, skipped: { site: 1, username: 1, password: 2, full: 0 } });
+  assert.ok(!/linked-secret|new-pass|gh-pass|app-pass|lonely-pass/.test(JSON.stringify(result) + JSON.stringify(vault.list()) + fs.readFileSync(file, 'utf8')),
+    'only counts come back, and the file keeps the passwords sealed');
+  assert.equal(vault.password(kept.id), 'linked-secret');
+  assert.equal(vault.password(changed.id), 'new-pass');
+  const greenhouse = vault.forHost('boards.greenhouse.io')[0];
+  assert.equal(greenhouse.username, 'ana@example.com');
+  assert.equal(vault.password(greenhouse.id), 'gh-pass');
+  assert.deepEqual(vault.importMany(rows), { added: 0, updated: 0, same: 3, skipped: { site: 1, username: 1, password: 2, full: 0 } }, 'importing again changes nothing');
+
+  // With a vault password, a closed vault takes nothing in, and an open one seals the new ones with it too.
+  await vault.setLock({ next: 'Lock1234' });
+  vault.close();
+  assert.throws(() => vault.importMany(rows), /Open the password vault/);
+  await vault.unlock('Lock1234');
+  vault.importMany([{ url: 'https://lever.co', username: 'ana', password: 'lever-pass' }]);
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(stored.entries.every(entry => entry.wrapped));
+  assert.equal(vault.password(vault.forHost('jobs.lever.co')[0].id), 'lever-pass');
+});
+
+test('an import stops adding at the limit and says how many did not fit', () => {
+  const vault = createVault({ file: vaultFile(), safeStorage: fakeSafeStorage(), now });
+  const rows = Array.from({ length: 2003 }, (_, index) => ({ url: `https://site${index}.example.com`, username: 'ana', password: `pass-${index}` }));
+  const result = vault.importMany(rows);
+  assert.deepEqual([result.added, result.skipped.full, vault.list().count], [2000, 3, 2000]);
+  assert.throws(() => vault.save({ site: 'one-more.example.com', username: 'ana', password: 'x' }), /Up to 2000 passwords/);
 });
 
 test('a vault password seals every password again, and the locked vault lists and fills nothing', async () => {
