@@ -6,8 +6,8 @@ import { BEAT, cue, reducedMotion } from './sound.js';
 // Scoring in progress: a small equaliser instead of a spinner.
 export const Eq = () => <span className="eq" aria-hidden="true"><i /><i /><i /></span>;
 
-// A number that rolls in from below whenever it changes.
-export const Roll = ({ value }) => <b className="fx-roll" key={value}>{value}</b>;
+// A number that rolls in from below whenever it changes; still, it just shows (a value that was already on show).
+export const Roll = ({ value, still = false }) => <b className={`fx-roll${still ? ' still' : ''}`} key={value}>{value}</b>;
 
 // A number that counts up to its value when it first shows, and from the old value to the new one when it changes.
 export function CountUp({ value, suffix = '' }) {

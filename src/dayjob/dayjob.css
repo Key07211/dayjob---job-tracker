@@ -388,6 +388,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .run-status.succeeded { color: var(--green); }
 .run-status.partial { color: var(--orange); }
 .run-status.failed { color: var(--red); }
+.run-status.cancelled { color: var(--muted); }
 .run-detail { list-style: none; margin: 6px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .run-detail li { display: flex; gap: 10px; }
 .run-detail li span { min-width: 180px; color: var(--muted); }
@@ -790,8 +791,12 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 /* New jobs come in one after another, an eighth note (78 ms) apart. */
 .posting-item.enter { animation: beat-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
 @keyframes beat-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-.main-view > section { animation: beat-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
+/* A page switch brings in the new page under its header. The header band itself stays put, with the date, the clock
+   and the wave carrying on; only the title and its buttons fade over. (No weight, so a part with its own arrival keeps it.) */
+:where(.main-view > section > :not(.view-header)) { animation: beat-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
+.main-view > section > .view-header h1, .main-view > section > .view-header > .header-actions { animation: fade-in 234ms ease-out both; }
+@keyframes fade-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .posting-item.enter, .main-view > section, .score-badge.landed, .score-badge.landed::after { animation: none; }
+  .posting-item.enter, .main-view > section > *, .main-view > section > .view-header *, .score-badge.landed, .score-badge.landed::after { animation: none; }
   .button { transition: none; }
 }

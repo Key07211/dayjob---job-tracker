@@ -12,15 +12,18 @@ export const jitter = ([low, high]) => Math.round((low + Math.random() * (high -
 // One place for timeouts, polite retries and the "blocked" hint, shared by
 // every board. Tests pass their own fetch and sleep.
 export function createHttp({ fetch: fetchImpl = globalThis.fetch, sleep: wait = sleep, timeoutMs = 20000, retries = 2 } = {}) {
-  async function request(url, { method = 'GET', headers = {}, body, expect = 'text', allowStatus = [] } = {}) {
+  // A run that is stopped (signal) ends its request at once, without retrying.
+  async function request(url, { method = 'GET', headers = {}, body, expect = 'text', allowStatus = [], signal } = {}) {
     let attempt = 0;
     for (;;) {
+      signal?.throwIfAborted();
       let response;
       try {
         response = await fetchImpl(url, {
-          method, headers, body, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs),
+          method, headers, body, redirect: 'follow', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
+        signal?.throwIfAborted();
         if (attempt < retries) { attempt += 1; await wait(1500 * attempt); continue; }
         throw new ScrapeError(`Network error: ${error.message}`);
       }

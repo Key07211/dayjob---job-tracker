@@ -77,7 +77,9 @@ export function createScorer({ repo, providers, log = console.warn }) {
     return next;
   }
 
-  async function runBatch(ids, { limit } = {}) {
+  // A batch for a run that is stopped (signal) ends now: the posting it is
+  // scoring stops, and the rest wait for a later run.
+  async function runBatch(ids, { limit, signal } = {}) {
     if (!repo.countResumes()) return { scored: 0, failed: 0, skipped: ids?.length || 0, reason: 'no-resume' };
     const max = limit ?? getSettings().ai.maxPerRun;
     const targets = (ids?.length ? ids : repo.unscoredPostingIds(max)).slice(0, max);
@@ -92,12 +94,22 @@ export function createScorer({ repo, providers, log = console.warn }) {
     let lastError = '';
     const results = [];
     for (const id of targets) progress.ids.add(id);
+    let ours = false;
+    const stop = () => { if (ours) inFlight?.abort(); };
+    signal?.addEventListener('abort', stop, { once: true });
+    const stopped = () => ({ scored, failed, skipped: targets.length - scored - failed, cancelled: true, results });
     for (const [index, id] of targets.entries()) {
+      if (signal?.aborted) return stopped();
       try {
-        const score = await enqueue(() => scoreNow(id));
+        const score = await enqueue(async () => {
+          signal?.throwIfAborted();
+          ours = true;
+          try { return await scoreNow(id); } finally { ours = false; }
+        });
         scored += 1;
         results.push({ id, score: score.score });
       } catch (error) {
+        if (signal?.aborted) return stopped();
         if (error.paused) {
           hold(targets.slice(index));
           return { scored, failed, skipped: targets.length - scored - failed, paused: true, results };

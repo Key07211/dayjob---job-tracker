@@ -20,7 +20,7 @@ import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
-import { BEAT, cue, playApply, playBatchEnd, playHello, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { BEAT, cue, playApply, playBatchEnd, playHello, playLift, playNeedle, playScore } from './dayjob/groove/sound.js';
 import { installClickFx, pop, rings, wiggle } from './dayjob/groove/fx.js';
 import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
 import { startThemeClock } from './dayjob/theme.js';
@@ -95,6 +95,10 @@ function App() {
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
+  // Stopping a search: while it winds down, then what it kept, for a few seconds under the record.
+  const [stopping, setStopping] = useState(false);
+  const [deckNote, setDeckNote] = useState('');
+  const startedAt = useRef(0);
   const [dataVersion, setDataVersion] = useState(0);
   const wasRunning = useRef(false);
   const wasSearching = useRef(false);
@@ -219,14 +223,36 @@ function App() {
     } catch (failure) { setRunMessage(failure.message); }
   }
 
+  useEffect(() => {
+    if (!deckNote) return undefined;
+    const timer = setTimeout(() => setDeckNote(''), 6000);
+    return () => clearTimeout(timer);
+  }, [deckNote]);
+
   async function runNow() {
     setRunMessage('');
+    setDeckNote('');
+    startedAt.current = Date.now();
     playNeedle();
     emit('fetch');
     try {
       await api('/api/runs', { method: 'POST', body: {} });
       setStatus(await api('/api/status'));
     } catch (failure) { setRunMessage(failure.message); }
+  }
+
+  // Clicking the record again while it searches stops the search, keeping what it found. A click within a second
+  // of starting is taken as the second half of a double click.
+  async function stopRun() {
+    if (stopping || Date.now() - startedAt.current < 1000) return;
+    setStopping(true);
+    playLift();
+    try {
+      const result = await api('/api/runs/cancel', { method: 'POST', body: {} });
+      setStatus(await api('/api/status'));
+      if (result.run) setDeckNote(t(`已停止，留下 ${result.run.newCount} 个新岗位`, `Stopped; kept ${result.run.newCount} new ${result.run.newCount === 1 ? 'job' : 'jobs'}`));
+    } catch (failure) { setRunMessage(failure.message); }
+    finally { setStopping(false); }
   }
 
   if (!boot) {
@@ -247,7 +273,8 @@ function App() {
   const deckProgress = scheduler.running ? (scheduler.phase === 'search' ? 0.7 * searchShare : scheduler.phase === 'score' ? 0.7 + 0.25 * scoreShare : 0.95) : scoreShare;
   const deckBusy = scheduler.running || scoringNow;
   const step = scoringNow && scoring.progress?.total ? `${Math.min(scoring.progress.done + 1, scoring.progress.total)}/${scoring.progress.total}` : '';
-  const runText = scoringNow ? t(`AI 正在打分 ${step}`, `AI is scoring ${step}`)
+  const halting = scheduler.running && (stopping || scheduler.stopping);
+  const runText = halting ? t('正在停止…', 'Stopping…') : scoringNow ? t(`AI 正在打分 ${step}`, `AI is scoring ${step}`)
     : scheduler.running ? (scheduler.phase === 'track' ? t('正在更新投递状态…', 'Updating applications…') : t(`正在抓取 ${Math.round(deckProgress * 100)}%`, `Fetching ${Math.round(deckProgress * 100)}%`)) : '';
   const track = groove.followMusic ? nowPlaying.track : null;
   const trackSub = track ? [track.artist, appName(track.app, t)].filter(Boolean).join(' · ') : '';
@@ -323,10 +350,10 @@ function App() {
           </button>
           <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
             total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
-          <Turntable busy={deckBusy} disabled={scheduler.running} progress={deckProgress} playing={Boolean(track)} onStart={runNow}
-            label={scheduler.running ? t('抓取中', 'Searching') : t('点唱片开始抓取', 'Click the record to search now')}
+          <Turntable busy={deckBusy} disabled={halting} progress={deckProgress} playing={Boolean(track)} onStart={scheduler.running ? stopRun : runNow}
+            label={scheduler.running ? (halting ? t('正在停止…', 'Stopping…') : t('再点一下停止抓取', 'Click again to stop the search')) : t('点唱片开始抓取', 'Click the record to search now')}
             title={track ? track.title : t('每日推荐', 'Daily picks')}
-            sub={runText || trackSub || nextRunText(scheduler.nextRunAt)} dim={scoring.paused && !deckBusy} />
+            sub={runText || deckNote || trackSub || nextRunText(scheduler.nextRunAt)} dim={scoring.paused && !deckBusy} />
           {scoring.paused || runMessage || scoringNow ? (
             <div className="run-extra">
               {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}

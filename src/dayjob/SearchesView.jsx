@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, CheckCircle2, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, CheckCircle2, CircleStop, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime, label, labels, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
-import { BEAT, cue, playNeedle } from './groove/sound.js';
+import { BEAT, cue, playLift, playNeedle } from './groove/sound.js';
 import { E8, flyTo, leave, leaveThen } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
@@ -31,7 +31,7 @@ const COUNTRY_LABELS = { usa: '美国', canada: '加拿大', uk: '英国', austr
 const COUNTRY_NAMES = { usa: 'United States', uk: 'United Kingdom' };
 const countryName = (country, lang) => (lang === 'en' ? COUNTRY_NAMES[country] || country.replace(/\b\w/g, letter => letter.toUpperCase()) : COUNTRY_LABELS[country] || country);
 const lastTime = value => { const date = new Date(value); return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`; };
-const RUN_STATUS = { succeeded: ['成功', 'Succeeded'], partial: ['部分成功', 'Partly succeeded'], failed: ['失败', 'Failed'], running: ['进行中', 'Running'] };
+const RUN_STATUS = { succeeded: ['成功', 'Succeeded'], partial: ['部分成功', 'Partly succeeded'], failed: ['失败', 'Failed'], running: ['进行中', 'Running'], cancelled: ['已停止', 'Stopped'] };
 const EMPTY = { name: '', keywords: '', location: '', sites: ['linkedin', 'indeed'], hoursOld: 72, jobType: '', isRemote: false, resultsWanted: 25,
   country: 'usa', titleInclude: '', excludeKeywords: '', enabled: true };
 
@@ -368,7 +368,7 @@ function Runs({ runs }) {
         {runs.map(run => (
           <li key={run.id}>
             <div className="run-head">
-              <span className={`run-status ${run.status}`}>{run.status === 'failed' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}{t(...(RUN_STATUS[run.status] || [run.status, run.status]))}</span>
+              <span className={`run-status ${run.cancelled ? 'cancelled' : run.status}`}>{run.cancelled ? <CircleStop size={14} /> : run.status === 'failed' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}{t(...(RUN_STATUS[run.cancelled ? 'cancelled' : run.status] || [run.status, run.status]))}</span>
               <span>{formatTime(run.startedAt)}{run.trigger === 'schedule' ? t(' · 每日自动', ' · daily') : t(' · 手动', ' · manual')}</span>
               <span>{t(`${run.found} 个岗位 · ${run.newCount} 个新 · ${run.scored} 个已打分`, `${run.found} jobs · ${run.newCount} new · ${run.scored} scored`)}</span>
             </div>
@@ -392,7 +392,7 @@ function Runs({ runs }) {
   );
 }
 
-export function SearchesView({ boot, reload, status, setView }) {
+export function SearchesView({ boot, reload, status, setView, refreshStatus }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
@@ -401,6 +401,7 @@ export function SearchesView({ boot, reload, status, setView }) {
   const [arrived, markArrived] = useArrived();
   // The search started from its own ▶, which turns into a spinning record until the run ends.
   const [playing, setPlaying] = useState(null);
+  const started = useRef(0);
   const running = status?.scheduler?.running;
   useEffect(() => { if (!running) setPlaying(null); }, [running]);
 
@@ -413,10 +414,22 @@ export function SearchesView({ boot, reload, status, setView }) {
     setMessage('');
     try {
       setPlaying(search.id);
+      started.current = Date.now();
       playNeedle();
       await api('/api/runs', { method: 'POST', body: { searchIds: [search.id] } });
       setMessage(t(`已开始抓取“${search.name}”。`, `Started “${search.name}”.`));
     } catch (failure) { setPlaying(null); setError(failure.message); }
+  }
+  // Its spinning record, clicked again, stops it (not within a second of starting: that is a double click).
+  async function stopSearch(search) {
+    if (Date.now() - started.current < 1000) return;
+    setError('');
+    playLift();
+    try {
+      const result = await api('/api/runs/cancel', { method: 'POST', body: {} });
+      setMessage(result.run ? t(`已停止“${search.name}”，留下 ${result.run.newCount} 个新岗位。`, `Stopped “${search.name}”; kept ${result.run.newCount} new ${result.run.newCount === 1 ? 'job' : 'jobs'}.`) : '');
+      await refreshStatus();
+    } catch (failure) { setError(failure.message); }
   }
   async function toggle(search) {
     try { await api(`/api/searches/${search.id}`, { method: 'PATCH', body: { enabled: !search.enabled } }); await reload(); }
@@ -468,7 +481,8 @@ export function SearchesView({ boot, reload, status, setView }) {
                   </div>
                   <div className="search-actions">
                     <label className="switch"><input type="checkbox" checked={search.enabled} onChange={() => toggle(search)} />{search.enabled ? t('每日', 'Daily') : t('暂停', 'Paused')}</label>
-                    <button className={`icon-button${playing === search.id ? ' playing' : ''}`} title={t('立即运行', 'Run now')} onClick={() => runSearch(search)} disabled={running}>
+                    <button className={`icon-button${playing === search.id ? ' playing' : ''}`} title={playing === search.id && running ? t('停止', 'Stop') : t('立即运行', 'Run now')}
+                      onClick={() => (playing === search.id && running ? stopSearch(search) : runSearch(search))} disabled={running && playing !== search.id}>
                       {playing === search.id ? <span className="mini-disc" aria-hidden="true" /> : <Play size={15} />}</button>
                     <button className="icon-button" data-fx="wiggle" title={t('编辑', 'Edit')} onClick={() => setEditing(search)}><Pencil size={15} /></button>
                     <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(search, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
