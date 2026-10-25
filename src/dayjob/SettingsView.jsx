@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock3, Download, Eye, EyeOff, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
+  ShieldAlert, Sun, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -218,6 +219,68 @@ function LockForm({ mode, onCancel, onDone }) {
   );
 }
 
+// What an import of a browser's password export did. The file holds every password in plain text, so it is
+// offered to the Recycle Bin (where it can still be restored from).
+function ImportResult({ result, onClose }) {
+  const { t } = useI18n();
+  const box = useRef(null);
+  const [trash, setTrash] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { unfold(box.current); }, []);
+  const { added, updated, same, skipped } = result;
+  const left = skipped.site + skipped.username + skipped.password + skipped.full;
+  const reasons = [
+    [skipped.site, `${skipped.site} 条不是网页地址（例如手机 App 的）`, `${skipped.site} not for a web address (such as phone apps)`],
+    [skipped.username, `${skipped.username} 条没有用户名`, `${skipped.username} without a user name`],
+    [skipped.password, `${skipped.password} 条密码为空或太长`, `${skipped.password} with an empty or too long password`],
+    [skipped.full, `${skipped.full} 条超出了 2000 个的上限`, `${skipped.full} over the limit of 2000`],
+  ].filter(([count]) => count).map(([, zh, en]) => t(zh, en));
+  async function toTrash() {
+    setError('');
+    setTrash('busy');
+    try { setTrash(await desktop.vault.trashImport() ? 'done' : ''); cue('note'); }
+    catch (failure) { setTrash(''); setError(bridgeText(failure)); }
+  }
+  const count = (value, zh, en) => <li><b>{value}</b>{t(zh, en)}</li>;
+  return (
+    <div className="vault-import" ref={box} role="status">
+      <p className="vault-import-head"><FileUp size={15} />{t(`已读完 ${result.file}，共 ${result.rows} 条。`, `Read ${result.file}: ${result.rows} ${result.rows === 1 ? 'entry' : 'entries'}.`)}
+        <button className="icon-button" title={t('关闭', 'Close')} onClick={onClose}><X size={14} /></button></p>
+      <ul className="vault-import-counts">
+        {count(added, '新增', 'added')}
+        {count(updated, '更新了密码', 'updated')}
+        {count(same, '已有，没变', 'already saved')}
+        {left ? count(left, '跳过', 'skipped') : null}
+      </ul>
+      {reasons.length ? <small>{t(`跳过的：${reasons.join('，')}。`, `Skipped: ${reasons.join(', ')}.`)}</small> : null}
+      {trash === 'done' ? <p className="vault-note"><CheckCircle2 size={14} />{t('已移到回收站。清空回收站后就彻底删掉了。', 'Moved to the Recycle Bin. Empty the Recycle Bin to delete it for good.')}</p> : (
+        <div className="vault-import-warn">
+          <ShieldAlert size={16} />
+          <span>{t('这个 CSV 文件里的密码都是明文，谁打开都能看到。导入好了，建议把它删掉。', 'This CSV file holds the passwords in plain text, readable by anyone who opens it. Now that they are imported, delete it.')}</span>
+          <button className="button small" onClick={toTrash} disabled={trash === 'busy'}><Trash2 size={13} />{t('移到回收站', 'Move to the Recycle Bin')}</button>
+        </div>
+      )}
+      {error ? <p className="notice error">{error}</p> : null}
+    </div>
+  );
+}
+
+// 自动登录 is the Dayjob browser's setting; it is shown here with the passwords it uses.
+function AutoLogin() {
+  const { t } = useI18n();
+  const [on, setOn] = useState(null);
+  useEffect(() => {
+    if (!desktop?.browser) return undefined;
+    desktop.browser.getState().then(state => setOn(state.autoLogin !== false)).catch(() => {});
+    return desktop.browser.onState(state => setOn(state.autoLogin !== false));
+  }, []);
+  if (on === null) return null;
+  const toggle = event => desktop.browser.setAutoLogin(event.target.checked).then(state => setOn(state.autoLogin)).catch(() => {});
+  return <label className="check-line vault-auto-login"><input type="checkbox" checked={on} onChange={toggle} />{t('在 Dayjob 浏览器打开登录页时，自动填好并登录', 'Fill in and sign in by itself on login pages in the Dayjob browser')}</label>;
+}
+
+const VAULT_PAGE = 30;
+
 function PasswordVault() {
   const { t } = useI18n();
   const [data, setData] = useState(null);
@@ -226,6 +289,10 @@ function PasswordVault() {
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [arrived, setArrived] = useState(null);
+  const [imported, setImported] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [query, setQuery] = useState('');
+  const [shown, setShown] = useState(VAULT_PAGE);
   useEffect(() => {
     if (!desktop?.vault) return undefined;
     const load = () => desktop.vault.list().then(setData).catch(() => {});
@@ -256,6 +323,15 @@ function PasswordVault() {
     setArrived(entry.id);
     cue('note');
   }
+  async function importCsv() {
+    setError('');
+    setImporting(true);
+    try {
+      const result = await desktop.vault.importCsv();
+      if (result) { setImported(result); setData(await desktop.vault.list()); cue('success'); }
+    } catch (failure) { setError(bridgeText(failure)); }
+    finally { setImporting(false); }
+  }
   function remove(entry, row) {
     if (!window.confirm(t(`删除 ${entry.site} 上 ${entry.username} 的密码？`, `Delete the password for ${entry.username} on ${entry.site}?`))) return;
     setError('');
@@ -264,17 +340,26 @@ function PasswordVault() {
       return true;
     });
   }
+  const words = query.trim().toLowerCase();
+  const matching = (data?.entries || []).filter(entry => !words || entry.site.includes(words) || entry.username.toLowerCase().includes(words));
   return (
     <section className="card-section" id="vault">
       <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}</h2>
-      <p className="hint">{t('密码只保存在这台电脑上，由系统加密；只会在 Dayjob 浏览器打开对应网站的登录页时自动填进去，不会再显示出来，也不会交给 Claude。',
-        'Passwords stay on this computer, encrypted by the system. They are only filled into their own site\'s login page in the Dayjob browser, never shown again and never given to Claude.')}</p>
+      <p className="hint">{t('密码只保存在这台电脑上，由系统加密；只会在 Dayjob 浏览器打开对应网站的登录页时自动填进去并登录，不会再显示出来，也不会交给 Claude。可以从 Edge、Chrome 导出的 CSV 一次导入。',
+        'Passwords stay on this computer, encrypted by the system. They are only filled into their own site\'s login page in the Dayjob browser to sign in, never shown again and never given to Claude. A CSV exported from Edge or Chrome imports them all at once.')}</p>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
       {note ? <p className="vault-note"><CheckCircle2 size={14} />{note}</p> : null}
       {data?.locked ? <VaultUnlock count={data.count} onChanged={changed} /> : null}
+      {imported && !data?.locked ? <ImportResult key={`${imported.file}${imported.rows}${imported.added}`} result={imported} onClose={() => setImported(null)} /> : null}
+      {!data?.locked && data?.entries.length > 8 ? (
+        <label className="vault-search"><Search size={14} />
+          <input type="search" value={query} onChange={event => { setQuery(event.target.value); setShown(VAULT_PAGE); }} placeholder={t(`在 ${data.entries.length} 个密码里搜索网站或用户名`, `Search ${data.entries.length} passwords by site or user name`)}
+            aria-label={t('搜索密码', 'Search passwords')} />
+        </label>
+      ) : null}
       {data?.locked ? null : data?.entries.length ? (
         <ul className="vault-list">
-          {data.entries.map(entry => (
+          {matching.slice(0, shown).map(entry => (
             <li key={entry.id} className={arrived === entry.id ? 'arrived' : undefined}>
               <KeyRound size={14} />
               <span className="vault-site">{entry.site}</span>
@@ -284,13 +369,19 @@ function PasswordVault() {
               <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(entry, event.currentTarget.closest('li'))}><Trash2 size={14} /></button>
             </li>
           ))}
+          {!matching.length ? <li className="vault-none">{t('没有找到。', 'Nothing found.')}</li> : null}
         </ul>
       ) : data?.available ? <p className="hint">{t('还没有保存的密码。', 'No saved passwords yet.')}</p> : null}
+      {!data?.locked && matching.length > shown ? (
+        <button className="link vault-more" onClick={() => setShown(value => value + VAULT_PAGE)}>
+          {t(`再显示 ${Math.min(VAULT_PAGE, matching.length - shown)} 个（还有 ${matching.length - shown} 个）`, `Show ${Math.min(VAULT_PAGE, matching.length - shown)} more (${matching.length - shown} left)`)}</button>
+      ) : null}
       {data?.locked ? null : editing ? <VaultForm key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={saved} />
         : lockMode ? <LockForm key={lockMode} mode={lockMode} onCancel={() => setLockMode(null)} onDone={changed} />
         : (
           <div className="form-actions vault-actions">
             <button className="button" onClick={() => setEditing('new')} disabled={!data?.available}><Plus size={15} />{t('添加密码', 'Add a password')}</button>
+            <button className="button" onClick={importCsv} disabled={!data?.available || importing}>{importing ? <LoaderCircle size={15} className="spin" /> : <FileUp size={15} />}{t('从浏览器导入', 'Import from a browser')}</button>
             {data?.lock ? (
               <>
                 <button className="button" onClick={closeVault}><Lock size={15} />{t('锁上', 'Lock')}</button>
@@ -300,6 +391,18 @@ function PasswordVault() {
             ) : <button className="button" onClick={() => setLockMode('set')} disabled={!data?.available}><Lock size={15} />{t('设置开箱密码', 'Set a vault password')}</button>}
           </div>
         )}
+      {data?.locked || editing || lockMode ? null : (
+        <details className="vault-how">
+          <summary>{t('怎么从 Edge 导出密码？', 'How do I export passwords from Edge?')}</summary>
+          <ol>
+            <li>{t('在 Edge 里打开 设置 → 个人资料 → 密码（新版 Edge 会打开“钱包”里的密码页）。', 'In Edge, open Settings → Profiles → Passwords (newer Edge opens the passwords page in Wallet).')}</li>
+            <li>{t('在“已保存的密码”旁边点 ⋯（更多操作），选“导出密码”，按提示验证 Windows 密码或 PIN，存成 CSV 文件。', 'Next to “Saved passwords”, click ⋯ (More actions), choose “Export passwords”, confirm with your Windows password or PIN, and save the CSV file.')}</li>
+            <li>{t('回到这里点“从浏览器导入”，选那个文件。Chrome 和 Firefox 导出的 CSV 也可以。', 'Come back here, click “Import from a browser” and choose that file. CSV exports from Chrome and Firefox work too.')}</li>
+          </ol>
+          <small>{t('文件只在这台电脑上读取；密码导入后由系统加密保存，不会显示出来，也不会交给 Claude。', 'The file is read on this computer only; the passwords are kept encrypted by the system, never shown, and never given to Claude.')}</small>
+        </details>
+      )}
+      {data?.available && !data?.locked ? <AutoLogin /> : null}
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   );
