@@ -65,7 +65,8 @@ async function startCapture() {
     const [sound] = stream.getAudioTracks();
     if (!sound) { stream.getTracks().forEach(track => track.stop()); throw new Error('no system sound'); }
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 8192;
+    // About 12 Hz per band at 48 kHz: fine enough for the bass, short enough for the bars to keep up with each hit.
+    analyser.fftSize = 4096;
     analyser.smoothingTimeConstant = 0.6;
     // Only to the analyser: never to the speakers.
     capture = { stream, source: ctx.createMediaStreamSource(stream), analyser, on: false };

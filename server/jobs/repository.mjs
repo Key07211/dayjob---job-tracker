@@ -289,8 +289,9 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   // ---------- runs ----------
-  const runRow = row => row && ({ id: row.id, kind: row.kind, trigger: row.trigger, startedAt: row.started_at, finishedAt: row.finished_at,
-    status: row.status, found: row.found, newCount: row.new_count, scored: row.scored, detail: json(row.detail, []) });
+  // A run the user stopped is kept as part done, with a note in its detail.
+  const runRow = row => row && (detail => ({ id: row.id, kind: row.kind, trigger: row.trigger, startedAt: row.started_at, finishedAt: row.finished_at,
+    status: row.status, found: row.found, newCount: row.new_count, scored: row.scored, detail, cancelled: detail.some(entry => entry?.cancelled === true) }))(json(row.detail, []));
   function startRun(kind, trigger) {
     const id = randomUUID();
     q("INSERT INTO runs (id, kind, trigger, started_at, status) VALUES (?, ?, ?, ?, 'running')").run(id, kind, trigger, iso());

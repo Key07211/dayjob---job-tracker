@@ -5,7 +5,8 @@ import { useGroove } from './bus.js';
 const NOTE_PATH = 'M9 17V4l10-2v12';
 
 // The record player at the bottom of the sidebar. Clicking it starts a search: the arm drops, the record spins up,
-// and the stylus tracks from the outer groove inward as the run goes on. While a music app plays it shows the song
+// and the stylus tracks from the outer groove inward as the run goes on. Clicking it again stops the search: the
+// arm lifts back to its rest and the record coasts down. While a music app plays it shows the song
 // and turns with it. Every score that lands floats a small note out of the record.
 export function Turntable({ busy, progress, playing, label, title, sub, dim, onStart, disabled = busy }) {
   const vinyl = useRef(null);

@@ -50,8 +50,10 @@ export function detectJobspy(command, spawn = nodeSpawn) {
 
 export function createJobspyBridge({ command = 'python', spawn = nodeSpawn, timeoutMs = 10 * 60 * 1000 } = {}) {
   return {
-    async search(site, input, { log = () => {} } = {}) {
+    // A stopped run (signal) ends the Python process at once.
+    async search(site, input, { log = () => {}, signal } = {}) {
       return new Promise((resolve, reject) => {
+        if (signal?.aborted) { reject(signal.reason); return; }
         let stdout = '';
         let stderr = '';
         let child;
@@ -59,6 +61,9 @@ export function createJobspyBridge({ command = 'python', spawn = nodeSpawn, time
           child = spawn(command, bridgeArgs(site, input), { windowsHide: true, shell: false, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
         } catch (error) { reject(new ScrapeError(`Cannot start ${command}: ${error.message}`)); return; }
         const timer = setTimeout(() => child.kill(), timeoutMs);
+        const stop = () => { child.kill(); reject(signal.reason); };
+        signal?.addEventListener('abort', stop, { once: true });
+        child.on('close', () => signal?.removeEventListener('abort', stop));
         child.stdout.on('data', chunk => { stdout += chunk; if (stdout.length > 50 * 1024 * 1024) child.kill(); });
         child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
         child.on('error', error => { clearTimeout(timer); reject(new ScrapeError(`JobSpy is not available (${error.message}). Install Python and run: pip install python-jobspy`)); });
