@@ -15,16 +15,24 @@ const APP_NAMES = {
 };
 export const appName = (app, t) => (APP_NAMES[app] ? t(...APP_NAMES[app]) : '');
 
-let state = { track: null, browser: false };
+// capture: how the system sound reaches the wave. off (not following), waiting (needs a click, which browsers ask
+// for), starting, on, or failed (Windows refused; the next click or the retry button in the header tries again).
+let state = { track: null, browser: false, capture: 'off' };
 const listeners = new Set();
 let capture = null;
 let armed = false;
+let starting = false;
 
 function publish(next) {
-  state = next || { track: null, browser: false };
+  state = { ...state, track: next?.track || null, browser: Boolean(next?.browser) };
   // While a song plays, Dayjob's own cues drop about 10 dB so they never fight it.
   duck(Boolean(state.track));
   attach();
+  listeners.forEach(listener => listener());
+}
+function setCapture(value) {
+  if (state.capture === value) return;
+  state = { ...state, capture: value };
   listeners.forEach(listener => listener());
 }
 bridge?.onNowPlaying(publish);
@@ -40,28 +48,43 @@ function attach() {
   if (want && !capture.on) capture.source.connect(capture.analyser);
   if (!want && capture.on) capture.source.disconnect();
   capture.on = want;
+  // A context the browser suspended reads silence, which would leave the wave flat.
+  if (want && capture.analyser.context.state === 'suspended') capture.analyser.context.resume().catch(() => {});
 }
 
 async function startCapture() {
-  if (capture || !navigator.mediaDevices?.getDisplayMedia) return;
+  if (capture || starting || !navigator.mediaDevices?.getDisplayMedia) return;
   const ctx = ensureAudio();
   if (!ctx) return;
+  starting = true;
+  setCapture('starting');
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
     stream.getVideoTracks().forEach(track => track.stop());
-    if (!stream.getAudioTracks().length) return;
+    const [sound] = stream.getAudioTracks();
+    if (!sound) { stream.getTracks().forEach(track => track.stop()); throw new Error('no system sound'); }
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 8192;
     analyser.smoothingTimeConstant = 0.6;
     // Only to the analyser: never to the speakers.
     capture = { stream, source: ctx.createMediaStreamSource(stream), analyser, on: false };
+    // Windows can end the capture (a display change, the device going away): listen again from the next click.
+    sound.addEventListener('ended', () => { stopCapture(); if (prefs.get().followMusic) { setCapture('failed'); armCapture(); } });
+    setCapture('on');
     attach();
-  } catch { /* the wave falls back to Dayjob's own cues */ }
+  } catch {
+    setCapture('failed');
+    armCapture();
+  } finally {
+    starting = false;
+  }
 }
-// Capturing needs a click, so when following was already on at start the first click anywhere starts it.
+// Capturing needs a click, so when following was already on at start (or the last try failed) the next click
+// anywhere starts it.
 function armCapture() {
   if (armed || capture) return;
   armed = true;
+  if (state.capture !== 'failed') setCapture('waiting');
   window.addEventListener('pointerdown', () => { armed = false; if (prefs.get().followMusic) void startCapture(); }, { once: true, capture: true });
 }
 function stopCapture() {
@@ -71,11 +94,20 @@ function stopCapture() {
   capture = null;
 }
 
-export function setFollow(on, { gesture = false } = {}) {
+export async function setFollow(on, { gesture = false } = {}) {
   if (!bridge) return;
-  bridge.setFollow(on).then(publish).catch(() => {});
-  if (!on) { stopCapture(); return; }
+  if (!on) {
+    stopCapture();
+    setCapture('off');
+    bridge.setFollow(false).then(publish).catch(() => {});
+    return;
+  }
+  // The desktop side allows the capture only once it is following, so it must hear about it first.
+  try { publish(await bridge.setFollow(true)); } catch { return; }
   if (gesture) void startCapture(); else armCapture();
 }
+
+// The retry button in the header: a click, so it can start listening right away.
+export const retryCapture = () => { if (prefs.get().followMusic) void startCapture(); };
 
 export const listenAnalyser = () => (capture?.on ? capture.analyser : null);

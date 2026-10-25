@@ -192,3 +192,41 @@ mark.fx-hit { background: transparent; color: inherit; border-radius: 3px; anima
 .fx-sweep { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--good) 45%, transparent) 70%, transparent); }
 @media (prefers-reduced-motion: reduce) { .notice.error { animation: none; } }
+
+/* ---------- The rest of the interface: each part moves once, when it arrives or changes, and is still otherwise ---------- */
+/* A count on a sidebar key or on Notifications pops when its number changes. */
+.pkey em, .sidebar-foot .nav-item em { animation: badge-pop 312ms cubic-bezier(.2, .9, .3, 1.4) both; }
+@keyframes badge-pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+/* A field's focus ring grows in instead of appearing. */
+input, select, textarea { transition: border-color 156ms, box-shadow 156ms cubic-bezier(.2, .8, .2, 1); }
+/* Home: the funnel's bars, the split bar and the rate bars fill from the left; the calendar's days light up in a
+   diagonal wave from the oldest week; a tile you can open lifts on its lip under the pointer. */
+.funnel-bars .track i, .split-bar i, .home-table .rate i { transform-origin: left; animation: bar-fill 625ms cubic-bezier(.2, .8, .2, 1) calc(var(--i, 0) * 78ms) both; }
+.split-bar i.closed { animation-delay: 156ms; }
+@keyframes bar-fill { from { transform: scaleX(0); } to { transform: none; } }
+.heatmap rect { transform-box: fill-box; transform-origin: center; animation: cell-in 312ms cubic-bezier(.2, .9, .3, 1.4) calc(var(--d, 0) * 12ms) both; }
+@keyframes cell-in { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
+.kpi.clickable { transition: transform 156ms cubic-bezier(.3, 0, 0, 1), box-shadow 156ms; }
+.kpi.clickable:hover { transform: translateY(-2px); box-shadow: inset 0 -5px 0 var(--key-lip); }
+/* A job's facts come in one after another with its details. */
+.facts-line span { animation: chip-in 234ms cubic-bezier(.2, .8, .2, 1) both; }
+.facts-line span:nth-child(2) { animation-delay: 39ms; }
+.facts-line span:nth-child(3) { animation-delay: 78ms; }
+.facts-line span:nth-child(4) { animation-delay: 117ms; }
+.facts-line span:nth-child(n+5) { animation-delay: 156ms; }
+@keyframes chip-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+/* Pages made of cards (Settings, Searches, Resume & AI) lay them down one after another. */
+.settings-page > .card-section { animation: card-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
+.settings-page > .card-section:nth-child(3) { animation-delay: 39ms; }
+.settings-page > .card-section:nth-child(4) { animation-delay: 78ms; }
+.settings-page > .card-section:nth-child(5) { animation-delay: 117ms; }
+.settings-page > .card-section:nth-child(6) { animation-delay: 156ms; }
+.settings-page > .card-section:nth-child(n+7) { animation-delay: 195ms; }
+@keyframes card-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pkey em, .sidebar-foot .nav-item em, .funnel-bars .track i, .split-bar i, .home-table .rate i, .heatmap rect, .facts-line span,
+  .settings-page > .card-section { animation: none; }
+  input, select, textarea, .kpi.clickable { transition: none; }
+  .kpi.clickable:hover { transform: none; }
+}

@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bookmark, EyeOff, Inbox, LoaderCircle, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Bookmark, EyeOff, Inbox, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
-import { dateLine, label, relativeDay, salaryText } from './format.js';
+import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
-import { Staff } from './groove/Staff.jsx';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 import { useGroove } from './groove/bus.js';
 import { BEAT, cue, reducedMotion } from './groove/sound.js';
 import { E8, Q, flipList } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
+import { NoteLoader } from './groove/BrandNote.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -27,8 +29,8 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null, todayScores = [] }) {
-  const { t, locale } = useI18n();
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
+  const { t } = useI18n();
   const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
   const [result, setResult] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
@@ -194,12 +196,10 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   return (
     <section className="feed">
       <header className="view-header">
+        <ListenWave />
         <div className="title-block">
-          <p className="view-date">{dateLine(locale)}</p>
-          <div className="title-row">
-            <h1>{mode === 'saved' ? t('已收藏', 'Saved') : t('今日岗位', 'Today')}</h1>
-            {mode === 'active' ? <Staff scores={todayScores} label={t('播放今天的旋律', 'Play today\'s melody')} /> : null}
-          </div>
+          <ViewDate />
+          <h1>{mode === 'saved' ? t('已收藏', 'Saved') : t('今日岗位', 'Today')}</h1>
         </div>
         <div className="header-actions">
           {picked.size ? <button className="button primary" data-fx="sparkle" onClick={() => scoreJobs([...picked])}><Sparkles size={15} />{t('给选中的 ', 'Score ')}<Roll value={picked.size} />{t(' 个岗位打分', picked.size === 1 ? ' picked job' : ' picked jobs')}</button>
@@ -247,7 +247,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       {error ? <p className="notice error">{error}</p> : null}
       <div className="split">
         <div className="posting-list" role="list" ref={list}>
-          {loading && !result.items.length ? <div className="list-empty"><LoaderCircle className="spin" /></div> : null}
+          {loading && !result.items.length ? <div className="list-empty"><NoteLoader /></div> : null}
           {empty ? (
             <div className="list-empty">
               <Inbox size={28} />

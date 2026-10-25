@@ -7,6 +7,8 @@ import { serverText } from './server-text.js';
 import { BEAT, cue, playNeedle } from './groove/sound.js';
 import { E8, flyTo, leave, leaveThen } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 
 // A search or company that was just added drops in like a new track on a mixing desk, its level meter jumping for a moment.
 function useArrived() {
@@ -432,7 +434,8 @@ export function SearchesView({ boot, reload, status, setView }) {
   return (
     <section className="settings-page searches-page">
       <header className="view-header">
-        <div><h1>{t('搜索与公司', 'Searches & companies')}</h1></div>
+        <ListenWave />
+        <div className="title-block"><ViewDate /><h1>{t('搜索与公司', 'Searches & companies')}</h1></div>
         <div className="header-actions"><button className="button primary" onClick={() => (editing === 'new' ? leave(document.querySelector('.searches-page > .panel-form'), 'up', () => setEditing(null)) : setEditing('new'))}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
       </header>
       {editing ? (
