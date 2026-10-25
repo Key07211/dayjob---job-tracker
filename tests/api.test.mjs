@@ -197,6 +197,8 @@ test('jobs, applications and company boards through the API', async () => {
   const { app, call } = await start({ http });
   try {
     assert.equal((await call('/api/runs', { method: 'POST' })).status, 409, 'nothing to search yet');
+    const idle = await call('/api/runs/cancel', { method: 'POST' });
+    assert.deepEqual([idle.status, idle.body.stopped, idle.body.run, idle.body.scheduler.stopping], [200, false, null, false], 'nothing to stop');
     assert.equal((await call('/api/companies', { method: 'POST', body: { url: 'https://example.com/careers' } })).status, 400);
     assert.equal((await call('/api/companies', { method: 'POST', body: { url: 'https://job-boards.greenhouse.io/nobody' } })).status, 422);
     const company = await call('/api/companies', { method: 'POST', body: { url: 'https://job-boards.greenhouse.io/acmeai', name: 'Acme AI' } });

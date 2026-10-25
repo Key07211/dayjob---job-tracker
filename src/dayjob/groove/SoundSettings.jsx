@@ -1,9 +1,10 @@
 import { useI18n } from '../../i18n.jsx';
-import { KEY_WINDOWS, prefs, usePrefs, useTheme } from './prefs.js';
+import { KEY_WINDOWS, WAVE_STYLES, prefs, usePrefs, useTheme } from './prefs.js';
 import { playHello, previewTune } from './sound.js';
 import { appName, canFollow, setFollow, useNowPlaying } from './music.js';
 
 const TUNES = [['auto', '跟随主题', 'With the theme'], ['morning', '晨景', 'Morning Mood'], ['moon', '月光', 'Moonlight'], ['elise', '致爱丽丝', 'Für Elise']];
+const WAVE_NAMES = { beam: ['光柱', 'Light bars'], dots: ['点阵', 'Dots'], flow: ['流光', 'Soft line'] };
 
 function Toggle({ on, label, onChange }) {
   return <button type="button" className={`toggle${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><i /></button>;
@@ -51,6 +52,18 @@ export function SoundSettings() {
             `Playing: ${track.title}${track.artist ? ` · ${track.artist}` : ''}${appName(track.app, t) ? ` (${appName(track.app, t)})` : ''}`)
             : t('音乐软件放歌时，唱片机显示歌名并跟着转，每页顶部的声浪跟着音乐起伏，提示音也会放轻。网页里的声音不算。声音只在本机分析，不录音。',
               'While a music app plays, the record player shows the song and turns with it, the wave across the top of each page moves with the music and cues play softer. Sound from web pages does not count. The sound is analysed on this computer only and never recorded.')}</small>
+        </div>
+      ) : null}
+      {canFollow && groove.followMusic ? (
+        <div className="option-row">
+          <span>{t('声浪样式', 'Wave style')}</span>
+          <div className="segmented">
+            {WAVE_STYLES.map(value => (
+              <button key={value} type="button" className={groove.waveStyle === value ? 'active' : ''} onClick={() => prefs.set({ waveStyle: value })}>{t(...WAVE_NAMES[value])}</button>
+            ))}
+          </div>
+          <small>{t('光柱从低音到高音排开、带回落的顶点和倒影；点阵像老式音响的电平灯；流光是一条从中间向两边起伏的柔光线。',
+            'Light bars run from bass to treble, with falling caps and a reflection; dots light up like an old hi-fi meter; the soft line rises and falls out from the middle.')}</small>
         </div>
       ) : null}
     </section>

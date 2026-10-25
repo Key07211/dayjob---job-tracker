@@ -17,6 +17,7 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
   let timer = null;
   let phase = null;
   let flight = null;
+  let stopper = null;
 
   function nextRunAt() {
     const { schedule } = repo.getSettings();
@@ -40,12 +41,15 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
     notify({ kind: 'daily', ...message(repo.getSettings().language, 'daily', { newCount: run.newCount, strong: strong.length, names }), refId: run.id });
   }
 
-  async function pipeline({ trigger, searchIds, track }) {
+  // A stopped run keeps what it found and skips what is left: the rest of the
+  // search, the scoring and the application check.
+  async function pipeline({ trigger, searchIds, track, signal }) {
     const settings = repo.getSettings();
     phase = 'search';
-    const { run, newIds } = await runner.run({ trigger, searchIds });
+    const { run, newIds } = await runner.run({ trigger, searchIds, signal });
     let scoring = { scored: 0, results: [] };
     const mode = settings.ai.scoreMode;
+    if (signal.aborted) return { run, scoring: { scored: 0, failed: 0, reason: null }, tracking: null, cancelled: true };
     if (mode === 'auto' || mode === 'saved') {
       phase = 'score';
       try {
@@ -54,18 +58,23 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
         const backlog = repo.unscoredPostingIds(settings.ai.maxPerRun, { savedOnly: mode === 'saved' });
         const ids = mode === 'auto' ? [...new Set([...newIds, ...backlog])] : backlog;
         // An empty list would make scoreBatch fall back to every unscored job.
-        if (ids.length) scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun });
+        if (ids.length) scoring = await scorer.scoreBatch(ids, { limit: settings.ai.maxPerRun, signal });
         if (scoring.reason && scoring.reason !== 'no-resume') {
           run.detail.push({ source: 'AI', warning: scoring.reason });
+          if (run.status === 'succeeded') run.status = 'partial';
+        }
+        if (scoring.cancelled) {
+          run.detail.push({ source: 'dayjob', warning: 'Stopped before it finished.', cancelled: true });
           if (run.status === 'succeeded') run.status = 'partial';
         }
         repo.updateRunScoring(run.id, { scored: scoring.scored, status: run.status, detail: run.detail });
       } catch (error) { log(`[dayjob] scoring: ${error.message}`); }
     }
+    if (signal.aborted) return { run: { ...run, scored: scoring.scored }, scoring: { scored: scoring.scored, failed: scoring.failed || 0, reason: null }, tracking: null, cancelled: true };
     let tracking = null;
     if (track) {
       phase = 'track';
-      try { tracking = await tracker.run(); } catch (error) { log(`[dayjob] tracking: ${error.message}`); }
+      try { tracking = await tracker.run({ signal }); } catch (error) { log(`[dayjob] tracking: ${error.message}`); }
       repo.purgeOldPostings(settings.retentionDays);
     }
     summarize(run, scoring, settings.notifications.minScore);
@@ -74,7 +83,8 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
 
   function start(options) {
     if (flight) return flight;
-    flight = pipeline(options).finally(() => { flight = null; phase = null; });
+    stopper = new AbortController();
+    flight = pipeline({ ...options, signal: stopper.signal }).finally(() => { flight = null; phase = null; stopper = null; });
     return flight;
   }
 
@@ -91,6 +101,13 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
   return {
     get phase() { return phase; },
     get running() { return Boolean(flight); },
+    get stopping() { return Boolean(stopper?.signal.aborted); },
+    // Stops the running search (manual or daily); false when none is running.
+    cancel() {
+      if (!flight || stopper.signal.aborted) return false;
+      stopper.abort(Object.assign(new Error('The search was stopped.'), { cancelled: true }));
+      return true;
+    },
     nextRunAt,
     tick,
     // Manual runs search and score; the daily run also updates applications.

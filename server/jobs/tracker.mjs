@@ -44,14 +44,14 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
     }).sort((a, b) => (Date.parse(a.lastCheckedAt || 0) || 0) - (Date.parse(b.lastCheckedAt || 0) || 0));
   }
 
-  async function checkPostings(report) {
+  async function checkPostings(report, signal) {
     if (!settings().checkClosed) return;
     const cache = new Map();
     // A site that refuses one check is left until the next run; the other sites carry on.
     const refused = new Set();
     let tried = 0;
     for (const posting of dueForCheck()) {
-      if (tried >= MAX_CHECKS) break;
+      if (tried >= MAX_CHECKS || signal?.aborted) break;
       if (refused.has(posting.site)) continue;
       if (tried) await http.sleep(jitter(CHECK_DELAY));
       tried += 1;
@@ -108,10 +108,11 @@ export function createTracker({ repo, http, now = () => new Date(), notify = () 
   }
 
   return {
-    async run() {
+    // A stopped run (signal) checks no more postings after the one in hand.
+    async run({ signal } = {}) {
       const report = { checked: 0, errors: 0, closed: [], followUps: [], ghosted: [], warnings: [] };
       followUps(report);
-      await checkPostings(report);
+      await checkPostings(report, signal);
       repo.setMeta('lastTracking', { ...report, at: now().toISOString() });
       return report;
     },

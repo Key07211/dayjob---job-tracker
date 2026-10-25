@@ -75,7 +75,7 @@ export async function createApp(options = {}) {
       ...(site.engine === 'jobspy' ? { detail: bridgeState.available ? `JobSpy ${bridgeState.version || ''}`.trim() : 'Needs Python with: pip install python-jobspy' } : {}) }));
   }
   function schedulerState() {
-    return { running: scheduler.running, phase: scheduler.phase, nextRunAt: scheduler.nextRunAt(), lastDailyRun: repo.getMeta('lastDailyRun'),
+    return { running: scheduler.running, stopping: scheduler.stopping, phase: scheduler.phase, nextRunAt: scheduler.nextRunAt(), lastDailyRun: repo.getMeta('lastDailyRun'),
       lastTracking: repo.getMeta('lastTracking'), scoringBatch: Boolean(scoringBatch), scoringPending: scorer.pending, searchProgress: runner.progress };
   }
   async function status() {
@@ -248,6 +248,14 @@ export async function createApp(options = {}) {
       const already = scheduler.running;
       scheduler.runNow({ searchIds }).catch(error => log(`[dayjob] run: ${error.message}`));
       return [202, { started: !already, scheduler: schedulerState() }];
+    }
+    // Stops the running search and waits a little for it to wind down, so the
+    // answer can say what it kept.
+    if (pathname === '/api/runs/cancel' && method === 'POST') {
+      const stopping = scheduler.cancel();
+      if (stopping) await Promise.race([scheduler.wait(), new Promise(resolve => setTimeout(resolve, 8000))]);
+      const [run] = repo.listRuns(1);
+      return { stopped: stopping, run: stopping && run?.status !== 'running' ? run : null, scheduler: schedulerState() };
     }
     if (pathname === '/api/track' && method === 'POST') {
       scheduler.track().catch(error => log(`[dayjob] tracking: ${error.message}`));

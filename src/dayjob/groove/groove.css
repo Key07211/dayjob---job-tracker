@@ -23,6 +23,11 @@
   --key-on: #CFE6F7;
   --key-on-text: #285A80;
   --key-on-lip: #8DB8DA;
+  /* The header wave: lake blue in the bass to sky blue in the treble, warm yellow caps. */
+  --wave-low: #2F6D9C;
+  --wave-high: #79B4E0;
+  --wave-peak: #E9B23F;
+  --wave-glow: rgb(79 148 204 / 55%);
 }
 :root[data-theme="night"] {
   --acc: #3A342D;
@@ -48,6 +53,11 @@
   --key-on: #F2C46D;
   --key-on-text: #1C1916;
   --key-on-lip: #B98F43;
+  /* Under the desk lamp: amber in the bass to pale lamplight in the treble. */
+  --wave-low: #E39B4F;
+  --wave-high: #F8E3B4;
+  --wave-peak: #FFF3D4;
+  --wave-glow: rgb(242 196 109 / 80%);
 }
 
 /* ---------- sidebar ---------- */
@@ -213,6 +223,7 @@
 .view-date { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
 .clock { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 .clock > svg { color: var(--step-hi); animation: sky-turn 937ms cubic-bezier(.2, .9, .3, 1.3) both; }
+.clock > svg.still { animation: none; }
 .clock .fx-roll { font-weight: inherit; }
 .clock > span { white-space: nowrap; }
 @keyframes sky-turn { from { opacity: 0; transform: translateY(8px) rotate(-90deg) scale(.6); } to { opacity: 1; transform: none; } }
@@ -241,11 +252,11 @@
 
 /* 07 · the listening wave at the top of every page, in the lid band above its lip, only while a music app plays and
    following is on. It takes the room between the title and the buttons on the right, over the band's full height,
-   and fades at both ends so it never runs into either. */
+   and fades a little at both ends so it never runs into either. */
 .view-header > .wave-slot { order: 1; position: relative; flex: 1 1 0; min-width: 0; align-self: stretch; margin: -26px 0 -13px; pointer-events: none; }
 .view-header > .header-actions { order: 2; }
 .wave-slot > .listen-wave { position: absolute; inset: 0; opacity: 0; transition: opacity 625ms;
-  mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent); }
+  mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent); }
 .wave-slot > .listen-wave.on { opacity: 1; }
 .listen-wave canvas { display: block; width: 100%; height: 100%; }
 .wave-hint { position: absolute; z-index: 2; left: 50%; top: 50%; translate: -50% -50%; max-width: 100%; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px;

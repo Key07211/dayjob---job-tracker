@@ -296,14 +296,18 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
   };
   const switchTab = id => { setTab(id); pop(document.querySelector(`.tabs [data-tab="${id}"] em`), 1.25); };
 
-  if (!items) return <section className="applications"><div className="list-empty">{error || <NoteLoader />}</div></section>;
+  // The header is there while the list loads too, so the band, the clock and the wave carry on from the last page.
+  const header = (
+    <header className="view-header">
+      <ListenWave />
+      <div className="title-block"><ViewDate /><h1>{t('投递追踪', 'Applications')}</h1></div>
+      {items ? <div className="header-actions"><button className="button" onClick={toggleAdding}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div> : null}
+    </header>
+  );
+  if (!items) return <section className="applications">{header}<div className="list-empty">{error || <NoteLoader />}</div></section>;
   return (
     <section className="applications">
-      <header className="view-header">
-        <ListenWave />
-        <div className="title-block"><ViewDate /><h1>{t('投递追踪', 'Applications')}</h1></div>
-        <div className="header-actions"><button className="button" onClick={toggleAdding}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div>
-      </header>
+      {header}
       {items.length ? <Funnel items={items} /> : null}
       {adding ? <NewApplication onCancel={() => setAdding(false)} onCreated={created => { flip.measure(); setItems(current => [created, ...current]); setAdding(false); setTab('open'); setSelected(created.id); setArrived(created.id); cue('note'); void refreshStatus(); }} /> : null}
       <div className="tabs">

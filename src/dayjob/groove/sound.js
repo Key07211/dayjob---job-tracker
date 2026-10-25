@@ -199,6 +199,13 @@ export function playNeedle() {
   piano(67, { at: 0.02, gain: 0.1, dur: 0.4 }, out);
   piano(72, { at: 0.2, gain: 0.11, dur: 0.9 }, out);
 }
+// A search stopped: the needle lifts, the same two notes falling.
+export function playLift() {
+  if (!prefs.get().sound || !allow('fetch', 1000)) return;
+  const out = voice();
+  piano(72, { at: 0.02, gain: 0.09, dur: 0.4 }, out);
+  piano(67, { at: 0.2, gain: 0.08, dur: 0.8 }, out);
+}
 // An application: one strum of C major on the guitar.
 export function playApply() {
   if (!prefs.get().sound || !allow('chord', BEAT * 2)) return;
