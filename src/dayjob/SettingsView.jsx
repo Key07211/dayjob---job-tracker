@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock3, Download, FolderOpen, Globe, LampDesk, Link2, LoaderCircle, Monitor, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock3, Download, Eye, EyeOff, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Monitor, Pencil, Plus, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { SoundSettings } from './groove/SoundSettings.jsx';
 import { cue } from './groove/sound.js';
-import { pop, shake } from './groove/fx.js';
+import { leaveThen, pop, shake, unfold } from './groove/fx.js';
+import { formatTime } from './format.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { setThemeChoice, setThemeHours, useThemeSettings } from './theme.js';
 import { ViewDate } from './ViewDate.jsx';
@@ -88,6 +89,104 @@ function BrowserData() {
   );
 }
 
+// The desktop side's errors arrive wrapped by Electron.
+const bridgeText = failure => serverText(String(failure?.message || '').replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, ''));
+
+function VaultForm({ entry, onCancel, onSaved }) {
+  const { t } = useI18n();
+  const form = useRef(null);
+  const [site, setSite] = useState(entry?.site || '');
+  const [username, setUsername] = useState(entry?.username || '');
+  const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { unfold(form.current); }, []);
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const saved = await desktop.vault.save({ id: entry?.id, site, username, password });
+      setPassword('');
+      onSaved(saved);
+    } catch (failure) {
+      setError(bridgeText(failure));
+      shake(form.current);
+    } finally { setBusy(false); }
+  }
+  return (
+    <form className="vault-form" ref={form} onSubmit={submit} autoComplete="off">
+      <div className="form-grid">
+        <label>{t('网站', 'Site')}<input value={site} onChange={event => setSite(event.target.value)} placeholder="myworkdayjobs.com" maxLength={300} required /></label>
+        <label>{t('用户名或邮箱', 'User name or email')}<input value={username} onChange={event => setUsername(event.target.value)} maxLength={200} required autoComplete="off" /></label>
+        <label>{t('密码', 'Password')}
+          <span className="vault-secret">
+            <input type={show ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} maxLength={500} required={!entry}
+              autoComplete="new-password" placeholder={entry ? t('不改就留空', 'Leave empty to keep it') : undefined} />
+            <button type="button" className="icon-button" title={show ? t('隐藏', 'Hide') : t('显示正在输入的密码', 'Show what you type')} onClick={() => setShow(value => !value)}>{show ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+          </span>
+        </label>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="button" onClick={onCancel}>{t('取消', 'Cancel')}</button>
+        <button type="submit" className="button primary" disabled={busy}>{t('保存', 'Save')}</button>
+      </div>
+    </form>
+  );
+}
+
+// 密码保管: the list shows sites and user names; a password goes in and never comes back out.
+function PasswordVault() {
+  const { t } = useI18n();
+  const [data, setData] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState('');
+  const [arrived, setArrived] = useState(null);
+  useEffect(() => { desktop?.vault?.list().then(setData).catch(() => {}); }, []);
+  if (!desktop?.vault) return null;
+  async function saved(entry) {
+    setEditing(null);
+    setData(await desktop.vault.list());
+    setArrived(entry.id);
+    cue('note');
+  }
+  function remove(entry, row) {
+    if (!window.confirm(t(`删除 ${entry.site} 上 ${entry.username} 的密码？`, `Delete the password for ${entry.username} on ${entry.site}?`))) return;
+    setError('');
+    leaveThen(row, 'fold', async () => {
+      try { setData(await desktop.vault.remove(entry.id)); } catch (failure) { setError(bridgeText(failure)); return false; }
+      return true;
+    });
+  }
+  return (
+    <section className="card-section" id="vault">
+      <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}</h2>
+      <p className="hint">{t('密码只保存在这台电脑上，由系统加密；只会在 Dayjob 浏览器打开对应网站的登录页时自动填进去，不会再显示出来，也不会交给 Claude。',
+        'Passwords stay on this computer, encrypted by the system. They are only filled into their own site\'s login page in the Dayjob browser, never shown again and never given to Claude.')}</p>
+      {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
+      {data?.entries.length ? (
+        <ul className="vault-list">
+          {data.entries.map(entry => (
+            <li key={entry.id} className={arrived === entry.id ? 'arrived' : undefined}>
+              <KeyRound size={14} />
+              <span className="vault-site">{entry.site}</span>
+              <span className="vault-user">{entry.username}</span>
+              <small>{entry.usedAt ? t(`上次填写 ${formatTime(entry.usedAt)}`, `Last filled ${formatTime(entry.usedAt)}`) : t('还没填写过', 'Not filled yet')}</small>
+              <button className="icon-button" title={t('修改', 'Edit')} onClick={() => setEditing(entry)}><Pencil size={14} /></button>
+              <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(entry, event.currentTarget.closest('li'))}><Trash2 size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : data?.available ? <p className="hint">{t('还没有保存的密码。', 'No saved passwords yet.')}</p> : null}
+      {editing ? <VaultForm key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={saved} />
+        : <div className="form-actions"><button className="button" onClick={() => setEditing('new')} disabled={!data?.available}><Plus size={15} />{t('添加密码', 'Add a password')}</button></div>}
+      {error ? <p className="notice error">{error}</p> : null}
+    </section>
+  );
+}
+
 function Background({ boot, reload }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
@@ -149,7 +248,7 @@ function Updates({ boot, reload, update }) {
   );
 }
 
-export function SettingsView({ boot, reload, update }) {
+export function SettingsView({ boot, reload, update, focus }) {
   const { t } = useI18n();
   const settings = boot.settings;
   const [form, setForm] = useState({ scheduleEnabled: settings.schedule.enabled, time: settings.schedule.time,
@@ -164,6 +263,7 @@ export function SettingsView({ boot, reload, update }) {
   const [saved, flashSaved] = useSaved();
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { desktop?.getInfo().then(setInfo).catch(() => {}); }, []);
+  useEffect(() => { if (focus) document.getElementById(focus)?.scrollIntoView({ block: 'start' }); }, [focus]);
 
   async function save(event) {
     event.preventDefault();
@@ -218,6 +318,7 @@ export function SettingsView({ boot, reload, update }) {
       </form>
       <ClaudeConnection />
       <BrowserData />
+      <PasswordVault />
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />
       <SoundSettings />

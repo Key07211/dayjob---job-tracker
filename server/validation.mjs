@@ -6,7 +6,7 @@ import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
 import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
 import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
-import { APPLICANT_FIELDS, LINK_FIELDS } from './jobs/applicant.mjs';
+import { APPLICANT_FIELDS, EDUCATION_FIELDS, EXPERIENCE_FIELDS, LINK_FIELDS, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from './jobs/applicant.mjs';
 import { EFFORTS, PROVIDER_IDS } from './jobs/scoring/models.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
@@ -79,13 +79,32 @@ export function searchInput(input, current = null) {
   };
 }
 
-const LINK_LABELS = { linkedin: 'LinkedIn link', github: 'GitHub link', website: 'Website link' };
+const LINK_LABELS = { github: 'GitHub link', website: 'Website link' };
 // A profile link may be typed without https://.
 function profileLink(value, label) {
   const link = text(value, label, { max: 300, optional: true });
   if (!link) return '';
   if (/^[a-z][\w+.-]*:/i.test(link) && !/^https?:\/\//i.test(link)) fail(`${label} must be a web link.`);
   return httpUrl(/^https?:\/\//i.test(link) ? link : `https://${link}`, label);
+}
+// Schools or jobs in the profile; entries left empty are dropped.
+function profileEntries(value, fields, max, label) {
+  if (!Array.isArray(value)) fail(`${label} must be a list.`);
+  if (value.length > max) fail(`${label} can have up to ${max} entries.`);
+  return value.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(`${label} entries must be objects.`);
+    const out = Object.fromEntries(Object.entries(fields).map(([key, rule]) => {
+      if (rule === 'boolean') return [key, entry[key] === undefined ? false : boolean(entry[key], `${label}: ${key}`)];
+      if (rule === 'month') {
+        const date = monthOf(entry[key] ?? '');
+        if (date === null) fail(`${label} dates must look like 2024-08 or 2024.`);
+        return [key, date];
+      }
+      return [key, text(entry[key], `${label}: ${key}`, { max: rule, optional: true })];
+    }));
+    if (out.current) out.end = '';
+    return out;
+  }).filter(entry => Object.entries(fields).some(([key, rule]) => typeof rule === 'number' && entry[key]));
 }
 
 export function settingsPatch(input) {
@@ -143,6 +162,8 @@ export function settingsPatch(input) {
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Email must look like name@example.com.');
       return email;
     },
+    education: item => profileEntries(item, EDUCATION_FIELDS, MAX_EDUCATION, 'Education'),
+    experience: item => profileEntries(item, EXPERIENCE_FIELDS, MAX_EXPERIENCE, 'Work experience'),
     declineEeo: item => boolean(item, 'Decline voluntary self-identification'),
   }));
   if (has(input, 'language')) patch.language = oneOf(input.language, LANGUAGES, 'Language');

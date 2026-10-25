@@ -80,11 +80,31 @@ function installAutofill(name) {
     }
     return '';
   }
+  // The heading of the part of the form a field is in, such as "Education" or
+  // "Work Experience 2": the nearest heading before it, or a named group around it.
+  const HEADING = 'h1, h2, h3, h4, h5, h6, legend, [role="heading"]';
+  function sectionOf(element) {
+    let node = element;
+    for (let depth = 0; node?.parentElement && depth < 10; depth += 1) {
+      if (/^(group|region)$/.test(node.getAttribute('role') || '')) {
+        const by = node.getAttribute('aria-labelledby');
+        const named = node.getAttribute('aria-label') || (by ? by.split(/\s+/).map(id => textOf(element.ownerDocument.getElementById(id))).join(' ') : '');
+        if (clean(named)) return clean(named, 80);
+      }
+      for (let sibling = node.previousElementSibling, step = 0; sibling && step < 15; sibling = sibling.previousElementSibling, step += 1) {
+        const heading = sibling.matches(HEADING) ? sibling : [...sibling.querySelectorAll(HEADING)].pop();
+        if (heading) return clean(textOf(heading), 80);
+      }
+      node = node.parentElement;
+    }
+    return '';
+  }
   function describe(element, group = [element]) {
     const own = group.length > 1 ? '' : ownLabel(element) || nearbyLabel(element);
     const question = group.length > 1 || !own ? containerText(element, group) : '';
     return {
       label: clean(own || question || element.getAttribute('placeholder') || element.getAttribute('title') || '').replace(/\s*\*$/, ''),
+      section: sectionOf(element),
       name: clean(element.getAttribute('name') || ''), id: clean(element.id || ''),
       placeholder: clean(element.getAttribute('placeholder') || ''), autocomplete: clean(element.getAttribute('autocomplete') || '', 60),
       required: group.some(field => field.required || field.getAttribute('aria-required') === 'true') || /\*\s*$/.test(own || question),
@@ -153,6 +173,10 @@ function installAutofill(name) {
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
         glow(element);
+        filled += 1;
+      } else if (item.check === true && element.type === 'checkbox') {
+        if (!element.checked) element.click();
+        glow(element.labels?.[0] || element);
         filled += 1;
       } else if (Number.isInteger(item.option) && group[item.option]?.type === 'radio') {
         group[item.option].click();
@@ -230,12 +254,15 @@ const RULES = [
   ['state', /\bstate\b|province|\bregion\b|省份/],
   ['country', /country|国家/],
   ['location', /location|where (are you|do you) (currently )?(located|based|live)|currently (located|based|reside)|所在地/],
+  ['gpa', /\bgpa\b|grade point|绩点/],
   ['school', /school|university|college|institution|学校|大学/],
   ['degree', /degree|学位|学历/],
   ['major', /\bmajor\b|field of study|discipline|concentration|专业/],
   ['graduation', /graduat|毕业/],
-  ['company', /current (company|employer)|most recent (company|employer)|^(current )?(company|employer)( name)?$|现(在的)?公司/],
-  ['title', /current (job )?(title|role|position)|most recent (job )?(title|role)|^(job )?title$|职位|职称/],
+  ['currentCompany', /current (company|employer)|most recent (company|employer)|现(在的)?公司/],
+  ['company', /^(company|employer)( name)?$/],
+  ['currentTitle', /current (job )?(title|role|position)|most recent (job )?(title|role)/],
+  ['title', /^(job )?title$|职位|职称/],
   ['yearsExperience', /years? of (professional |relevant |work |industry )?experience|how many years|工作年限/],
   ['authorizedWithoutSponsorship', /without (the need for |requiring |needing )?(visa )?sponsor/],
   ['needsSponsorship', /sponsor/],
@@ -250,6 +277,32 @@ const RULES = [
   ['eeoVeteran', /veteran/],
   ['eeoDisability', /disabilit/],
 ];
+// Inside a form's Education or Work Experience part, its fields are about
+// one school or job each; the nth such part takes the nth entry.
+const EDUCATION_PART = /education|academic|学历|教育/;
+const EXPERIENCE_PART = /experience|employment|work history|job history|career history|工作经历|工作经验|实习经历/;
+const PART_RULES = {
+  education: [
+    ['gpa', /\bgpa\b|grade point|grade average|绩点/],
+    ['school', /school|university|college|institution|学校|大学|院校/],
+    ['degree', /degree|学位|学历/],
+    ['major', /major|field of study|discipline|concentration|subject|专业/],
+    ['eduStart', /\bfrom\b|start|begin|入学|开始/],
+    ['graduation', /\bto\b|\bend\b|graduat|until|complet|毕业|结束/],
+  ],
+  experience: [
+    ['workSummary', /descri|responsibilit|summary|achievement|duties|accomplishment|职责|工作内容|描述/],
+    ['company', /company|employer|organi[sz]ation|公司|单位/],
+    ['title', /title|position|role|职位|职称|岗位/],
+    ['workLocation', /location|city|地点|城市/],
+    ['workStart', /\bfrom\b|start|begin|开始|入职/],
+    ['workEnd', /\bto\b|\bend\b|until|离职|结束/],
+  ],
+};
+const DATE_KEYS = ['eduStart', 'graduation', 'workStart', 'workEnd'];
+const ENTRY_KEYS = { school: 'education', degree: 'education', major: 'education', gpa: 'education', eduStart: 'education', graduation: 'education',
+  company: 'experience', title: 'experience', workLocation: 'experience', workStart: 'experience', workEnd: 'experience', workSummary: 'experience', workCurrent: 'experience' };
+
 // Fields about someone else, or ones Dayjob should never guess.
 const SKIP = /emergency|reference|referee|recruiter|hiring manager|\breferr(er|ed)\b|referral('?s)? (name|email|phone)|employee('?s)? (name|email)|captcha|password|signature|签名/;
 const YES_NO_KEYS = ['needsSponsorship', 'workAuthorized', 'willingToRelocate', 'authorizedWithoutSponsorship'];
@@ -257,6 +310,12 @@ const DECLINE = /decline|prefer not|don.?t wish|do not wish|not wish to|rather n
 
 const words = value => String(value || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_\-[\]().:*?]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 const norm = value => words(value).replace(/[^\p{L}\p{N} ]/gu, '').trim();
+
+// The Education or Work Experience part of a form a field is in, if any.
+function partOf(field) {
+  const where = words(`${field.section || ''} ${field.name} ${field.id}`);
+  return EDUCATION_PART.test(where) ? 'education' : EXPERIENCE_PART.test(where) ? 'experience' : null;
+}
 
 function keyFor(field) {
   const autocomplete = (field.autocomplete || '').toLowerCase().split(/\s+/).pop();
@@ -266,6 +325,17 @@ function keyFor(field) {
   const label = words(field.label);
   const attributes = words(`${field.name} ${field.id} ${field.placeholder}`);
   if (SKIP.test(label) || (!label && SKIP.test(attributes))) return null;
+  const part = partOf(field);
+  if (field.kind === 'checkbox') {
+    return part === 'experience' && /current|presently|still (work|employed)|work here|至今|在职/.test(`${label} ${attributes}`) ? 'workCurrent' : null;
+  }
+  if (part) {
+    for (const text of [label, attributes]) {
+      if (!text) continue;
+      const rule = PART_RULES[part].find(([key, pattern]) => pattern.test(text) && !(DATE_KEYS.includes(key) && field.type === 'textarea'));
+      if (rule) return rule[0];
+    }
+  }
   if (byAutocomplete) return byAutocomplete;
   for (const text of [label, attributes]) {
     if (!text) continue;
@@ -275,10 +345,34 @@ function keyFor(field) {
   return null;
 }
 
-// The profile's answer for a key, as text.
-function answerFor(key, profile) {
+// A LinkedIn handle, or a link typed without https, as the profile's link;
+// anything else (such as the name on the profile) as written.
+function linkedinLink(value) {
+  const text = String(value || '').trim();
+  if (/linkedin\.com\//i.test(text)) return /^https?:\/\//i.test(text) ? text : `https://${text.replace(/^\/+/, '')}`;
+  const handle = /^@?([\w-]{3,100})\/?$/.exec(text)?.[1];
+  return handle ? `https://www.linkedin.com/in/${handle}` : text;
+}
+
+// The profile's answer for a key, as text; n picks the school or job.
+function answerFor(key, profile, n = 0) {
   const join = (...parts) => parts.filter(Boolean).join(' ');
+  const school = (profile.education || [])[n] || {};
+  const job = (profile.experience || [])[n] || {};
+  const latest = (profile.experience || []).find(item => item.current) || (profile.experience || [])[0] || {};
   switch (key) {
+    case 'linkedin': return linkedinLink(profile.linkedin);
+    case 'school': case 'degree': case 'major': case 'gpa': return school[key] ?? '';
+    case 'eduStart': return school.start ?? '';
+    case 'graduation': return school.end ?? '';
+    case 'company': case 'title': return job[key] ?? '';
+    case 'workLocation': return job.location ?? '';
+    case 'workStart': return job.start ?? '';
+    case 'workEnd': return job.current ? '' : job.end ?? '';
+    case 'workSummary': return job.summary ?? '';
+    case 'workCurrent': return job.current ? 'yes' : '';
+    case 'currentCompany': return latest.company ?? '';
+    case 'currentTitle': return latest.title ?? '';
     case 'fullName': return join(profile.firstName, profile.lastName);
     case 'preferredName': return profile.preferredName || profile.firstName;
     case 'location': return [profile.city, profile.state].filter(Boolean).join(', ') || profile.country;
@@ -331,27 +425,78 @@ function optionFor(key, answer, options) {
     const kind = kinds.find(pattern => pattern.test(value));
     if (kind) return pick(option => kind.test(option));
   }
-  if (key === 'graduation') {
+  if (DATE_KEYS.includes(key)) {
+    // A month on its own (from dateAnswer) picks January…December or 1…12; otherwise the year.
+    if (/^\d{1,2}$/.test(answer)) {
+      const month = Number(answer);
+      return pick(option => option.startsWith(MONTH_NAMES[month - 1].slice(0, 3)) || option === String(month) || option === answer.padStart(2, '0') || option === `${month}月`);
+    }
     const year = /\b(19|20)\d\d\b/.exec(answer)?.[0];
-    if (year) return pick(option => option === year);
+    return year ? pick(option => option === year) : -1;
   }
   const exact = pick(option => option === value);
   if (exact >= 0) return exact;
   return value.length >= 3 ? pick(option => option.length >= 3 && (option.includes(value) || value.includes(option))) : -1;
 }
 
-// What to put in each field: [{ frame, index, value } | { frame, index, option }]
-// plus which profile entry each filled field took, for the summary.
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+// Which part of a date a field asks for, from its label and placeholder.
+function datePart(field) {
+  const hint = words(`${field.label} ${field.placeholder}`);
+  const month = /\bmonth\b|^mm$|月份?$/.test(hint) || words(field.placeholder) === 'mm';
+  const year = /\byear\b|^yyyy$|年份?$/.test(hint) || words(field.placeholder) === 'yyyy';
+  return month && !year ? 'month' : year && !month ? 'year' : 'full';
+}
+// A profile date (2024-08 or 2024) as the field wants it: the month or the
+// year alone, YYYY-MM for a month input, or as its placeholder shows (MM/YYYY
+// when it does not say).
+function dateAnswer(value, field) {
+  const [year, month] = String(value).split('-');
+  const part = datePart(field);
+  if (part === 'year') return year;
+  if (part === 'month') return month || '';
+  if (field.kind !== 'text') return value;
+  if (field.type === 'month') return month ? `${year}-${month}` : '';
+  if (field.type !== 'text') return '';
+  if (!month) return year;
+  const shape = /(yyyy)([-/. ]?)(mm)|(mm)([-/. ]?)(yyyy)/i.exec(field.placeholder || '');
+  if (shape?.[1]) return `${year}${shape[2]}${month}`;
+  return `${month}${shape?.[5] ?? '/'}${year}`;
+}
+
+// What to put in each field: [{ frame, index, value } | { frame, index, option }
+// | { frame, index, check }] plus which profile entry each filled field took,
+// for the summary. The nth field of a kind for schools or jobs (counting
+// filled ones, so a second pass lines up) takes the nth entry. Inside an
+// Education or Work Experience part, a field that comes after the start of a
+// later entry belongs to that entry.
 function planFill(fields, profile) {
   const fills = [];
   const used = [];
+  const seen = new Map();
   for (const field of fields) {
-    if (field.filled || field.kind === 'file' || field.kind === 'checkbox') continue;
+    if (field.kind === 'file') continue;
     const key = keyFor(field);
     if (!key) continue;
-    const answer = String(answerFor(key, profile) || '').trim();
+    let n = 0;
+    if (ENTRY_KEYS[key]) {
+      const part = partOf(field);
+      const group = `${ENTRY_KEYS[key]}:${part ? 'part' : 'loose'}`;
+      if (!seen.has(group)) seen.set(group, new Map());
+      const counts = seen.get(group);
+      const slot = DATE_KEYS.includes(key) ? `${key}:${datePart(field)}` : key;
+      const count = counts.get(slot) || 0;
+      n = part ? Math.max(count, Math.max(0, ...counts.values()) - 1) : count;
+      counts.set(slot, count + 1);
+    }
+    if (field.filled) continue;
+    let answer = String(answerFor(key, profile, n) || '').trim();
+    if (answer && DATE_KEYS.includes(key)) answer = dateAnswer(answer, field);
     if (!answer) continue;
-    if (field.kind === 'select' || field.kind === 'radio') {
+    if (field.kind === 'checkbox') {
+      if (key !== 'workCurrent' || answer !== 'yes') continue;
+      fills.push({ frame: field.frame, index: field.index, check: true });
+    } else if (field.kind === 'select' || field.kind === 'radio') {
       const option = optionFor(key, answer, field.options || []);
       if (option < 0) continue;
       fills.push({ frame: field.frame, index: field.index, option });
@@ -363,6 +508,7 @@ function planFill(fields, profile) {
       if (['date', 'datetime-local', 'time', 'week'].includes(field.type)) continue;
       if (field.type === 'email' && key !== 'email') continue;
       if (key === 'coverLetter' && field.type !== 'textarea') continue;
+      if (field.type === 'url' && !/^https?:\/\//i.test(answer)) continue;
       fills.push({ frame: field.frame, index: field.index, value: answer });
     }
     used.push({ label: field.label || field.name || field.placeholder, key });
