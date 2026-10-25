@@ -30,6 +30,7 @@ import './dayjob/dayjob.css';
 import './dayjob/groove/groove.css';
 import './dayjob/groove/keys.css';
 import './dayjob/groove/fx.css';
+import './dayjob/groove/picker.css';
 
 // note: which of the tune's eight phrases the page's key plays, the same with or without the browser.
 const VIEWS = [

@@ -49,8 +49,8 @@
 .kpi, .funnel-step { box-shadow: inset 0 -3px 0 var(--key-lip); }
 
 /* Filters and search are pills, like the buttons beside them. */
-.filters select, .filters input:not([type]), .search-input { border-radius: 999px; border-color: transparent; }
-.filters select:focus, .filters input:not([type]):focus { border-color: var(--line-strong); }
+.filters input:not([type]), .search-input { border-radius: 999px; border-color: transparent; }
+.filters input:not([type]):focus { border-color: var(--line-strong); }
 
 /* A job's dates and sources as one line of small facts instead of four boxes. */
 .facts-line { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 0; }

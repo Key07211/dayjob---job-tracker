@@ -9,6 +9,7 @@ import { E8, flyTo, leave, leaveThen } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
+import { Select } from './groove/Picker.jsx';
 
 // A search or company that was just added drops in like a new track on a mixing desk, its level meter jumping for a moment.
 function useArrived() {
@@ -68,24 +69,24 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
         <label>{t('地点', 'Location')}<input value={form.location} onChange={event => set('location', event.target.value)} maxLength={120} placeholder="San Francisco Bay Area" /></label>
         <label>{t('名称（可选）', 'Name (optional)')}<input value={form.name} onChange={event => set('name', event.target.value)} maxLength={80} placeholder={t('默认用关键词', 'Defaults to the keywords')} /></label>
         <label>{t('发布时间', 'Posted')}
-          <select value={form.hoursOld} onChange={event => set('hoursOld', event.target.value)}>
+          <Select value={form.hoursOld} onChange={event => set('hoursOld', event.target.value)}>
             {POSTED.map(option => <option key={option.value} value={option.value}>{t(...option.label)}</option>)}
-          </select>
+          </Select>
         </label>
         <label>{t('工作类型', 'Job type')}
-          <select value={form.jobType} onChange={event => set('jobType', event.target.value)}>
+          <Select value={form.jobType} onChange={event => set('jobType', event.target.value)}>
             <option value="">{t('不限', 'Any')}</option>
             {Object.entries(labels('jobType')).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
-          </select>
+          </Select>
         </label>
         <label>{t('每个网站最多', 'Results per site')}
           <input type="number" min={1} max={200} value={form.resultsWanted} onChange={event => set('resultsWanted', event.target.value)} />
           <small>{t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</small>
         </label>
         <label>{t('Indeed 国家/地区', 'Indeed country')}
-          <select value={form.country} onChange={event => set('country', event.target.value)}>
+          <Select value={form.country} onChange={event => set('country', event.target.value)}>
             {countries.map(country => <option key={country} value={country}>{countryName(country, lang)}</option>)}
-          </select>
+          </Select>
         </label>
         <label className="check-line"><input type="checkbox" checked={form.isRemote} onChange={event => set('isRemote', event.target.checked)} />{t('只要远程', 'Remote only')}</label>
       </div>

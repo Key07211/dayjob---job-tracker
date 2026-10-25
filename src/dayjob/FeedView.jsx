@@ -13,6 +13,7 @@ import { BEAT, cue, reducedMotion } from './groove/sound.js';
 import { E8, Q, flipList } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
 import { NoteLoader } from './groove/BrandNote.jsx';
+import { Select } from './groove/Picker.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -223,24 +224,24 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       ) : null}
       <div className="filters">
         <input className="search-input" placeholder={t('搜索职位、公司或地点', 'Search title, company or location')} value={filters.q} onChange={event => set('q', event.target.value)} />
-        <select value={filters.sort} onChange={event => set('sort', event.target.value)} aria-label={t('排序', 'Sort')}>
+        <Select value={filters.sort} onChange={event => set('sort', event.target.value)} aria-label={t('排序', 'Sort')}>
           {SORTS.map(option => <option key={option.id} value={option.id}>{t(...option.label)}</option>)}
-        </select>
-        <select value={filters.minScore} onChange={event => set('minScore', event.target.value)} aria-label={t('匹配度', 'Match')}>
+        </Select>
+        <Select value={filters.minScore} onChange={event => set('minScore', event.target.value)} aria-label={t('匹配度', 'Match')}>
           {SCORES.map(option => <option key={option.id} value={option.id}>{t(...option.label)}</option>)}
-        </select>
-        <select value={filters.sinceDays} onChange={event => set('sinceDays', event.target.value)} aria-label={t('时间', 'Time')}>
+        </Select>
+        <Select value={filters.sinceDays} onChange={event => set('sinceDays', event.target.value)} aria-label={t('时间', 'Time')}>
           {SINCE.map(option => <option key={option.id} value={option.id}>{t(...option.label)}</option>)}
-        </select>
-        <select value={filters.site} onChange={event => set('site', event.target.value)} aria-label={t('来源', 'Source')}>
+        </Select>
+        <Select value={filters.site} onChange={event => set('site', event.target.value)} aria-label={t('来源', 'Source')}>
           <option value="">{t('全部来源', 'All sources')}</option>
           {[...new Set([...sites, filters.site].filter(Boolean))].map(site => <option key={site} value={site}>{label('site', site)}</option>)}
-        </select>
+        </Select>
         {boot.searches.length > 1 ? (
-          <select value={filters.searchId} onChange={event => set('searchId', event.target.value)} aria-label={t('搜索', 'Search')}>
+          <Select value={filters.searchId} onChange={event => set('searchId', event.target.value)} aria-label={t('搜索', 'Search')}>
             <option value="">{t('全部搜索', 'All searches')}</option>
             {boot.searches.map(search => <option key={search.id} value={search.id}>{search.name}</option>)}
-          </select>
+          </Select>
         ) : null}
         <label className="check"><input type="checkbox" checked={filters.includeClosed} onChange={event => set('includeClosed', event.target.checked)} />{t('显示已关闭', 'Show closed')}</label>
       </div>
