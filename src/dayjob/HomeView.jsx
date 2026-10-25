@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BellRing, ChartColumn, Flame, Ghost, History, LoaderCircle, RefreshCw, Sparkles, Table2 } from 'lucide-react';
 import { api } from '../api.js';
-import { formatDay, label, relativeDay } from './format.js';
+import { dateLine, formatDay, label, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { GoalsPanel } from './GoalsPanel.jsx';
@@ -360,7 +360,7 @@ function PicksCard({ picks, openItem }) {
 }
 
 export function HomeView({ dataVersion, setView, openItem }) {
-  const { t, lang } = useI18n();
+  const { t, locale } = useI18n();
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -372,13 +372,13 @@ export function HomeView({ dataVersion, setView, openItem }) {
     return () => { cancelled = true; };
   }, [dataVersion, reloadKey]);
 
-  const today = new Date();
-  const dateText = lang === 'zh' ? `${today.getMonth() + 1}月${today.getDate()}日 ${today.toLocaleDateString('zh-CN', { weekday: 'long' })}`
-    : today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   return (
     <section className="home">
       <header className="view-header">
-        <div><h1>{t('主页', 'Home')}</h1><p>{dateText}{report ? t(` · 本周已投递 ${report.kpis.appliedThisWeek} 份`, ` · ${report.kpis.appliedThisWeek} applied this week`) : ''}</p></div>
+        <div className="title-block">
+          <p className="view-date">{dateLine(locale)}{report ? t(` · 本周已投递 ${report.kpis.appliedThisWeek} 份`, ` · ${report.kpis.appliedThisWeek} applied this week`) : ''}</p>
+          <h1>{t('主页', 'Home')}</h1>
+        </div>
         <div className="header-actions"><button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button></div>
       </header>
       {error ? <p className="notice error">{error}</p> : null}

@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { OPEN_STATUSES, dateInputToIso, daysSince, formatDay, formatTime, label, labels, localDateInput, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
+import { emit } from './groove/bus.js';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -44,6 +45,7 @@ function NewApplication({ onCreated, onCancel }) {
     try {
       const created = await api('/api/applications', { method: 'POST', body: { company: form.company, title: form.title, jobUrl: form.jobUrl || undefined,
         appliedAt: form.day === localDateInput() ? undefined : dateInputToIso(form.day), note: form.note } });
+      emit('apply', { postingId: created.postingId || null });
       onCreated(created);
     } catch (failure) { setError(failure.message); }
   }
@@ -214,8 +216,7 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
   return (
     <section className="applications">
       <header className="view-header">
-        <div><h1>{t('投递追踪', 'Applications')}</h1><p>{t('点“我已投递”后自动加入。Dayjob 会检查岗位是否关闭、提醒跟进、发现长时间无回复。',
-          'Jobs land here when you click “I applied”. Dayjob checks whether postings close, reminds you to follow up and spots long silences.')}</p></div>
+        <div><h1>{t('投递追踪', 'Applications')}</h1></div>
         <div className="header-actions"><button className="button" onClick={() => setAdding(value => !value)}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div>
       </header>
       {items.length ? <Funnel items={items} /> : null}

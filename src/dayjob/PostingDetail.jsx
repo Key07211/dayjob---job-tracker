@@ -5,6 +5,7 @@ import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInp
 import { useI18n } from '../i18n.jsx';
 import { Markdown } from './Markdown.jsx';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
+import { emit } from './groove/bus.js';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -137,10 +138,11 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   });
   const apply = input => act('apply', async () => {
     await api(`/api/postings/${encodeURIComponent(id)}/apply`, { method: 'POST', body: input });
+    emit('apply', { postingId: id });
     const updated = await api(`/api/postings/${encodeURIComponent(id)}`);
     setPosting(updated);
     setApplying(false);
-    onChanged(updated, { removed: true });
+    onChanged(updated, { removed: true, applied: true });
   });
 
   if (error && !posting) return <div className="detail-empty">{error}</div>;

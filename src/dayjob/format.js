@@ -118,3 +118,9 @@ export function localDateInput(value = new Date()) {
 export function dateInputToIso(value) {
   return value ? new Date(`${value}T12:00:00`).toISOString() : null;
 }
+
+// The date above a page title, like "10.24 · 周六".
+export const dateLine = locale => {
+  const now = new Date();
+  return `${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')} · ${now.toLocaleDateString(locale, { weekday: 'short' })}`;
+};

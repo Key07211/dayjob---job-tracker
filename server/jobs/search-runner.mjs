@@ -9,6 +9,8 @@ const COMPANY_DELAY_MS = 800;
 // and stores what it finds. One run at a time; a second request joins it.
 export function createSearchRunner({ repo, http, bridge, now = () => new Date(), log = console.warn }) {
   let active = null;
+  // Sources searched so far in the running search: each search on each site, then each company board.
+  let progress = null;
 
   async function searchOne(search, detail, totals, newIds) {
     const input = { keywords: boardQuery(search.keywords), location: search.location, distance: search.distance, hoursOld: search.hoursOld,
@@ -34,6 +36,7 @@ export function createSearchRunner({ repo, http, bridge, now = () => new Date(),
       } catch (error) {
         detail.push({ source, error: error.message, blocked: Boolean(error.blocked) });
       }
+      if (progress) progress.done += 1;
     }
     repo.touchSearch(search.id);
   }
@@ -64,6 +67,7 @@ export function createSearchRunner({ repo, http, bridge, now = () => new Date(),
       } catch (error) {
         detail.push({ source, error: error.message });
       }
+      if (progress) progress.done += 1;
     }
   }
 
@@ -74,6 +78,8 @@ export function createSearchRunner({ repo, http, bridge, now = () => new Date(),
     const newIds = new Set();
     let searches = repo.listSearches().filter(search => search.enabled);
     if (searchIds?.length) searches = searches.filter(search => searchIds.includes(search.id));
+    const boards = searchIds?.length ? 0 : repo.listCompanies().filter(company => company.enabled).length;
+    progress = { done: 0, total: searches.reduce((sum, search) => sum + search.sites.length, 0) + boards };
     try {
       for (const search of searches) await searchOne(search, detail, totals, newIds);
       if (!searchIds?.length) await companies(searches, detail, totals, newIds);
@@ -89,8 +95,9 @@ export function createSearchRunner({ repo, http, bridge, now = () => new Date(),
 
   return {
     get active() { return Boolean(active); },
+    get progress() { return active && progress ? { ...progress } : null; },
     run(options = {}) {
-      if (!active) active = execute({ trigger: options.trigger || 'manual', searchIds: options.searchIds }).finally(() => { active = null; });
+      if (!active) active = execute({ trigger: options.trigger || 'manual', searchIds: options.searchIds }).finally(() => { active = null; progress = null; });
       return active;
     },
   };

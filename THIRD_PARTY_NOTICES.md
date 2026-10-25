@@ -34,4 +34,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Fonts
+
+The interface bundles two fonts under the SIL Open Font License 1.1
+(https://openfontlicense.org), from the Fontsource packages
+`@fontsource-variable/bricolage-grotesque` and `@fontsource/dm-mono`:
+
+- Bricolage Grotesque: Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage)
+- DM Mono: Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)
+
+## Melodies
+
+The sound cues play short phrases from public-domain music: Beethoven's
+Symphony No. 9 ("Ode to Joy"), Moonlight Sonata and Für Elise, and Grieg's
+"Morning Mood".
+
 npm dependencies keep their own licenses in `node_modules/<package>/LICENSE`.
