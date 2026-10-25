@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { BellRing, ChartColumn, Flame, Ghost, History, LoaderCircle, RefreshCw, Sparkles, Table2 } from 'lucide-react';
+import { BellRing, ChartColumn, Flame, Ghost, History, RefreshCw, Sparkles, Table2 } from 'lucide-react';
 import { api } from '../api.js';
-import { dateLine, formatDay, label, relativeDay } from './format.js';
+import { formatDay, label, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { GoalsPanel } from './GoalsPanel.jsx';
+import { CountUp } from './groove/Fx.jsx';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 import { pressThen } from './groove/fx.js';
+import { NoteLoader } from './groove/BrandNote.jsx';
 
 const FUNNEL = ['applied', 'oa', 'interview', 'offer'];
 const OPEN = ['applied', 'oa', 'interview', 'offer'];
@@ -54,7 +58,7 @@ function Tile({ title, value, detail, onClick }) {
   return (
     <Tag className={`kpi${onClick ? ' clickable' : ''}`} onClick={onClick ? event => pressThen(event.currentTarget, onClick) : undefined}>
       <span>{title}</span>
-      <strong>{value}</strong>
+      <strong>{typeof value === 'number' ? <CountUp value={value} /> : /^\d+%$/.test(value) ? <CountUp value={parseInt(value, 10)} suffix="%" /> : value}</strong>
       <small>{detail}</small>
     </Tag>
   );
@@ -166,7 +170,7 @@ function FunnelCard({ funnel, statuses }) {
         <>
           <ol className="funnel-bars">
             {FUNNEL.map((stage, index) => (
-              <li key={stage}>
+              <li key={stage} style={{ '--i': index }}>
                 <span className="name">{index === 0 ? t('投递', 'Applied') : label('status', stage)}</span>
                 <span className="track"><i style={{ width: `${Math.max(funnel[stage] ? 2 : 0, percent(funnel[stage], funnel.applied))}%` }} /></span>
                 <span className="count"><strong>{funnel[stage]}</strong>{index ? <small>{percent(funnel[stage], funnel.applied)}%</small> : null}</span>
@@ -227,7 +231,7 @@ function Heatmap({ days }) {
                 {date.getDate() <= 7 && row === 0 ? (
                   <text x={leftPad + column * (cell + gap)} y={10} className="month">{lang === 'zh' ? `${date.getMonth() + 1}月` : date.toLocaleDateString('en-US', { month: 'short' })}</text>
                 ) : null}
-                <rect x={leftPad + column * (cell + gap)} y={topPad + row * (cell + gap)} width={cell} height={cell} rx="3"
+                <rect x={leftPad + column * (cell + gap)} y={topPad + row * (cell + gap)} width={cell} height={cell} rx="3" style={{ '--d': column + row }}
                   className={`level-${level(day.applied)}${tip?.key === day.day ? ' hovered' : ''}`}
                   onMouseMove={event => show(event, [dayText(day), t(`投递 ${day.applied}`, `${day.applied} applied`)], day.day)} />
               </g>
@@ -363,7 +367,7 @@ function PicksCard({ picks, openItem }) {
 }
 
 export function HomeView({ dataVersion, setView, openItem }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -378,14 +382,15 @@ export function HomeView({ dataVersion, setView, openItem }) {
   return (
     <section className="home">
       <header className="view-header">
+        <ListenWave />
         <div className="title-block">
-          <p className="view-date">{dateLine(locale)}{report ? t(` · 本周已投递 ${report.kpis.appliedThisWeek} 份`, ` · ${report.kpis.appliedThisWeek} applied this week`) : ''}</p>
+          <ViewDate>{report ? <span>{t(`· 本周已投递 ${report.kpis.appliedThisWeek} 份`, `· ${report.kpis.appliedThisWeek} applied this week`)}</span> : null}</ViewDate>
           <h1>{t('主页', 'Home')}</h1>
         </div>
         <div className="header-actions"><button className="icon-button" data-fx="refresh" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button></div>
       </header>
       {error ? <p className="notice error">{error}</p> : null}
-      {!report ? (error ? null : <div className="list-empty"><LoaderCircle className="spin" /></div>) : (
+      {!report ? (error ? null : <div className="list-empty"><NoteLoader /></div>) : (
         <>
           <Kpis kpis={report.kpis} setView={setView} />
           <GoalsPanel version={dataVersion + reloadKey} />

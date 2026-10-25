@@ -25,7 +25,7 @@ export function PianoNav({ items, theme, label }) {
           {BLACK_AFTER.includes(index - 1) ? <i className="bkey" aria-hidden="true" /> : null}
           <item.icon size={18} />
           <span>{item.label}</span>
-          {item.badge ? <em className={item.alert ? 'alert' : undefined}>{item.badge}</em> : null}
+          {item.badge ? <em key={item.badge} className={item.alert ? 'alert' : undefined}>{item.badge}</em> : null}
         </button>
       ))}
     </nav>

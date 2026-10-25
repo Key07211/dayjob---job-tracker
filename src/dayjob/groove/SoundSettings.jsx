@@ -49,8 +49,8 @@ export function SoundSettings() {
           <Toggle on={groove.followMusic} label={t('跟随正在播放的音乐', 'Follow the music playing')} onChange={on => { prefs.set({ followMusic: on }); setFollow(on, { gesture: true }); }} />
           <small>{playing ? t(`正在播放：${track.title}${track.artist ? ` · ${track.artist}` : ''}${appName(track.app, t) ? `（${appName(track.app, t)}）` : ''}`,
             `Playing: ${track.title}${track.artist ? ` · ${track.artist}` : ''}${appName(track.app, t) ? ` (${appName(track.app, t)})` : ''}`)
-            : t('音乐软件放歌时，唱片机显示歌名并跟着转，页面底部出现声波，提示音也会放轻。网页里的声音不算。声音只在本机分析，不录音。',
-              'While a music app plays, the record player shows the song and turns with it, a wave runs along the bottom and cues play softer. Sound from web pages does not count. The sound is analysed on this computer only and never recorded.')}</small>
+            : t('音乐软件放歌时，唱片机显示歌名并跟着转，每页顶部的声浪跟着音乐起伏，提示音也会放轻。网页里的声音不算。声音只在本机分析，不录音。',
+              'While a music app plays, the record player shows the song and turns with it, the wave across the top of each page moves with the music and cues play softer. Sound from web pages does not count. The sound is analysed on this computer only and never recorded.')}</small>
         </div>
       ) : null}
     </section>

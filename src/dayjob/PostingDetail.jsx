@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bookmark, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, FileUser, Globe, LoaderCircle, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
+import { Bookmark, Building2, CalendarClock, CircleCheck, ExternalLink, EyeOff, FileUser, Globe, MapPin, RotateCcw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../api.js';
 import { dateInputToIso, formatDay, formatTime, jobTypeText, label, localDateInput, relativeDay, salaryText, scoreTone } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -9,6 +9,7 @@ import { emit } from './groove/bus.js';
 import { cue } from './groove/sound.js';
 import { flyTo, keyBump, leave } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
+import { NoteLoader } from './groove/BrandNote.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -188,11 +189,11 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   const restore = () => { cue('restore'); setStatus('new'); };
 
   if (error && !posting) return <div className="detail-empty">{error}</div>;
-  if (!posting) return <div className="detail-empty"><LoaderCircle className="spin" /></div>;
+  if (!posting) return <div className="detail-empty"><NoteLoader /></div>;
   const salary = salaryText(posting.salary);
   const facts = [jobTypeText(posting.jobType), posting.jobLevel, posting.isRemote ? t('远程', 'Remote') : null, posting.department, posting.jobFunction].filter(Boolean);
   return (
-    <article className="posting-detail">
+    <article className="posting-detail" key={posting.id}>
       <header>
         <div className="detail-title">
           <div className="logo large">{posting.companyLogo ? <img src={posting.companyLogo} alt="" referrerPolicy="no-referrer" /> : <span>{(posting.company || posting.title).slice(0, 1).toUpperCase()}</span>}</div>

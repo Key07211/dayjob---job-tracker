@@ -7,6 +7,8 @@ import { serverText } from './server-text.js';
 import { BEAT, cue } from './groove/sound.js';
 import { leaveThen, pop, scatter, shake, typeIn } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -377,7 +379,7 @@ export function ResumeView({ boot, reload, status, focus }) {
   const { t } = useI18n();
   return (
     <section className="settings-page">
-      <header className="view-header"><div><h1>{t('简历与 AI', 'Resume & AI')}</h1></div></header>
+      <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('简历与 AI', 'Resume & AI')}</h1></div></header>
       <Resumes resumes={boot.resumes} reload={reload} />
       <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
       <AiSettings boot={boot} reload={reload} status={status} />

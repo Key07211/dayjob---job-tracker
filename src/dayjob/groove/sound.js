@@ -337,18 +337,3 @@ export function previewTune(choice, theme) {
   keyGate.phraseAt = performance.now() + t.keys.length * 520;
   return t.keys.length;
 }
-// Today's scores as a melody, on the staff behind the Today title.
-export function playMelody(scores, onNote) {
-  const out = voice(true);
-  if (!out) return 0;
-  scores.forEach((score, i) => {
-    piano(staffMidi(score), { at: 0.05 + i * (BEAT / 2000), gain: 0.13 }, out);
-    if (onNote) setTimeout(() => onNote(i), 50 + i * (BEAT / 2));
-  });
-  if (onNote) setTimeout(() => onNote(-1), 250 + scores.length * (BEAT / 2));
-  return scores.length;
-}
-// A score's note on the staff: C major from E4 (40) up to F5 (100), so higher scores sit higher.
-const SCALE = [64, 65, 67, 69, 71, 72, 74, 76, 77];
-export const staffStep = score => Math.max(0, Math.min(SCALE.length - 1, Math.round((Math.max(40, Math.min(100, score)) - 40) / 60 * (SCALE.length - 1))));
-export const staffMidi = score => SCALE[staffStep(score)];

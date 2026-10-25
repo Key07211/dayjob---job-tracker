@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Download, FolderOpen, Globe, LampDesk, Link2, LoaderCircle, Monitor, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock3, Download, FolderOpen, Globe, LampDesk, Link2, LoaderCircle, Monitor, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
@@ -7,9 +7,11 @@ import { SoundSettings } from './groove/SoundSettings.jsx';
 import { cue } from './groove/sound.js';
 import { pop, shake } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
+import { setThemeChoice, setThemeHours, useThemeSettings } from './theme.js';
+import { ViewDate } from './ViewDate.jsx';
+import { ListenWave } from './groove/ListenWave.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
-let fadeTimer = 0;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
   error: ['连接异常', 'Connection problem'], unavailable: ['没有找到 Claude Code 或 Claude Desktop', 'Claude Code or Claude Desktop not found'] };
 
@@ -152,7 +154,7 @@ export function SettingsView({ boot, reload, update }) {
     followUpDays: settings.tracking.followUpDays, ghostDays: settings.tracking.ghostDays, checkClosed: settings.tracking.checkClosed,
     desktop: settings.notifications.desktop, minScore: settings.notifications.minScore, pythonCommand: settings.jobspy.pythonCommand,
     retentionDays: settings.retentionDays });
-  const [theme, setTheme] = useState(() => { try { return localStorage.getItem('dayjob-theme') || 'system'; } catch { return 'system'; } });
+  const look = useThemeSettings();
   const [sites, setSites] = useState(boot.sites);
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
@@ -161,18 +163,6 @@ export function SettingsView({ boot, reload, update }) {
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { desktop?.getInfo().then(setInfo).catch(() => {}); }, []);
 
-  function applyTheme(value) {
-    setTheme(value);
-    try { localStorage.setItem('dayjob-theme', value); } catch { /* optional */ }
-    const dark = value === 'dark' || (value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    // The colours fade over one beat instead of switching at once.
-    const root = document.documentElement;
-    root.classList.add('theme-fading');
-    clearTimeout(fadeTimer);
-    fadeTimer = setTimeout(() => root.classList.remove('theme-fading'), 700);
-    root.dataset.theme = dark ? 'night' : 'day';
-    root.style.colorScheme = dark ? 'dark' : 'light';
-  }
   async function save(event) {
     event.preventDefault();
     setError('');
@@ -194,7 +184,7 @@ export function SettingsView({ boot, reload, update }) {
 
   return (
     <section className="settings-page">
-      <header className="view-header"><div><h1>{t('设置', 'Settings')}</h1></div></header>
+      <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div></header>
       <form className="card-section" onSubmit={save}>
         <h2>{t('每日抓取', 'Daily search')}</h2>
         <div className="form-grid">
@@ -239,10 +229,16 @@ export function SettingsView({ boot, reload, update }) {
         <div className="option-row">
           <span>{t('外观', 'Appearance')}</span>
           <div className="segmented">
-            {[['system', '跟随系统', 'System', Monitor, 'screen'], ['light', '浅色', 'Light', Sun, 'sunrise'], ['dark', '深色', 'Dark', LampDesk, 'lamp']].map(([value, zh, en, Icon, fx]) => (
-              <button key={value} className={theme === value ? 'active' : ''} data-fx={fx} onClick={() => applyTheme(value)}><Icon size={14} />{t(zh, en)}</button>
+            {[['time', '按时间', 'By the clock', Clock3, 'hourglass'], ['system', '跟随系统', 'System', Monitor, 'screen'], ['light', '浅色', 'Light', Sun, 'sunrise'], ['dark', '深色', 'Dark', LampDesk, 'lamp']].map(([value, zh, en, Icon, fx]) => (
+              <button key={value} className={look.choice === value ? 'active' : ''} data-fx={fx} onClick={() => setThemeChoice(value)}><Icon size={14} />{t(zh, en)}</button>
             ))}
           </div>
+          {look.choice === 'time' ? (
+            <div className="theme-hours">
+              <label><Sun size={14} />{t('白天从', 'Day from')}<input type="time" value={look.hours.day} onChange={event => setThemeHours({ day: event.target.value })} /></label>
+              <label><LampDesk size={14} />{t('黑夜从', 'Night from')}<input type="time" value={look.hours.night} onChange={event => setThemeHours({ night: event.target.value })} /></label>
+            </div>
+          ) : null}
         </div>
         <p className="hint">{t('数据库：', 'Database: ')}{boot.dataFile} · Dayjob {boot.version}</p>
         {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
