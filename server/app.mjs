@@ -190,7 +190,7 @@ export async function createApp(options = {}) {
       const weeks = number(params.get('weeks')) || DASHBOARD_WEEKS.default;
       return dashboard.report({ weeks: Math.min(DASHBOARD_WEEKS.max, Math.max(DASHBOARD_WEEKS.min, Math.round(weeks))) });
     }
-    if (pathname === '/api/runs') return repo.listRuns(Math.min(number(params.get('limit')) || 20, 100));
+    if (pathname === '/api/runs') return repo.listRuns(Math.min(number(params.get('limit')) || 20, 100), params.get('before') || null);
     match = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (match) return need(repo.listRuns(100).find(run => run.id === match[1]), 'Run');
     if (pathname === '/api/applications') {

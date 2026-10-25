@@ -305,7 +305,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   function updateRunScoring(id, { scored, status, detail }) {
     q('UPDATE runs SET scored = ?, status = ?, detail = ? WHERE id = ?').run(scored, status, JSON.stringify(detail), id);
   }
-  function listRuns(limit = 20) { return q('SELECT * FROM runs ORDER BY started_at DESC LIMIT ?').all(limit).map(runRow); }
+  // Newest first; with `before` (a run's startedAt), the ones that started earlier, for paging back through them.
+  function listRuns(limit = 20, before = null) {
+    return (before ? q('SELECT * FROM runs WHERE started_at < ? ORDER BY started_at DESC LIMIT ?').all(before, limit)
+      : q('SELECT * FROM runs ORDER BY started_at DESC LIMIT ?').all(limit)).map(runRow);
+  }
   function abandonRunningRuns() {
     q("UPDATE runs SET status = 'failed', finished_at = ?, detail = ? WHERE status = 'running'")
       .run(iso(), JSON.stringify([{ source: 'dayjob', error: 'Dayjob closed before this run finished.' }]));

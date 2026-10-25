@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, CheckCircle2, CircleStop, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronUp, CircleStop, LoaderCircle, Pencil, Play, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime, label, labels, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { BEAT, cue, playLift, playNeedle } from './groove/sound.js';
-import { E8, flyTo, leave, leaveThen } from './groove/fx.js';
+import { E8, fadeIn, flyTo, leave, leaveThen, unfold } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
@@ -358,36 +358,107 @@ function Companies({ companies, onChange }) {
   );
 }
 
+// Recent searches: the newest one, with what each source found. Older ones show only when asked for, ten more each
+// time, folded to one line that opens on a click; a folded line says how many of its sources failed.
+const RUNS_FIRST = 1;
+const RUNS_PAGE = 10;
 function Runs({ runs }) {
   const { t } = useI18n();
-  if (!runs?.length) return null;
+  const [older, setOlder] = useState([]);
+  const [shown, setShown] = useState(RUNS_FIRST);
+  const [end, setEnd] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [flipped, setFlipped] = useState(() => new Set());
+  const list = useRef(null);
+  const from = useRef(RUNS_FIRST);
+  const known = new Set(runs.map(run => run.id));
+  const all = [...runs, ...older.filter(run => !known.has(run.id))];
+  const exhausted = end || (!older.length && runs.length < RUNS_PAGE);
+  // The rows that just came in drop in one after another.
+  useLayoutEffect(() => {
+    [...(list.current?.children || [])].slice(from.current, shown).forEach((row, index) => fadeIn(row, index * E8));
+    from.current = shown;
+  }, [shown]);
+  if (!all.length) return null;
+
+  async function more() {
+    const want = shown + RUNS_PAGE;
+    if (all.length < want && !exhausted) {
+      setLoading(true);
+      try {
+        const page = await api(`/api/runs?limit=${want - all.length}&before=${encodeURIComponent(all.at(-1).startedAt)}`);
+        setOlder(current => [...current, ...page]);
+        if (page.length < want - all.length) setEnd(true);
+      } catch {
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
+    setShown(want);
+  }
+  function less(event) {
+    from.current = RUNS_FIRST;
+    setShown(RUNS_FIRST);
+    setFlipped(new Set());
+    event.currentTarget.closest('section')?.scrollIntoView({ block: 'nearest' });
+  }
+  // The newest search starts open and the others folded; a click turns one over.
+  const isOpen = (run, index) => (index === 0) !== flipped.has(run.id);
+  function toggle(run, event) {
+    const row = event.currentTarget.closest('li');
+    setFlipped(current => {
+      const next = new Set(current);
+      if (next.has(run.id)) next.delete(run.id); else next.add(run.id);
+      return next;
+    });
+    requestAnimationFrame(() => unfold(row.querySelector('.run-detail')));
+  }
   return (
     <section className="card-section">
       <h2>{t('最近的抓取', 'Recent searches')}</h2>
-      <ul className="run-list">
-        {runs.map(run => (
-          <li key={run.id}>
-            <div className="run-head">
+      <ul className="run-list" ref={list}>
+        {all.slice(0, shown).map((run, index) => {
+          const open = isOpen(run, index);
+          const failed = run.detail?.filter(entry => entry.error).length || 0;
+          const head = (
+            <>
               <span className={`run-status ${run.cancelled ? 'cancelled' : run.status}`}>{run.cancelled ? <CircleStop size={14} /> : run.status === 'failed' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}{t(...(RUN_STATUS[run.cancelled ? 'cancelled' : run.status] || [run.status, run.status]))}</span>
               <span>{formatTime(run.startedAt)}{run.trigger === 'schedule' ? t(' · 每日自动', ' · daily') : t(' · 手动', ' · manual')}</span>
               <span>{t(`${run.found} 个岗位 · ${run.newCount} 个新 · ${run.scored} 个已打分`, `${run.found} jobs · ${run.newCount} new · ${run.scored} scored`)}</span>
-            </div>
-            {run.detail?.length ? (
-              <ul className="run-detail">
-                {run.detail.map((entry, index) => (
-                  <li key={index} className={entry.error ? 'error' : entry.warning ? 'warning' : ''}>
-                    <span>{entry.source}</span>
-                    {entry.error ? <em>{serverText(entry.error)}{entry.blocked && !/limit|限流/i.test(serverText(entry.error)) ? t('（网站在限流，稍后会再试）', ' (the site is rate limiting; Dayjob tries again later)') : ''}</em>
-                      : entry.warning ? <em>{serverText(entry.warning)}</em>
-                        : <em>{t(`${entry.found} 个`, `${entry.found} found`)}{entry.new ? t(`，${entry.new} 个新`, `, ${entry.new} new`) : ''}{entry.closed ? t(`，${entry.closed} 个已下线`, `, ${entry.closed} closed`) : ''}
-                          {entry.warnings?.length ? t(`（${entry.warnings.map(serverText).join('；')}）`, ` (${entry.warnings.join('; ')})`) : ''}</em>}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </li>
-        ))}
+              {failed && !open ? <span className="run-flag">{t(`${failed} 个来源出错`, `${failed} ${failed === 1 ? 'source' : 'sources'} failed`)}</span> : null}
+            </>
+          );
+          return (
+            <li key={run.id}>
+              {run.detail?.length ? (
+                <button type="button" className="run-head" aria-expanded={open} onClick={event => toggle(run, event)}>{head}<ChevronDown size={15} className="run-chev" /></button>
+              ) : <div className="run-head">{head}</div>}
+              {run.detail?.length && open ? (
+                <ul className="run-detail">
+                  {run.detail.map((entry, index) => (
+                    <li key={index} className={entry.error ? 'error' : entry.warning ? 'warning' : ''}>
+                      <span>{entry.source}</span>
+                      {entry.error ? <em>{serverText(entry.error)}{entry.blocked && !/limit|限流/i.test(serverText(entry.error)) ? t('（网站在限流，稍后会再试）', ' (the site is rate limiting; Dayjob tries again later)') : ''}</em>
+                        : entry.warning ? <em>{serverText(entry.warning)}</em>
+                          : <em>{t(`${entry.found} 个`, `${entry.found} found`)}{entry.new ? t(`，${entry.new} 个新`, `, ${entry.new} new`) : ''}{entry.closed ? t(`，${entry.closed} 个已下线`, `, ${entry.closed} closed`) : ''}
+                            {entry.warnings?.length ? t(`（${entry.warnings.map(serverText).join('；')}）`, ` (${entry.warnings.join('; ')})`) : ''}</em>}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
+      {all.length > shown || !exhausted || shown > RUNS_FIRST ? (
+        <div className="run-more">
+          {all.length > shown || !exhausted ? (
+            <button type="button" className="link" onClick={more} disabled={loading}>{loading ? <LoaderCircle size={14} className="spin" /> : <ChevronDown size={14} />}{t('查看更多记录', 'Show more')}</button>
+          ) : <span>{t('没有更早的记录了', 'Nothing earlier')}</span>}
+          {shown > RUNS_FIRST ? <button type="button" className="link" onClick={less}><ChevronUp size={14} />{t('收起', 'Show less')}</button> : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -406,7 +477,7 @@ export function SearchesView({ boot, reload, status, setView, refreshStatus }) {
   useEffect(() => { if (!running) setPlaying(null); }, [running]);
 
   useEffect(() => {
-    api('/api/runs?limit=10').then(setRuns).catch(() => {});
+    api(`/api/runs?limit=${RUNS_PAGE}`).then(setRuns).catch(() => {});
   }, [running]);
 
   async function runSearch(search) {

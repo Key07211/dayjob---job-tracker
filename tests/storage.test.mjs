@@ -196,3 +196,18 @@ test('settings merge with defaults and runs record results', () => {
   const finished = repo.finishRun(run, { status: 'partial', found: 3, newCount: 2, detail: [{ source: 'x', error: 'y' }] });
   assert.equal(finished.newCount, 2);
 });
+
+test('runs page back from the oldest one shown', () => {
+  const now = clock('2026-10-01T08:30:00Z');
+  const { repo } = memoryRepo(now);
+  const ids = [];
+  for (let day = 0; day < 15; day += 1) {
+    ids.push(repo.startRun('search', 'schedule'));
+    now.advance(24 * 3600 * 1000);
+  }
+  const newest = repo.listRuns(10);
+  assert.deepEqual(newest.map(run => run.id), ids.slice(5).reverse());
+  const older = repo.listRuns(10, newest.at(-1).startedAt);
+  assert.deepEqual(older.map(run => run.id), ids.slice(0, 5).reverse(), 'the five before, none twice');
+  assert.deepEqual(repo.listRuns(10, older.at(-1).startedAt), [], 'nothing before the first');
+});
