@@ -5,6 +5,7 @@ import { dateLine, formatDay, label, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { GoalsPanel } from './GoalsPanel.jsx';
+import { pressThen } from './groove/fx.js';
 
 const FUNNEL = ['applied', 'oa', 'interview', 'offer'];
 const OPEN = ['applied', 'oa', 'interview', 'offer'];
@@ -51,7 +52,7 @@ function Tip({ tip }) {
 function Tile({ title, value, detail, onClick }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag className={`kpi${onClick ? ' clickable' : ''}`} onClick={onClick}>
+    <Tag className={`kpi${onClick ? ' clickable' : ''}`} onClick={onClick ? event => pressThen(event.currentTarget, onClick) : undefined}>
       <span>{title}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
@@ -81,6 +82,8 @@ function Kpis({ kpis, setView }) {
 function TrendChart({ weeks }) {
   const { t } = useI18n();
   const [asTable, setAsTable] = useState(false);
+  // After a switch, the bars stand up from the baseline, or the table's rows come in one by one.
+  const [switched, setSwitched] = useState(false);
   const { box, tip, show, hide } = useTip();
   const width = 640;
   const height = 210;
@@ -102,22 +105,22 @@ function TrendChart({ weeks }) {
     <section className="home-card wide">
       <header>
         <h2>{t(`近 ${weeks.length} 周投递`, `Last ${weeks.length} weeks`)}<span>{t(`共 ${total} 份`, `${total} applied`)}</span></h2>
-        <button className="icon-button" title={asTable ? t('看图表', 'Show chart') : t('看表格', 'Show table')} onClick={() => setAsTable(value => !value)}>
+        <button className="icon-button" data-fx="flip" title={asTable ? t('看图表', 'Show chart') : t('看表格', 'Show table')} onClick={() => { setSwitched(true); setAsTable(value => !value); }}>
           {asTable ? <ChartColumn size={16} /> : <Table2 size={16} />}
         </button>
       </header>
       {asTable ? (
         <div className="table-scroll">
-          <table className="home-table">
+          <table className={`home-table${switched ? ' dealt' : ''}`}>
             <thead><tr><th>{t('周', 'Week')}</th><th>{t('投递', 'Applied')}</th>{hasTarget ? <th>{t('每周目标', 'Weekly goal')}</th> : null}<th>{t('测评 / 面试', 'OAs / interviews')}</th></tr></thead>
-            <tbody>{[...weeks].reverse().map(week => (
-              <tr key={week.start} className={week.current ? 'current' : undefined}><td>{weekRange(week)}</td><td>{week.applied}</td>{hasTarget ? <td>{week.target ?? '—'}</td> : null}<td>{week.interviews}</td></tr>
+            <tbody>{[...weeks].reverse().map((week, index) => (
+              <tr key={week.start} className={week.current ? 'current' : undefined} style={{ '--i': Math.min(index, 12) }}><td>{weekRange(week)}</td><td>{week.applied}</td>{hasTarget ? <td>{week.target ?? '—'}</td> : null}<td>{week.interviews}</td></tr>
             ))}</tbody>
           </table>
         </div>
       ) : (
         <div className="chart-box" ref={box} onMouseLeave={hide}>
-          <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img"
+          <svg className={`trend-chart${switched ? ' grow' : ''}`} viewBox={`0 0 ${width} ${height}`} role="img"
             aria-label={t(`每周投递：${weeks.map(week => `${weekRange(week)} ${week.applied}`).join('，')}`, `Applications by week: ${weeks.map(week => `${weekRange(week)} ${week.applied}`).join(', ')}`)}>
             {ticks.map(tick => (
               <g key={tick}>
@@ -129,7 +132,7 @@ function TrendChart({ weeks }) {
               const center = left + index * slot + slot / 2;
               const hovered = tip?.key === week.start;
               return (
-                <g key={week.start} className={`${week.current ? 'current' : ''}${hovered ? ' hovered' : ''}`}>
+                <g key={week.start} className={`${week.current ? 'current' : ''}${hovered ? ' hovered' : ''}`} style={{ '--i': index }}>
                   {week.target ? <rect x={center - bar - 4} y={y(week.target)} width={bar + 6} height={top + plot - y(week.target)} rx="4" className="target" /> : null}
                   {week.applied ? <path d={barPath(center - bar - 1, y(week.applied), bar, top + plot - y(week.applied))} className="applied" /> : null}
                   {week.interviews ? <path d={barPath(center + 1, y(week.interviews), bar, top + plot - y(week.interviews))} className="interviews" /> : null}
@@ -307,7 +310,7 @@ function AttentionCard({ items, due, openItem }) {
           {items.map(item => {
             const [icon, text] = reason(item);
             return (
-              <li key={item.id}><button onClick={() => openItem('applications', item.id)}>
+              <li key={item.id}><button onClick={event => pressThen(event.currentTarget, () => openItem('applications', item.id))}>
                 <span className="item-main"><strong>{item.company}</strong><small>{item.title}</small></span>
                 <span className="item-side"><span className={`status-pill ${item.status}`}>{label('status', item.status)}</span><small className="flag">{icon}{text}</small></span>
               </button></li>
@@ -327,7 +330,7 @@ function RecentCard({ events, openItem }) {
       {!events.length ? <p className="hint">{t('投递和状态变化会出现在这里。', 'Applications and status changes show up here.')}</p> : (
         <ul className="home-list">
           {events.map(event => (
-            <li key={`${event.applicationId}-${event.at}-${event.toStatus}`}><button onClick={() => openItem('applications', event.applicationId)}>
+            <li key={`${event.applicationId}-${event.at}-${event.toStatus}`}><button onClick={click => pressThen(click.currentTarget, () => openItem('applications', event.applicationId))}>
               <span className="item-main"><strong>{event.company}</strong>
                 <small>{event.fromStatus ? `${label('status', event.fromStatus)} → ${label('status', event.toStatus)}` : t('已投递', 'Applied')}{event.source !== 'user' ? ` · ${label('source', event.source)}` : ''}</small></span>
               <span className="item-side"><small>{relativeDay(event.at)}</small></span>
@@ -347,7 +350,7 @@ function PicksCard({ picks, openItem }) {
       {!picks.length ? <p className="hint">{t('打过分的新岗位里，匹配度最高的会出现在这里。', 'The best-scoring new jobs show up here once jobs are scored.')}</p> : (
         <ul className="home-list">
           {picks.map(item => (
-            <li key={item.id}><button onClick={() => openItem('feed', item.id)}>
+            <li key={item.id}><button onClick={event => pressThen(event.currentTarget, () => openItem('feed', item.id))}>
               <ScoreBadge score={{ score: item.score }} compact />
               <span className="item-main"><strong>{item.title}</strong><small>{item.company}{item.status === 'saved' ? t(' · 已收藏', ' · saved') : ''}</small></span>
               <span className="item-side"><small>{item.datePosted ? t(`${relativeDay(item.datePosted)}发布`, `Posted ${relativeDay(item.datePosted)}`) : label('site', item.site)}</small></span>
@@ -379,7 +382,7 @@ export function HomeView({ dataVersion, setView, openItem }) {
           <p className="view-date">{dateLine(locale)}{report ? t(` · 本周已投递 ${report.kpis.appliedThisWeek} 份`, ` · ${report.kpis.appliedThisWeek} applied this week`) : ''}</p>
           <h1>{t('主页', 'Home')}</h1>
         </div>
-        <div className="header-actions"><button className="icon-button" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button></div>
+        <div className="header-actions"><button className="icon-button" data-fx="refresh" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button></div>
       </header>
       {error ? <p className="notice error">{error}</p> : null}
       {!report ? (error ? null : <div className="list-empty"><LoaderCircle className="spin" /></div>) : (

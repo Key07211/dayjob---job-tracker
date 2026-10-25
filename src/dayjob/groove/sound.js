@@ -210,6 +210,103 @@ export function playHello() {
   piano(64, { gain: 0.09, dur: 0.6 }, voice(true));
 }
 
+// A short burst of shaped noise through one filter: a palm-muted thump, a wood tick, a brush.
+function noise({ at = 0, dur = 0.06, gain = 0.2, type = 'lowpass', freq = 400, q = 1, to = null } = {}, out) {
+  if (!out) return;
+  const t = ctx.currentTime + at;
+  const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i += 1) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+  const src = ctx.createBufferSource();
+  const filter = ctx.createBiquadFilter();
+  const amp = ctx.createGain();
+  src.buffer = buf;
+  filter.type = type;
+  filter.frequency.setValueAtTime(freq, t);
+  if (to) filter.frequency.exponentialRampToValueAtTime(to, t + dur);
+  filter.Q.value = q;
+  amp.gain.value = gain;
+  src.connect(filter).connect(amp).connect(out);
+  src.start(t);
+}
+// A soft sine that slides between two notes, like a record slowing down or a key lifting back up.
+function glide(from, to, { at = 0, dur = 0.32, gain = 0.08 } = {}, out) {
+  if (!out) return;
+  const t = ctx.currentTime + at;
+  const osc = ctx.createOscillator();
+  const amp = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(hz(from), t);
+  osc.frequency.exponentialRampToValueAtTime(hz(to), t + dur);
+  amp.gain.setValueAtTime(0, t);
+  amp.gain.linearRampToValueAtTime(gain, t + 0.02);
+  amp.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.12);
+  osc.connect(amp).connect(out);
+  osc.start(t);
+  osc.stop(t + dur + 0.2);
+}
+// A piano note played backwards: it swells in and stops, the sound of a tape rewinding.
+function swell(midi, { at = 0, dur = 0.22, gain = 0.1 } = {}, out) {
+  if (!out) return;
+  const t = ctx.currentTime + at;
+  [[1, 1, 'triangle'], [2, 0.35, 'sine']].forEach(([h, level, wave]) => {
+    const osc = ctx.createOscillator();
+    const amp = ctx.createGain();
+    osc.type = wave;
+    osc.frequency.value = hz(midi) * h;
+    amp.gain.setValueAtTime(0.0001, t);
+    amp.gain.exponentialRampToValueAtTime(level * gain, t + dur);
+    amp.gain.linearRampToValueAtTime(0, t + dur + 0.015);
+    osc.connect(amp).connect(out);
+    osc.start(t);
+    osc.stop(t + dur + 0.03);
+  });
+}
+const wood = (at, out, gain = 0.16) => noise({ at, dur: 0.03, gain, type: 'bandpass', freq: 1800, q: 6 }, out);
+const notes = (list, step, out, opts = {}) => list.forEach((midi, i) => piano(midi, { at: 0.02 + i * step, gain: 0.1, dur: 0.6, ...opts }, out));
+const E8S = BEAT / 8000;
+
+// The sound of each click (see the 点击动效 board): every cue is short, one voice at a time, and off unless sounds are on.
+// The goal note climbs the C major scale as the week's task fills up: arg is how far along it is, 0 to 1.
+const CUES = {
+  fav: out => notes([67, 72], 0.09, out),
+  unfav: out => { piano(67, { gain: 0.07, dur: 0.35 }, out); piano(64, { at: 0.08, gain: 0.06, dur: 0.5 }, out); },
+  dismiss: out => noise({ dur: 0.09, gain: 0.32, freq: 220, q: 0.8 }, out),
+  restore: out => glide(60, 67, { dur: 0.22 }, out),
+  rescore: out => notes([72, 72], 0.12, out, { dur: 0.4 }),
+  open: out => noise({ dur: 0.16, gain: 0.07, type: 'bandpass', freq: 2500, to: 6000, q: 0.7 }, out),
+  pick: out => wood(0, out, 0.08),
+  removeLow: out => notes([72, 69, 67, 64, 60], E8S, out, { gain: 0.08, dur: 0.4 }),
+  undo: out => [60, 64, 67].forEach((midi, i) => swell(midi, { at: i * 0.11 }, out)),
+  pause: out => glide(67, 55, { dur: 0.5 }, out),
+  resume: out => glide(55, 67, { dur: 0.36 }, out),
+  done: out => piano(72, { gain: 0.1, dur: 0.8 }, out),
+  stApplied: out => piano(60, { gain: 0.11, dur: 0.8 }, out),
+  stOA: out => wood(0, out),
+  stInterview: out => notes([64, 67], 0.12, out, { dur: 0.8 }),
+  stOffer: out => { notes([60, 64, 67, 72], E8S, out, { dur: 0.5 }); [60, 64, 67, 72].forEach(midi => piano(midi, { at: 0.06 + E8S * 4, gain: 0.07, dur: 1.4 }, out)); },
+  stAccepted: out => { [55, 59, 62].forEach(midi => piano(midi, { at: 0.02, gain: 0.08, dur: 0.5 }, out)); [48, 52, 55, 60].forEach(midi => piano(midi, { at: 0.34, gain: 0.09, dur: 1.4 }, out)); },
+  stRejected: out => piano(45, { gain: 0.08, dur: 0.9 }, out),
+  stWithdrawn: out => glide(64, 57, { dur: 0.3, gain: 0.06 }, out),
+  stGhosted: out => piano(57, { gain: 0.07, dur: 2.2 }, out),
+  knock: out => { wood(0, out); wood(0.14, out); },
+  note: out => piano(67, { gain: 0.1, dur: 0.6 }, out),
+  triplet: out => notes([64, 67, 72], BEAT / 6000, out, { dur: 0.5 }),
+  knob: out => noise({ dur: 0.018, gain: 0.07, type: 'highpass', freq: 3000 }, out),
+  success: out => notes([67, 72], 0.1, out, { dur: 0.6 }),
+  up: (out, arg = 0.5) => piano([60, 62, 64, 65, 67, 69, 71, 72][Math.round(Math.max(0, Math.min(1, arg)) * 7)], { gain: 0.1, dur: 0.6 }, out),
+  down: out => { piano(60, { gain: 0.07, dur: 0.45 }, out); piano(55, { at: 0.07, gain: 0.06, dur: 0.5 }, out); },
+  goal: out => { [60, 64, 67].forEach((midi, i) => piano(midi, { at: 0.02 + i * 0.06, gain: 0.09, dur: 1.2 }, out)); ding({ at: 0.3, gain: 0.06 }, out); },
+  type: out => [0, 0.07, 0.15].forEach(at => noise({ at, dur: 0.012, gain: 0.05, type: 'highpass', freq: 4000 }, out)),
+  error: out => noise({ dur: 0.07, gain: 0.22, freq: 160, q: 0.8 }, out),
+};
+export function cue(name, arg) {
+  if (!CUES[name] || !prefs.get().sound || !allow(`cue-${name}`, BEAT / 4)) return;
+  const out = voice();
+  if (out) CUES[name](out, arg);
+}
+
 // A sidebar key: one phrase per window (0.75 s unless changed), counted from the click that sounded.
 // Clicks inside the window still press the key and switch the page, they just stay silent.
 export function playKey(index, theme) {

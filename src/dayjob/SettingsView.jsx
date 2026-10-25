@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
-import { CheckCircle2, Download, FolderOpen, Globe, Link2, LoaderCircle, Power, RefreshCw, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Download, FolderOpen, Globe, LampDesk, Link2, LoaderCircle, Monitor, Power, RefreshCw, Sun, Trash2 } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { SoundSettings } from './groove/SoundSettings.jsx';
+import { cue } from './groove/sound.js';
+import { pop, shake } from './groove/fx.js';
+import { SavedLabel, useSaved } from './groove/Fx.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 let fadeTimer = 0;
@@ -15,6 +18,7 @@ function ClaudeConnection() {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const icon = useRef(null);
   useEffect(() => { desktop?.getClaudeStatus().then(setStatus).catch(() => {}); }, []);
   if (!desktop) {
     return (
@@ -25,10 +29,15 @@ function ClaudeConnection() {
       </section>
     );
   }
-  async function run(work) {
+  // Connected answers with a ✓ that pops; anything else shakes the button that was pressed.
+  async function run(work, button) {
     setBusy(true);
     setError('');
-    try { setStatus(await work()); } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+    try {
+      const next = await work();
+      setStatus(next);
+      if (next?.state === 'ready') { cue('success'); requestAnimationFrame(() => pop(icon.current, 1.35)); } else shake(button);
+    } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   return (
     <section className="card-section">
@@ -36,16 +45,16 @@ function ClaudeConnection() {
       <p className="hint">{t('连接后，在 Claude Code 或 Claude Desktop 里可以说“看看今天高匹配的岗位”“对照我的简历分析这个岗位”“根据 Gmail 更新我的投递状态”。Claude 需要 Dayjob 保持运行。',
         'Once connected, ask Claude Code or Claude Desktop things like “show today\'s strong matches”, “analyse this job against my resume” or “update my applications from Gmail”. Dayjob needs to be running.')}</p>
       <p className={`status-line ${status?.state === 'ready' ? 'ok' : 'off'}`}>
-        {status?.state === 'ready' ? <CheckCircle2 size={15} /> : null}
+        {status?.state === 'ready' ? <CheckCircle2 size={15} ref={icon} /> : null}
         {status ? t(...(CLAUDE_STATES[status.state] || [status.state, status.state])) : t('检查中…', 'Checking…')}
         {status?.clients?.filter(client => client.state !== 'unavailable').map(client => <span key={client.id} className="muted"> · {client.label}</span>)}
       </p>
       {status?.message && status.state !== 'ready' ? <p className="hint">{serverText(status.message)}</p> : null}
       {error ? <p className="notice error">{error}</p> : null}
       <div className="form-actions">
-        <button className="button" onClick={() => run(() => desktop.checkClaude())} disabled={busy}><RefreshCw size={15} />{t('重新检查', 'Check again')}</button>
-        {status?.state !== 'ready' ? <button className="button primary" onClick={() => run(() => desktop.connectClaude())} disabled={busy}>
-          {busy ? <LoaderCircle size={15} className="spin" /> : <Link2 size={15} />}{t('连接到 Claude', 'Connect to Claude')}</button> : null}
+        <button className="button" data-fx="refresh" onClick={event => run(() => desktop.checkClaude(), event.currentTarget)} disabled={busy}><RefreshCw size={15} />{t('重新检查', 'Check again')}</button>
+        {status?.state !== 'ready' ? <button className="button primary" onClick={event => run(() => desktop.connectClaude(), event.currentTarget)} disabled={busy}>
+          {busy ? <span className="dots" aria-hidden="true"><i /><i /><i /></span> : <Link2 size={15} />}{t('连接到 Claude', 'Connect to Claude')}</button> : null}
       </div>
       <p className="hint">{t('会写入 Claude Code 的 ~/.claude.json 和 Claude Desktop 的配置文件（改之前自动备份）。Claude Desktop 需要重启后才会看到新工具。',
         'Writes Claude Code\'s ~/.claude.json and Claude Desktop\'s config file, backing each up first. Restart Claude Desktop to see the new tools.')}</p>
@@ -68,7 +77,7 @@ function BrowserData() {
       <p className="hint">{t('浏览器里的登录状态和 Cookie 只保存在这台电脑的 Dayjob 数据里，和 Chrome、Edge 分开。连接 Claude 后，Claude 能在里面打开和阅读网页、填写表单；提交或发送之前会先请你在 Dayjob 里确认，密码和文件上传不会交给 Claude。浏览器工具栏里可以随时关掉“允许 Claude 使用”。',
         'Sign-ins and cookies in the browser stay in Dayjob\'s data on this computer, separate from Chrome and Edge. With Claude connected, Claude can open and read pages there and fill in forms; before anything is submitted or sent it asks you in Dayjob, and it never gets passwords or file uploads. Turn off “Let Claude use it” in the browser toolbar at any time.')}</p>
       <div className="form-actions">
-        <button className="button" onClick={clear} disabled={state === 'busy'}><Trash2 size={15} />{t('清除登录状态和缓存', 'Clear sign-ins and cache')}</button>
+        <button className="button" data-fx="sweep" onClick={clear} disabled={state === 'busy'}><Trash2 size={15} />{t('清除登录状态和缓存', 'Clear sign-ins and cache')}</button>
       </div>
       {state === 'done' ? <p className="notice">{t('已清除。', 'Cleared.')}</p> : null}
       {state === 'error' ? <p className="notice error">{t('没能清除，请重试。', 'Could not clear it. Try again.')}</p> : null}
@@ -128,7 +137,7 @@ function Updates({ boot, reload, update }) {
       </div>
       {update.portable ? <p className="hint">{t('免安装版不能自己替换，下载按钮会在浏览器里下载新的免安装版。', 'The portable app cannot replace itself; its download button gets the new portable app in your browser.')}</p> : null}
       <div className="form-actions">
-        <button className="button" onClick={() => desktop.updates.check()} disabled={['checking', 'downloading', 'downloaded', 'unsupported'].includes(update.status)}>
+        <button className="button" data-fx="refresh" onClick={() => desktop.updates.check()} disabled={['checking', 'downloading', 'downloaded', 'unsupported'].includes(update.status)}>
           {update.status === 'checking' ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}{t('立即检查', 'Check now')}
         </button>
       </div>
@@ -148,6 +157,7 @@ export function SettingsView({ boot, reload, update }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [saved, flashSaved] = useSaved();
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { desktop?.getInfo().then(setInfo).catch(() => {}); }, []);
 
@@ -177,7 +187,7 @@ export function SettingsView({ boot, reload, update }) {
       } });
       await reload();
       setSites(await api('/api/sites?refresh=1'));
-      setMessage(t('已保存。', 'Saved.'));
+      flashSaved();
     } catch (failure) { setError(failure.message); }
   }
   const jobspy = sites.find(site => site.engine === 'jobspy');
@@ -212,7 +222,7 @@ export function SettingsView({ boot, reload, update }) {
         <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available ? jobspy.detail : t('未检测到 JobSpy。装好后点“保存设置”会重新检测。', 'JobSpy was not found. Install it, then click “Save settings” to check again.')}</p>
         {error ? <p className="notice error">{error}</p> : null}
         {message ? <p className="notice">{message}</p> : null}
-        <div className="form-actions"><button className="button primary" type="submit">{t('保存设置', 'Save settings')}</button></div>
+        <div className="form-actions"><button className="button primary" type="submit"><SavedLabel saved={saved}>{t('保存设置', 'Save settings')}</SavedLabel></button></div>
       </form>
       <ClaudeConnection />
       <BrowserData />
@@ -229,13 +239,13 @@ export function SettingsView({ boot, reload, update }) {
         <div className="option-row">
           <span>{t('外观', 'Appearance')}</span>
           <div className="segmented">
-            {[['system', '跟随系统', 'System'], ['light', '浅色', 'Light'], ['dark', '深色', 'Dark']].map(([value, zh, en]) => (
-              <button key={value} className={theme === value ? 'active' : ''} onClick={() => applyTheme(value)}>{t(zh, en)}</button>
+            {[['system', '跟随系统', 'System', Monitor, 'screen'], ['light', '浅色', 'Light', Sun, 'sunrise'], ['dark', '深色', 'Dark', LampDesk, 'lamp']].map(([value, zh, en, Icon, fx]) => (
+              <button key={value} className={theme === value ? 'active' : ''} data-fx={fx} onClick={() => applyTheme(value)}><Icon size={14} />{t(zh, en)}</button>
             ))}
           </div>
         </div>
         <p className="hint">{t('数据库：', 'Database: ')}{boot.dataFile} · Dayjob {boot.version}</p>
-        {desktop ? <button className="button" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
+        {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
         {info?.portable ? <p className="hint">{t('便携版不会写入 Claude 配置；安装版才能稳定连接 MCP。', 'The portable version does not write Claude\'s config; install Dayjob for a lasting MCP connection.')}</p> : null}
       </section>
     </section>

@@ -20,13 +20,15 @@ import { Metronome } from './dayjob/groove/Metronome.jsx';
 import { ListenWave } from './dayjob/groove/ListenWave.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
-import { BEAT, playApply, playBatchEnd, playHello, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { BEAT, cue, playApply, playBatchEnd, playHello, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { installClickFx, pop, rings } from './dayjob/groove/fx.js';
 import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
-import '@fontsource-variable/bricolage-grotesque/wght.css';
-import '@fontsource/dm-mono/latin-400.css';
-import '@fontsource/dm-mono/latin-500.css';
+import '@fontsource-variable/nunito/wght.css';
+import './dayjob/fonts/fonts.css';
 import './dayjob/dayjob.css';
 import './dayjob/groove/groove.css';
+import './dayjob/groove/keys.css';
+import './dayjob/groove/fx.css';
 
 // note: which of the tune's eight phrases the page's key plays, the same with or without the browser.
 const VIEWS = [
@@ -191,12 +193,14 @@ function App() {
     playApply();
     api('/api/status').then(setStatus).catch(() => {});
   });
+  useEffect(() => installClickFx(), []);
   // Following music was turned on before: start listening again (the sound itself waits for a first click).
   useEffect(() => { if (prefs.get().followMusic) setFollow(true); }, []);
 
   // Pausing stops the job being scored right away; resuming scores what was left.
   async function setScoringPaused(pause) {
     setRunMessage('');
+    cue(pause ? 'pause' : 'resume');
     try {
       await api(`/api/scoring/${pause ? 'pause' : 'resume'}`, { method: 'POST', body: {} });
       setStatus(await api('/api/status'));
@@ -251,10 +255,12 @@ function App() {
     badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
     onSelect: () => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id)),
   }));
-  function toggleSound() {
+  // On: sound waves grow out of the button and it turns yellow. Off: the waves draw back.
+  function toggleSound(event) {
     const next = !groove.sound;
     prefs.set({ sound: next });
-    if (next) playHello();
+    if (next) { playHello(); rings(event.currentTarget, { count: 2, tone: 'yellow', scale: 2.4 }); }
+    pop(event.currentTarget.querySelector('svg'), next ? 1.25 : 0.8);
   }
   const [minPane, maxPane] = paneLimits(windowWidth);
   const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((windowWidth - SIDEBAR) * 0.58)));
@@ -302,7 +308,7 @@ function App() {
         <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
-          <button className={`nav-item${showNotifications ? ' active' : ''}`} onClick={() => setShowNotifications(value => !value)}>
+          <button className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em>{stats.unreadNotifications}</em> : null}
           </button>
           <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
@@ -315,8 +321,8 @@ function App() {
             <div className="run-extra">
               {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
               {runMessage ? <p className="run-message">{runMessage}</p> : null}
-              {scoringNow ? <button className="button block" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
-                : scoring.paused ? <button className="button block" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
+              {scoringNow ? <button className="button block" data-fx="morph" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
+                : scoring.paused ? <button className="button block" data-fx="morph" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
             </div>
           ) : null}
         </div>

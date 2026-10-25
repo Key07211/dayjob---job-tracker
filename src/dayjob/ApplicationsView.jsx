@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { BellRing, BriefcaseBusiness, ExternalLink, Ghost, Globe, Hourglass, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { OPEN_STATUSES, dateInputToIso, daysSince, formatDay, formatTime, label, labels, localDateInput, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 import { emit } from './groove/bus.js';
+import { BEAT, cue } from './groove/sound.js';
+import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tint, underline, wiggle } from './groove/fx.js';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -16,6 +18,18 @@ const FUNNEL = ['applied', 'oa', 'interview', 'offer'];
 // Reaching a later stage implies the earlier ones. A closed application counts
 // at the stage it closed from, which the list does not know, so only as applied.
 const REACHED = { applied: 0, oa: 1, interview: 2, offer: 3, accepted: 3 };
+const step = status => document.querySelector(`.funnel-step[data-status="${status}"]`);
+// What a new status does to the card, with its own sound: the offer is the biggest moment, a rejection the quietest.
+const STATUS_FX = {
+  applied: () => rise(step('applied')),
+  oa: () => rise(step('oa')),
+  interview: card => { tint(card, 'lit'); rise(step('interview')); },
+  offer: card => { burst(card); rise(step('offer')); },
+  accepted: (card, t) => stamp(card, t('已接受', 'Accepted')),
+  rejected: card => tint(card, 'grey'),
+  ghosted: card => tint(card, 'ghost'),
+};
+const CUE_OF = { applied: 'stApplied', oa: 'stOA', interview: 'stInterview', offer: 'stOffer', accepted: 'stAccepted', rejected: 'stRejected', withdrawn: 'stWithdrawn', ghosted: 'stGhosted' };
 
 function Funnel({ items }) {
   const { t } = useI18n();
@@ -24,7 +38,7 @@ function Funnel({ items }) {
   return (
     <div className="funnel">
       {FUNNEL.map((status, index) => (
-        <div key={status} className="funnel-step">
+        <div key={status} className="funnel-step" data-status={status}>
           <span>{label('status', status)}</span>
           <strong>{index === 0 ? total : reached[index]}</strong>
           {index > 0 && total ? <small>{Math.round((reached[index] / total) * 100)}%</small> : <small>{t('全部投递', 'All applications')}</small>}
@@ -40,6 +54,7 @@ function NewApplication({ onCreated, onCancel }) {
   const [form, setForm] = useState({ company: '', title: '', jobUrl: '', day: localDateInput(), note: '' });
   const [error, setError] = useState('');
   const set = key => event => setForm(current => ({ ...current, [key]: event.target.value }));
+  const own = useRef(null);
   async function submit(event) {
     event.preventDefault();
     try {
@@ -50,8 +65,8 @@ function NewApplication({ onCreated, onCancel }) {
     } catch (failure) { setError(failure.message); }
   }
   return (
-    <form className="panel-form" onSubmit={submit}>
-      <div className="form-head"><h3>{t('手动添加投递', 'Add an application')}</h3><button type="button" className="icon-button" onClick={onCancel} title={t('关闭', 'Close')}><X size={16} /></button></div>
+    <form className="panel-form" ref={own} onSubmit={submit}>
+      <div className="form-head"><h3>{t('手动添加投递', 'Add an application')}</h3><button type="button" className="icon-button" onClick={() => leave(own.current, 'up', onCancel)} title={t('关闭', 'Close')}><X size={16} /></button></div>
       <p className="hint">{t('用于内推或在其他地方投递、Dayjob 没有抓到的岗位。', 'For referrals and jobs you applied to elsewhere that Dayjob did not find.')}</p>
       <div className="form-grid">
         <label>{t('公司', 'Company')}<input value={form.company} onChange={set('company')} required maxLength={160} /></label>
@@ -74,6 +89,11 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
   const [statusDay, setStatusDay] = useState(localDateInput());
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // Timeline entries that just arrived drop in at the top.
+  const [fresh, setFresh] = useState(() => new Set());
+  const card = useRef(null);
+  const noteInput = useRef(null);
+  const followInput = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,49 +108,92 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
     return () => { cancelled = true; };
   }, [id]);
 
-  async function patch(body) {
+  // A status that ends the application lets its moment play on the card before the list moves it to Closed.
+  async function patch(body, { linger = 0 } = {}) {
     setBusy(true);
     setError('');
     try {
       const updated = await api(`/api/applications/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+      setFresh(new Set(updated.events.filter(event => !item.events.some(old => old.id === event.id)).map(event => event.id)));
       setItem(updated);
-      onChanged(updated);
+      if (linger) setTimeout(() => onChanged(updated), linger); else onChanged(updated);
       return updated;
     } catch (failure) { setError(failure.message); return null; } finally { setBusy(false); }
   }
-  const changeStatus = status => {
+  const changeStatus = async status => {
     if (status === item.status) return;
-    void patch({ status, note: note.trim(), ...(statusDay !== localDateInput() ? { statusAt: dateInputToIso(statusDay) } : {}) }).then(updated => { if (updated) setNote(''); });
+    const closing = OPEN_STATUSES.includes(item.status) && !OPEN_STATUSES.includes(status);
+    const body = { status, note: note.trim(), ...(statusDay !== localDateInput() ? { statusAt: dateInputToIso(statusDay) } : {}) };
+    // Withdrawn: the card slides aside, then folds into Closed.
+    if (status === 'withdrawn') {
+      cue(CUE_OF.withdrawn);
+      const anim = leave(card.current, 'aside', async () => {
+        const updated = await patch(body);
+        anim?.cancel();
+        if (updated) setNote('');
+      });
+      return;
+    }
+    const updated = await patch(body, { linger: closing ? BEAT * (status === 'accepted' ? 2.4 : 1.6) : 0 });
+    if (!updated) return;
+    setNote('');
+    cue(CUE_OF[status]);
+    STATUS_FX[status]?.(card.current, t);
   };
+  // Followed up: the bell rings, the reminder folds away and the next follow-up date turns seven pages on.
+  const followed = event => {
+    const banner = event.currentTarget.closest('.banner');
+    cue('knock');
+    wiggle(banner.querySelector('svg'), 18);
+    leaveThen(banner, 'up', async () => {
+      const updated = await patch({ nextFollowUpAt: new Date(Date.now() + 7 * 864e5).toISOString(), note: t('已跟进', 'Followed up') });
+      if (updated) requestAnimationFrame(() => flipIn(followInput.current));
+      return Boolean(updated);
+    });
+  };
+  const keepWaiting = event => {
+    const banner = event.currentTarget.closest('.banner');
+    leaveThen(banner, 'up', async () => Boolean(await patch({ nextFollowUpAt: new Date(Date.now() + 7 * 864e5).toISOString() })));
+  };
+  const addNote = () => patch({ note: note.trim() }).then(updated => {
+    if (!updated) return;
+    setNote('');
+    underline(noteInput.current);
+    cue('note');
+  });
   async function remove() {
     if (!window.confirm(t(`删除对 ${item.company} 的投递记录？时间线也会一起删除。`, `Delete your application to ${item.company}? Its timeline is deleted too.`))) return;
-    try {
-      await api(`/api/applications/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      onDeleted(id);
-    } catch (failure) { setError(failure.message); }
+    // It shrinks away first; if the delete fails it comes back.
+    leaveThen(card.current, 'shrink', async () => {
+      try {
+        await api(`/api/applications/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        onDeleted(id);
+        return true;
+      } catch (failure) { setError(failure.message); return false; }
+    });
   }
 
   if (!item) return <div className="detail-empty">{error || <LoaderCircle className="spin" />}</div>;
   const quiet = daysSince(item.statusChangedAt);
   return (
-    <article className="application-detail">
+    <article className="application-detail" ref={card}>
       <header>
         <h2>{item.title}</h2>
         <p className="detail-company"><span>{item.company}</span>{item.location ? <span>{item.location}</span> : null}{item.site ? <span>{label('site', item.site)}</span> : null}</p>
         <p className="hint">{t(`投递于 ${formatDay(item.appliedAt)}（${relativeDay(item.appliedAt)}）· 当前状态已持续 ${quiet} 天`,
           `Applied ${formatDay(item.appliedAt)} (${relativeDay(item.appliedAt)}) · in this stage for ${quiet} ${quiet === 1 ? 'day' : 'days'}`)}
           {item.score !== undefined && item.score !== null ? t(` · 匹配度 ${item.score}`, ` · match ${item.score}`) : ''}</p>
-        {item.jobUrl && hasBrowser ? <button className="button" onClick={() => openInBrowser(item.jobUrl, setView)}><Globe size={15} />{t('打开岗位页面', 'Open posting')}</button> : null}
-        {item.jobUrl && !hasBrowser ? <a className="button" href={item.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('打开岗位页面', 'Open posting')}</a> : null}
+        {item.jobUrl && hasBrowser ? <button className="button" data-fx="open" onClick={() => openInBrowser(item.jobUrl, setView)}><Globe size={15} />{t('打开岗位页面', 'Open posting')}</button> : null}
+        {item.jobUrl && !hasBrowser ? <a className="button" data-fx="external" href={item.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('打开岗位页面', 'Open posting')}</a> : null}
       </header>
       {item.flags.includes('follow-up-due') ? (
         <div className="banner attention"><BellRing size={16} /><span>{t('该跟进了：可以给招聘方发一封简短的跟进邮件。', 'Time to follow up: a short email to the recruiter helps.')}</span>
-          <button className="button small" onClick={() => patch({ nextFollowUpAt: new Date(Date.now() + 7 * 864e5).toISOString(), note: t('已跟进', 'Followed up') })}>{t('已跟进，7 天后再提醒', 'Done, remind me in 7 days')}</button></div>
+          <button className="button small" onClick={followed} disabled={busy}>{t('已跟进，7 天后再提醒', 'Done, remind me in 7 days')}</button></div>
       ) : null}
       {item.flags.includes('ghost-suspected') ? (
         <div className="banner ghost"><Ghost size={16} /><span>{t(`${quiet} 天没有回音。`, `No reply for ${quiet} days.`)}</span>
           <button className="button small" onClick={() => changeStatus('ghosted')}>{t('标记为无回音', 'Mark as ghosted')}</button>
-          <button className="button small" onClick={() => patch({ nextFollowUpAt: new Date(Date.now() + 7 * 864e5).toISOString() })}>{t('继续等待', 'Keep waiting')}</button></div>
+          <button className="button small" data-fx="hourglass" onClick={keepWaiting} disabled={busy}><Hourglass size={14} />{t('继续等待', 'Keep waiting')}</button></div>
       ) : null}
       {item.postingClosedAt ? <p className="banner closed">{t(`招聘页面在 ${formatDay(item.postingClosedAt)} 下线，申请仍会继续追踪。`, `The posting was taken down on ${formatDay(item.postingClosedAt)}. Dayjob keeps tracking the application.`)}</p> : null}
       <section className="status-editor">
@@ -141,17 +204,17 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
           ))}
         </div>
         <div className="form-grid">
-          <label>{t('发生日期', 'Date')}<input type="date" value={statusDay} max={localDateInput()} onChange={event => setStatusDay(event.target.value)} /></label>
-          <label className="grow">{t('备注（随状态一起记录）', 'Note (saved with the status)')}<input value={note} maxLength={2000} placeholder={t('例如：收到 HackerRank 邀请', 'e.g. got a HackerRank invite')} onChange={event => setNote(event.target.value)} /></label>
+          <label>{t('发生日期', 'Date')}<input type="date" value={statusDay} max={localDateInput()} onChange={event => { flipIn(event.target); setStatusDay(event.target.value); }} /></label>
+          <label className="grow">{t('备注（随状态一起记录）', 'Note (saved with the status)')}<input ref={noteInput} value={note} maxLength={2000} placeholder={t('例如：收到 HackerRank 邀请', 'e.g. got a HackerRank invite')} onChange={event => setNote(event.target.value)} /></label>
         </div>
         <div className="form-actions">
-          <button className="button" disabled={!note.trim() || busy} onClick={() => patch({ note: note.trim() }).then(updated => { if (updated) setNote(''); })}>{t('只添加备注', 'Add note only')}</button>
+          <button className="button" disabled={!note.trim() || busy} onClick={addNote}>{t('只添加备注', 'Add note only')}</button>
         </div>
       </section>
       <section className="follow-up">
         <label>{t('下次跟进', 'Next follow-up')}
-          <input type="date" value={item.nextFollowUpAt ? localDateInput(item.nextFollowUpAt) : ''}
-            onChange={event => patch({ nextFollowUpAt: event.target.value ? dateInputToIso(event.target.value) : null })} />
+          <input type="date" ref={followInput} value={item.nextFollowUpAt ? localDateInput(item.nextFollowUpAt) : ''}
+            onChange={event => { flipIn(event.target); void patch({ nextFollowUpAt: event.target.value ? dateInputToIso(event.target.value) : null }); }} />
         </label>
         <label className="grow">{t('联系人', 'Contact')}<input defaultValue={item.contact} key={`contact-${item.id}`} maxLength={500} placeholder={t('招聘人员姓名或邮箱', 'Recruiter name or email')}
           onBlur={event => { if (event.target.value !== item.contact) void patch({ contact: event.target.value }); }} /></label>
@@ -165,7 +228,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
         <h3>{t('时间线', 'Timeline')}</h3>
         <ol>
           {item.events.map(event => (
-            <li key={event.id} className={event.type}>
+            <li key={event.id} className={`${event.type}${fresh.has(event.id) ? ' fresh' : ''}`}>
               <time>{formatTime(event.at)}</time>
               <div>
                 <strong>{event.type === 'status' ? (event.fromStatus ? `${label('status', event.fromStatus)} → ${label('status', event.toStatus)}` : label('status', event.toStatus)) : label('event', event.type)}</strong>
@@ -188,6 +251,10 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
   const [tab, setTab] = useState('open');
   const [selected, setSelected] = useState(null);
   const [adding, setAdding] = useState(false);
+  // A row added by hand drops in at the top with a yellow ring; a deleted one leaves the others to slide up.
+  const [arrived, setArrived] = useState(null);
+  const list = useRef(null);
+  const flip = useMemo(() => flipList({ get children() { return list.current?.children; } }), []);
 
   useEffect(() => {
     api('/api/applications').then(value => { setItems(value); setError(''); }).catch(failure => setError(failure.message));
@@ -208,32 +275,46 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
   }, [items]);
 
   function changed(updated) {
+    flip.measure();
     setItems(current => current.map(item => (item.id === updated.id ? { ...item, ...updated } : item)));
     void refreshStatus();
   }
+  useLayoutEffect(() => { flip.play(); }, [visible, flip]);
+  useEffect(() => {
+    if (!arrived) return;
+    const row = list.current?.querySelector(`[data-id="${CSS.escape(arrived)}"]`);
+    rings(row, { tone: 'yellow', scale: 4 });
+    setArrived(null);
+  }, [arrived]);
+  // The open form folds back into the button that opened it.
+  const toggleAdding = () => {
+    if (!adding) { setAdding(true); return; }
+    leave(document.querySelector('.applications > .panel-form'), 'up', () => setAdding(false));
+  };
+  const switchTab = id => { setTab(id); pop(document.querySelector(`.tabs [data-tab="${id}"] em`), 1.25); };
 
   if (!items) return <section className="applications"><div className="list-empty">{error || <LoaderCircle className="spin" />}</div></section>;
   return (
     <section className="applications">
       <header className="view-header">
         <div><h1>{t('投递追踪', 'Applications')}</h1></div>
-        <div className="header-actions"><button className="button" onClick={() => setAdding(value => !value)}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div>
+        <div className="header-actions"><button className="button" onClick={toggleAdding}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div>
       </header>
       {items.length ? <Funnel items={items} /> : null}
-      {adding ? <NewApplication onCancel={() => setAdding(false)} onCreated={created => { setItems(current => [created, ...current]); setAdding(false); setTab('open'); setSelected(created.id); void refreshStatus(); }} /> : null}
+      {adding ? <NewApplication onCancel={() => setAdding(false)} onCreated={created => { flip.measure(); setItems(current => [created, ...current]); setAdding(false); setTab('open'); setSelected(created.id); setArrived(created.id); cue('note'); void refreshStatus(); }} /> : null}
       <div className="tabs">
         {TABS.map(entry => {
           const count = items.filter(entry.match).length;
-          return <button key={entry.id} className={tab === entry.id ? 'active' : ''} onClick={() => setTab(entry.id)}>{t(...entry.label)}<em>{count}</em></button>;
+          return <button key={entry.id} data-tab={entry.id} className={tab === entry.id ? 'active' : ''} onClick={() => switchTab(entry.id)}>{t(...entry.label)}<em>{count}</em></button>;
         })}
       </div>
       <div className="split">
-        <div className="posting-list">
+        <div className="posting-list tabbed" key={tab} ref={list}>
           {!visible.length ? (
             <div className="list-empty"><BriefcaseBusiness size={28} /><p>{items.length ? t('这一栏是空的。', 'Nothing here.') : t('还没有投递记录。在岗位详情里点“我已投递”，或手动添加。', 'No applications yet. Click “I applied” on a job, or add one by hand.')}</p></div>
           ) : null}
           {visible.map(item => (
-            <button key={item.id} className={`posting-row application-row${selected === item.id ? ' selected' : ''}`} onClick={() => setSelected(item.id)}>
+            <button key={item.id} data-id={item.id} data-fx="select" className={`posting-row application-row${selected === item.id ? ' selected' : ''}`} onClick={() => setSelected(item.id)}>
               <div className="row-main">
                 <strong>{item.company}</strong>
                 <span className="row-company">{item.title}</span>
@@ -250,8 +331,8 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
           ))}
         </div>
         <div className="detail-pane">
-          {selected ? <ApplicationDetail id={selected} onChanged={changed} setView={setView}
-            onDeleted={id => { setItems(current => current.filter(item => item.id !== id)); void refreshStatus(); }} />
+          {selected ? <ApplicationDetail key={selected} id={selected} onChanged={changed} setView={setView}
+            onDeleted={id => { flip.measure(); setItems(current => current.filter(item => item.id !== id)); void refreshStatus(); }} />
             : <div className="detail-empty">{t('选择一条投递查看时间线', 'Pick an application to see its timeline')}</div>}
         </div>
       </div>

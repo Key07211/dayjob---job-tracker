@@ -51,14 +51,14 @@ export function LanguageSwitch({ compact = false }) {
   const { lang, setLang, t } = useI18n();
   if (compact) {
     return (
-      <button type="button" className="language-toggle" title={t('切换到 English', 'Switch to 中文')} lang={lang === 'en' ? 'zh-CN' : 'en'}
+      <button type="button" className="language-toggle" data-fx="flip lang" title={t('切换到 English', 'Switch to 中文')} lang={lang === 'en' ? 'zh-CN' : 'en'}
         onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}>{lang === 'en' ? '中' : 'EN'}</button>
     );
   }
   return (
     <div className="segmented" role="group" aria-label={t('界面语言', 'Language')}>
-      <button type="button" lang="zh-CN" className={lang === 'zh' ? 'active' : ''} aria-pressed={lang === 'zh'} onClick={() => setLang('zh')}>中文</button>
-      <button type="button" lang="en" className={lang === 'en' ? 'active' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
+      <button type="button" lang="zh-CN" data-fx="lang" className={lang === 'zh' ? 'active' : ''} aria-pressed={lang === 'zh'} onClick={() => setLang('zh')}>中文</button>
+      <button type="button" lang="en" data-fx="lang" className={lang === 'en' ? 'active' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
     </div>
   );
 }
