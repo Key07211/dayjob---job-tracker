@@ -3,7 +3,7 @@ import { dedupeKey, postingId } from './normalize.mjs';
 import { transaction } from './db.mjs';
 import { rankResumes, resumeTerms } from './keywords.mjs';
 import { splitCompanyId } from './scrapers/company-boards.mjs';
-import { DEFAULT_APPLICANT } from './applicant.mjs';
+import { DEFAULT_APPLICANT, migrateApplicant } from './applicant.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -60,6 +60,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       // Claude API; Claude Code keeps running at its own default.
       if (stored.ai.codexCommand === undefined && stored.ai.provider !== 'anthropic-api') stored.ai.effort = '';
     }
+    if (stored.applicant) stored.applicant = migrateApplicant(stored.applicant);
     return merge(DEFAULT_SETTINGS, stored);
   }
   function saveSettings(settings) {

@@ -714,6 +714,14 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .profile-group input, .profile-group select { color: var(--text); }
 .profile-letter { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
 .profile-letter textarea { resize: vertical; min-height: 80px; color: var(--text); }
+/* Schools and jobs: one small card each, with its remove button in the corner. */
+.profile-entries { display: flex; flex-direction: column; gap: 10px; }
+.profile-entries:not(:empty) { margin-bottom: 10px; }
+.profile-entry { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 12px 48px 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.profile-entry .profile-letter textarea { min-height: 64px; }
+.profile-entry input:disabled { opacity: .5; }
+.entry-remove { position: absolute; top: 8px; right: 8px; }
+.entry-add { align-self: flex-start; }
 
 /* ---------- Daily Groove shapes: borderless cards on the sky, 18–24 px corners, no shadows ---------- */
 .posting-list, .posting-detail, .application-detail, .card-section, .panel-form, .goals-panel, .kpi, .home-card, .funnel-step { border-color: transparent; }

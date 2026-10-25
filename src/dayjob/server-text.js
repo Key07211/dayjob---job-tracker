@@ -57,6 +57,9 @@ const EXACT = {
   'Unable to check the Claude connection.': '无法检查 Claude 连接。',
   'Connection has not been checked.': '还没有检查连接。',
   'Email must look like name@example.com.': '邮箱格式不对，例如 name@example.com。',
+  'Education dates must look like 2024-08 or 2024.': '教育经历的日期请写成 2024-08 或 2024。',
+  'Work experience dates must look like 2024-08 or 2024.': '工作经历的日期请写成 2024-08 或 2024。',
+  'The AI is already reading the resume; wait for it to finish.': 'AI 正在读简历，请等它读完。',
 };
 
 const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
@@ -77,7 +80,7 @@ const PATTERNS = [
   [/^JobSpy (\S+) failed: (.*)$/s, (all, site, detail) => `JobSpy 抓取 ${site} 失败：${detail}`],
   [/^Cannot start (.+?): (.*)$/s, (all, command, detail) => `无法启动 ${command}：${detail}`],
   [/^(\S+) limited requests; the rest are checked next time\.$/, (all, site) => `${site} 在限流，其余岗位下次再检查。`],
-  [/^(LinkedIn|GitHub|Website) link must be (?:a web link|a full http\(s\) link)\.$/, (all, name) => `${name === 'Website' ? '个人网站' : name} 链接格式不对，请填写完整网址。`],
+  [/^(GitHub|Website) link must be (?:a web link|a full http\(s\) link)\.$/, (all, name) => `${name === 'Website' ? '个人网站' : name} 链接格式不对，请填写完整网址。`],
 ];
 
 export function serverText(message) {

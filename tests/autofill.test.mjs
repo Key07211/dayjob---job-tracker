@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import autofill from '../desktop/autofill.cjs';
 import { createApp } from '../server/app.mjs';
-import { contactFromResume, DEFAULT_APPLICANT } from '../server/jobs/applicant.mjs';
+import { contactFromResume, DEFAULT_APPLICANT, migrateApplicant, monthOf, normalizeProfile, PROFILE_SCHEMA } from '../server/jobs/applicant.mjs';
 import { posting } from '../server/jobs/normalize.mjs';
 import { settingsPatch } from '../server/validation.mjs';
 import { memoryRepo } from './helpers.mjs';
@@ -14,7 +14,10 @@ const { autofillScript, keyFor, optionFor, planFill } = autofill;
 
 const PROFILE = { ...DEFAULT_APPLICANT, firstName: 'Yuan', lastName: 'Li', email: 'yuan@example.com', phone: '+1 510 555 0100',
   city: 'Berkeley', state: 'CA', country: 'United States', linkedin: 'https://www.linkedin.com/in/yuan', website: 'https://yuan.dev',
-  school: 'University of California, Berkeley', degree: 'Master of Engineering', major: 'Industrial Engineering', graduation: 'May 2026',
+  education: [{ school: 'University of California, Berkeley', degree: 'Master of Engineering', major: 'Industrial Engineering', start: '2025-08', end: '2026-05', gpa: '3.9/4.0' },
+    { school: 'Tsinghua University', degree: 'Bachelor of Science', major: 'Mathematics', start: '2021-09', end: '2025-06', gpa: '' }],
+  experience: [{ company: 'Acme', title: 'Data Science Intern', location: 'San Francisco, CA', start: '2025-06', end: '', current: true, summary: 'Built churn models\nShipped a dashboard' },
+    { company: 'Beta Labs', title: 'Analyst', location: 'Beijing', start: '2023-01', end: '2024-12', current: false, summary: '' }],
   yearsExperience: '3', workAuthorized: 'yes', needsSponsorship: 'no', willingToRelocate: 'yes', startDate: 'June 2026', heardFrom: 'LinkedIn' };
 
 let next = 0;
@@ -102,10 +105,21 @@ test('a web page finds the posting it belongs to', () => {
 });
 
 test('the application profile is validated, and pages look up their posting', async () => {
-  assert.deepEqual(settingsPatch({ applicant: { firstName: ' Yuan ', linkedin: 'linkedin.com/in/yuan', workAuthorized: 'yes', declineEeo: false } }).applicant,
-    { firstName: 'Yuan', linkedin: 'https://linkedin.com/in/yuan', workAuthorized: 'yes', declineEeo: false });
+  assert.deepEqual(settingsPatch({ applicant: { firstName: ' Yuan ', linkedin: ' yuan-li ', github: 'github.com/yuan', workAuthorized: 'yes', declineEeo: false } }).applicant,
+    { firstName: 'Yuan', linkedin: 'yuan-li', github: 'https://github.com/yuan', workAuthorized: 'yes', declineEeo: false }, 'LinkedIn is kept as typed');
+  assert.deepEqual(settingsPatch({ applicant: {
+    education: [{ school: ' UC Berkeley ', degree: 'MEng', start: 'Aug 2025', end: '2026/5', _key: 'entry-1' }, { school: '', degree: '' }],
+    experience: [{ company: 'Acme', title: 'Intern', start: '2025-06', end: '2025-09', current: true, summary: 'One\nTwo' }],
+  } }).applicant, {
+    education: [{ school: 'UC Berkeley', degree: 'MEng', major: '', start: '2025-08', end: '2026-05', gpa: '' }],
+    experience: [{ company: 'Acme', title: 'Intern', location: '', start: '2025-06', end: '', current: true, summary: 'One\nTwo' }],
+  }, 'entries keep their own fields, dates become months, empty entries go and a current job has no end');
+  assert.throws(() => settingsPatch({ applicant: { education: [{ school: 'x', end: 'Spring 2026' }] } }), /2024-08 or 2024/);
+  assert.throws(() => settingsPatch({ applicant: { experience: Array.from({ length: 11 }, () => ({ company: 'x' })) } }), /up to 10/);
+  assert.throws(() => settingsPatch({ applicant: { experience: { company: 'x' } } }), /must be a list/);
   assert.throws(() => settingsPatch({ applicant: { email: 'yuan at example' } }), /name@example\.com/);
   assert.throws(() => settingsPatch({ applicant: { website: 'javascript:alert(1)' } }), /web link/);
+  assert.throws(() => settingsPatch({ applicant: { github: 'yuan li' } }), /http\(s\) link/);
   assert.throws(() => settingsPatch({ applicant: { needsSponsorship: 'maybe' } }), /yes, no or empty/);
   assert.throws(() => settingsPatch({ applicant: { firstName: 'x'.repeat(81) } }), /80/);
 
@@ -135,5 +149,96 @@ test('the application profile is validated, and pages look up their posting', as
     await call(`/api/postings/${job.id}/apply`, 'POST', {});
     const applied = (await lookup('https://jobs.lever.co/acme/1234')).body.posting;
     assert.equal(applied.application.status, 'applied');
+  } finally { await app.close(); }
+});
+
+test('schools and jobs fill their own parts of a form, in order', () => {
+  const part = (section, label, extra = {}) => field(label, { section, ...extra });
+  const months = ['Month', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const years = ['Year', '2021', '2022', '2023', '2024', '2025', '2026'];
+  const fields = [
+    part('My Experience', 'Job Title', { id: 'workExperience-1--jobTitle' }), part('My Experience', 'Company'), part('My Experience', 'Location'),
+    part('My Experience', 'I currently work here', { kind: 'checkbox', type: 'checkbox' }),
+    part('My Experience', 'From', { placeholder: 'MM/YYYY' }), part('My Experience', 'Role Description', { type: 'textarea' }),
+    part('Work Experience 2', 'Job Title'), part('Work Experience 2', 'Company'), part('Work Experience 2', 'I currently work here', { kind: 'checkbox', type: 'checkbox' }),
+    part('Work Experience 2', 'From', { placeholder: 'MM/YYYY' }), part('Work Experience 2', 'To', { placeholder: 'MM/YYYY' }),
+    part('Education', 'School'), choice('Degree', ['Select', "Bachelor's", "Master's", 'PhD'], { section: 'Education' }), part('Education', 'Discipline'),
+    choice('Start Date Month', months, { section: 'Education' }), choice('Start Date Year', years, { section: 'Education' }),
+    choice('End Date Month', months, { section: 'Education' }), choice('End Date Year', years, { section: 'Education' }), part('Education', 'GPA'),
+    part('Education', 'School', { filled: true }), part('Education', 'Discipline'),
+    field('Current company'), field('Graduation date', { type: 'month' }), field('Earliest start date'),
+    field('LinkedIn Profile'), field('LinkedIn URL', { type: 'url' }),
+  ];
+  const { fills } = planFill(fields, { ...PROFILE, linkedin: 'yuan-li', startDate: '' });
+  const got = fills.map(item => {
+    const asked = fields.find(entry => entry.index === item.index);
+    return `${asked.section || '-'} · ${asked.label} = ${item.value ?? (item.check ? 'checked' : asked.options[item.option])}`;
+  });
+  assert.deepEqual(got, [
+    'My Experience · Job Title = Data Science Intern', 'My Experience · Company = Acme', 'My Experience · Location = San Francisco, CA',
+    'My Experience · I currently work here = checked', 'My Experience · From = 06/2025', 'My Experience · Role Description = Built churn models\nShipped a dashboard',
+    'Work Experience 2 · Job Title = Analyst', 'Work Experience 2 · Company = Beta Labs', 'Work Experience 2 · From = 01/2023', 'Work Experience 2 · To = 12/2024',
+    'Education · School = University of California, Berkeley', "Education · Degree = Master's", 'Education · Discipline = Industrial Engineering',
+    'Education · Start Date Month = August', 'Education · Start Date Year = 2025', 'Education · End Date Month = May', 'Education · End Date Year = 2026',
+    'Education · GPA = 3.9/4.0', 'Education · Discipline = Mathematics',
+    '- · Current company = Acme', '- · Graduation date = 2026-05',
+    '- · LinkedIn Profile = https://www.linkedin.com/in/yuan-li', '- · LinkedIn URL = https://www.linkedin.com/in/yuan-li',
+  ]);
+  const named = planFill([field('LinkedIn'), field('LinkedIn profile URL', { type: 'url' })], { ...PROFILE, linkedin: 'Yuan Li' }).fills;
+  assert.deepEqual(named.map(item => item.value), ['Yuan Li'], 'a LinkedIn name goes into a text box but never into a link box');
+  assert.equal(keyFor(field('Start date')), 'startDate', 'outside a work or education part, a start date is when one can start');
+  assert.equal(keyFor(field('Are you currently employed?', { kind: 'checkbox', type: 'checkbox' })), null);
+});
+
+test('the profile is read from the whole resume and old profiles move to lists', async () => {
+  assert.deepEqual(['2024-08', '8/2024', 'Aug 2024', 'Sept. 2024', '2024年8月', '2024', 'Spring 2026', ''].map(monthOf), ['2024-08', '2024-08', '2024-08', '2024-09', '2024-08', '2024', null, '']);
+  assert.deepEqual(migrateApplicant({ firstName: 'Yuan', school: 'UCB', degree: 'MEng', major: 'IEOR', graduation: 'Spring 2026', company: 'Acme', title: 'Intern' }), {
+    firstName: 'Yuan', education: [{ school: 'UCB', degree: 'MEng', major: 'IEOR', start: '', end: '2026', gpa: '' }],
+    experience: [{ company: 'Acme', title: 'Intern', location: '', start: '', end: '', current: false, summary: '' }],
+  });
+  assert.ok(PROFILE_SCHEMA.required.includes('experience') && PROFILE_SCHEMA.properties.education.items.additionalProperties === false);
+  assert.deepEqual(normalizeProfile({ firstName: ' Yuan ', email: 'not an email', yearsExperience: 'about three', linkedin: 'linkedin.com/in/yuan',
+    education: [{ school: 'UC Berkeley', degree: 'MEng', major: 'IEOR', start: 'Aug 2025', end: 'May 2026', gpa: '3.9' }, { school: '', degree: 'BS' }],
+    experience: [{ company: 'Acme', title: 'Intern', location: 'SF', start: '2025-06', end: 'Present', current: false, summary: '• Built models\n  - Shipped   a dashboard' }] }), {
+    firstName: 'Yuan', linkedin: 'linkedin.com/in/yuan',
+    education: [{ school: 'UC Berkeley', degree: 'MEng', major: 'IEOR', start: '2025-08', end: '2026-05', gpa: '3.9' }],
+    experience: [{ company: 'Acme', title: 'Intern', location: 'SF', start: '2025-06', end: '', current: true, summary: 'Built models\nShipped a dashboard' }],
+  });
+
+  const asked = [];
+  let available = true;
+  const reply = { firstName: 'Yuan', lastName: 'Li', preferredName: '', email: '', phone: '', address: '', city: 'Berkeley', state: 'CA', postalCode: '', country: 'United States',
+    linkedin: '', github: '', website: '', yearsExperience: '2',
+    education: [{ school: 'UC Berkeley', degree: 'Master of Engineering', major: 'IEOR', start: '2025-08', end: '2026-05', gpa: '' }],
+    experience: [{ company: 'Acme', title: 'Data Analyst', location: '', start: '2023-07', end: '2025-07', current: false, summary: 'Built dashboards' }] };
+  const provider = { id: 'claude-cli', status: async () => (available ? { available: true, detail: 'test' } : { available: false, detail: 'Claude Code was not found. Install it and sign in, or set its path in Settings.' }),
+    ask: async request => { asked.push(request); return { value: reply, provider: 'claude-cli', model: 'claude-opus-5-5' }; } };
+  const app = await createApp({ dataDir: ':memory:', startScheduler: false, distDir: fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-dist-')),
+    notify: () => {}, log: () => {}, detectJobspy: async () => ({ available: false }), providers: { 'claude-cli': provider } });
+  const url = await app.listen(0);
+  const { csrfToken } = await (await fetch(`${url}/api/bootstrap`)).json();
+  const extract = async () => {
+    const response = await fetch(`${url}/api/applicant/extract`, { method: 'POST', body: '{}', headers: { 'content-type': 'application/json', 'x-dayjob-token': csrfToken } });
+    return { status: response.status, body: await response.json() };
+  };
+  try {
+    assert.equal((await extract()).status, 409, 'needs a resume');
+    app.repo.addResume({ name: 'cv.txt', mime: 'text/plain', size: 1, text: 'Yuan Li\nyuan@example.com · 510-555-0100\nUC Berkeley, MEng IEOR 2026\nAcme, Data Analyst 2023–2025' });
+    const read = await extract();
+    assert.equal(read.status, 200);
+    assert.equal(read.body.ai, true);
+    assert.deepEqual([read.body.profile.email, read.body.profile.phone], ['yuan@example.com', '510-555-0100'], 'contact details the AI left out still come from the text');
+    assert.equal(read.body.profile.experience[0].company, 'Acme');
+    assert.match(asked[0].prompt, /<resume name="cv.txt">[\s\S]*Acme, Data Analyst/);
+    assert.equal(asked[0].schema, PROFILE_SCHEMA);
+    available = false;
+    const basic = await extract();
+    assert.deepEqual([basic.body.ai, basic.body.profile.firstName, basic.body.profile.education], [false, 'Yuan', []]);
+    assert.match(basic.body.reason, /Claude Code was not found/);
+
+    // A profile saved by 0.11 or earlier opens with its school and job as entries.
+    app.repo.saveSettings({ ...app.repo.getSettings(), applicant: { ...DEFAULT_APPLICANT, education: undefined, experience: undefined, school: 'UCB', company: 'Acme', title: 'Analyst' } });
+    const { settings } = await (await fetch(`${url}/api/bootstrap`)).json();
+    assert.deepEqual([settings.applicant.education.map(item => item.school), settings.applicant.experience.map(item => item.company), 'school' in settings.applicant], [['UCB'], ['Acme'], false]);
   } finally { await app.close(); }
 });

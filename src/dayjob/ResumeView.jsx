@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, FileUp, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { CheckCircle2, FileUp, LoaderCircle, Plus, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { BEAT, cue } from './groove/sound.js';
-import { leaveThen, pop, scatter, shake, typeIn } from './groove/fx.js';
+import { leaveThen, pop, scatter, shake, typeIn, unfold } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
+import { EMPTY_EDUCATION, EMPTY_EXPERIENCE, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from '../../server/jobs/applicant.mjs';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -288,42 +289,142 @@ const PROFILE_GROUPS = [
     ['address', '街道地址', 'Street address', 200], ['city', '城市', 'City', 100], ['state', '州 / 省', 'State / province', 100],
     ['postalCode', '邮编', 'ZIP / postal code', 20], ['country', '国家', 'Country', 100],
   ] },
-  { title: ['链接', 'Links'], fields: [['linkedin', 'LinkedIn', 'LinkedIn', 300, 'url'], ['github', 'GitHub', 'GitHub', 300, 'url'], ['website', '个人网站 / 作品集', 'Website / portfolio', 300, 'url']] },
-  { title: ['教育', 'Education'], fields: [
-    ['school', '学校', 'School', 160], ['degree', '学位', 'Degree', 100], ['major', '专业', 'Major', 160], ['graduation', '毕业时间', 'Graduation', 20],
-  ] },
-  { title: ['工作', 'Work'], fields: [
-    ['company', '现在 / 最近的公司', 'Current or last company', 160], ['title', '职位', 'Job title', 160], ['yearsExperience', '工作年限', 'Years of experience', 10],
-  ] },
-  { title: ['常见问题', 'Common questions'], fields: [
-    ['workAuthorized', '在岗位所在国家有工作许可', 'Authorized to work in the job’s country', 'yes-no'], ['needsSponsorship', '需要签证担保', 'Need visa sponsorship', 'yes-no'],
-    ['willingToRelocate', '愿意搬迁', 'Willing to relocate', 'yes-no'], ['salary', '期望薪资', 'Expected salary', 100],
-    ['startDate', '最早入职时间', 'Earliest start date', 100], ['heardFrom', '从哪里看到岗位（如 LinkedIn）', 'Where you found jobs (e.g. LinkedIn)', 100],
-  ] },
+  // LinkedIn can be just the handle; GitHub and the website may be typed without https://.
+  { title: ['链接', 'Links'], fields: [['linkedin', 'LinkedIn', 'LinkedIn', 300, 'text', ['用户名或链接', 'Username or link']],
+    ['github', 'GitHub', 'GitHub', 300, 'link'], ['website', '个人网站 / 作品集', 'Website / portfolio', 300, 'link']] },
 ];
+const QUESTIONS = { title: ['常见问题', 'Common questions'], fields: [
+  ['yearsExperience', '工作年限', 'Years of experience', 10],
+  ['workAuthorized', '在岗位所在国家有工作许可', 'Authorized to work in the job’s country', 'yes-no'], ['needsSponsorship', '需要签证担保', 'Need visa sponsorship', 'yes-no'],
+  ['willingToRelocate', '愿意搬迁', 'Willing to relocate', 'yes-no'], ['salary', '期望薪资', 'Expected salary', 100],
+  ['startDate', '最早入职时间', 'Earliest start date', 100], ['heardFrom', '从哪里看到岗位（如 LinkedIn）', 'Where you found jobs (e.g. LinkedIn)', 100],
+] };
+const EDUCATION_INPUTS = [['school', '学校', 'School', 160], ['degree', '学位', 'Degree', 100], ['major', '专业', 'Major', 160],
+  ['start', '开始', 'Start', 'month'], ['end', '毕业（或预计）', 'Graduation (or expected)', 'month'], ['gpa', 'GPA', 'GPA', 20]];
+const EXPERIENCE_INPUTS = [['company', '公司', 'Company', 160], ['title', '职位', 'Title', 160], ['location', '地点', 'Location', 120],
+  ['start', '开始', 'Start', 'month'], ['end', '结束', 'End', 'month']];
+
+let entryCount = 0;
+const withKey = entry => ({ ...entry, _key: `entry-${(entryCount += 1)}` });
+const withKeys = applicant => ({ ...applicant, education: (applicant.education || []).map(withKey), experience: (applicant.experience || []).map(withKey) });
+const sameName = (a, b) => {
+  const x = String(a || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const y = String(b || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  return Boolean(x && y) && (x === y || (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x))));
+};
+
+function ProfileField({ name, rule, type, placeholder, value, onChange, disabled }) {
+  const { t } = useI18n();
+  if (rule === 'yes-no') {
+    return (
+      <select name={name} value={value} onChange={event => onChange(event.target.value)}>
+        <option value="">{t('不填', 'Leave blank')}</option><option value="yes">{t('是', 'Yes')}</option><option value="no">{t('否', 'No')}</option>
+      </select>
+    );
+  }
+  // A month (2024-08) or a year; "Aug 2024" and the like turn into that when the box is left.
+  if (rule === 'month') {
+    return <input name={name} value={value} maxLength={20} placeholder="2024-08" disabled={disabled} onChange={event => onChange(event.target.value)}
+      onBlur={event => { const month = monthOf(event.target.value); if (month && month !== event.target.value) onChange(month); }} />;
+  }
+  return <input type={type === 'link' ? 'text' : type || 'text'} inputMode={type === 'link' ? 'url' : undefined} name={name} value={value} maxLength={rule}
+    placeholder={placeholder ? t(...placeholder) : undefined} onChange={event => onChange(event.target.value)} />;
+}
+
+// Schools or jobs, newest first, each a small card that can be removed.
+function ProfileEntries({ kind, items, setItems, inputs, blank, max, legend, addText, children }) {
+  const { t } = useI18n();
+  const list = useRef(null);
+  const [arrived, setArrived] = useState(null);
+  useEffect(() => {
+    if (!arrived) return;
+    const entry = list.current?.querySelector(`[data-entry="${arrived}"]`);
+    unfold(entry);
+    entry?.querySelector('input')?.focus({ preventScroll: true });
+    setArrived(null);
+  }, [arrived]);
+  const update = (key, field, value) => setItems(current => current.map(item => (item._key === key ? { ...item, [field]: value, ...(field === 'current' && value ? { end: '' } : {}) } : item)));
+  const add = () => {
+    const entry = withKey(blank);
+    setItems(current => [...current, entry]);
+    setArrived(entry._key);
+  };
+  const remove = (key, button) => leaveThen(button.closest('.profile-entry'), 'fold', () => setItems(current => current.filter(item => item._key !== key)));
+  return (
+    <fieldset className="profile-group">
+      <legend>{legend}</legend>
+      {children}
+      <div className="profile-entries" ref={list}>
+        {items.map((item, index) => (
+          <div className="profile-entry" key={item._key} data-entry={item._key}>
+            <div className="form-grid">
+              {inputs.map(([field, zh, en, rule]) => (
+                <label key={field}>{t(zh, en)}
+                  <ProfileField name={`${kind}.${index}.${field}`} rule={rule} value={item[field]} disabled={field === 'end' && item.current} onChange={value => update(item._key, field, value)} />
+                </label>
+              ))}
+            </div>
+            {kind === 'experience' ? (
+              <>
+                <label className="check"><input type="checkbox" checked={item.current} onChange={event => update(item._key, 'current', event.target.checked)} />{t('目前在职', 'I work here now')}</label>
+                <label className="profile-letter">{t('工作内容', 'What you did')}
+                  <textarea name={`${kind}.${index}.summary`} rows={3} maxLength={2000} value={item.summary} onChange={event => update(item._key, 'summary', event.target.value)} />
+                </label>
+              </>
+            ) : null}
+            <button type="button" className="icon-button entry-remove" title={t('删除这一段', 'Remove this one')} onClick={event => remove(item._key, event.currentTarget)}><Trash2 size={15} /></button>
+          </div>
+        ))}
+      </div>
+      {items.length < max ? <button type="button" className="button small entry-add" onClick={add}><Plus size={14} />{addText}</button> : null}
+    </fieldset>
+  );
+}
 
 function ApplicantProfile({ boot, reload, focused }) {
   const { t } = useI18n();
   const card = useRef(null);
-  const [form, setForm] = useState(boot.settings.applicant);
+  const [form, setForm] = useState(() => withKeys(boot.settings.applicant));
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [saved, flashSaved] = useSaved();
   useEffect(() => { if (focused) card.current?.scrollIntoView({ block: 'start' }); }, [focused]);
   const set = (key, value) => { setForm(current => ({ ...current, [key]: value })); setMessage(''); };
+  const setList = kind => change => { setForm(current => ({ ...current, [kind]: change(current[kind]) })); setMessage(''); };
+
+  // The AI reads every resume. What it finds goes into empty boxes, and
+  // schools and jobs not listed yet are added, for the user to check and save.
   async function fromResume() {
     setError('');
     setMessage('');
+    setReading(true);
     try {
-      const found = await api('/api/applicant/from-resume');
-      const empty = Object.entries(found).filter(([key, value]) => value && !String(form[key] || '').trim());
-      setForm(current => ({ ...current, ...Object.fromEntries(empty) }));
-      // Each box that was filled lights up in turn, as if typed into.
-      if (empty.length) requestAnimationFrame(() => typeIn(card.current.querySelectorAll(empty.map(([key]) => `[name="${key}"]`).join(','))));
-      setMessage(empty.length ? t(`已从简历填入 ${empty.length} 项，检查后点保存。`, `Filled ${empty.length} fields from your resume. Check them, then save.`)
-        : t('简历里没有找到还没填的联系方式。', 'Your resume has no contact details that are not already filled in.'));
-    } catch (failure) { setError(serverText(failure.message)); }
+      const { profile, ai, reason } = await api('/api/applicant/extract', { method: 'POST', body: {} });
+      const filled = Object.entries(profile).filter(([key, value]) => typeof value === 'string' && value && !String(form[key] || '').trim());
+      const merge = (current, found, same, max) => {
+        const next = current.map(item => {
+          const match = found.find(entry => same(item, entry));
+          return match ? { ...item, ...Object.fromEntries(Object.entries(match).filter(([key, value]) => value && !item[key])) } : item;
+        });
+        const added = found.filter(entry => !current.some(item => same(item, entry))).slice(0, Math.max(0, max - current.length)).map(withKey);
+        return { list: [...next, ...added], added };
+      };
+      const education = merge(form.education, profile.education || [], (a, b) => sameName(a.school, b.school), 6);
+      const experience = merge(form.experience, profile.experience || [], (a, b) => sameName(a.company, b.company) && (!a.title || !b.title || sameName(a.title, b.title)), 10);
+      setForm(current => ({ ...current, ...Object.fromEntries(filled), education: education.list, experience: experience.list }));
+      const fresh = [...education.added, ...experience.added].map(entry => entry._key);
+      requestAnimationFrame(() => {
+        typeIn(card.current.querySelectorAll(filled.map(([key]) => `[name="${key}"]`).join(',') || ':not(*)'));
+        fresh.forEach((key, index) => unfold(card.current.querySelector(`[data-entry="${key}"]`), index * 80));
+      });
+      const count = filled.length + education.added.length + experience.added.length;
+      setMessage(!ai ? t(`AI 现在用不了（${serverText(reason)}），只读出了联系方式${filled.length ? `，填入 ${filled.length} 项` : ''}。`, `The AI is not available (${reason}), so only contact details were read${filled.length ? `: ${filled.length} filled in` : ''}.`)
+        : count ? t(`读完了简历：填入 ${filled.length} 项，新增 ${education.added.length} 段教育、${experience.added.length} 段工作经历。检查后点保存。`,
+          `Read your resume: ${filled.length} filled in, ${education.added.length} schools and ${experience.added.length} jobs added. Check them, then save.`)
+          : t('简历里的内容都已经填好了。', 'Everything in your resume is already filled in.'));
+    } catch (failure) { setError(serverText(failure.message)); } finally { setReading(false); }
   }
   async function save(event) {
     event.preventDefault();
@@ -332,32 +433,32 @@ function ApplicantProfile({ boot, reload, focused }) {
     setMessage('');
     try {
       const stored = await api('/api/settings', { method: 'PATCH', body: { applicant: form } });
-      setForm(stored.applicant);
+      setForm(withKeys(stored.applicant));
       await reload();
       flashSaved();
     } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); }
   }
+  const group = ({ title, fields }) => (
+    <fieldset key={title[0]} className="profile-group">
+      <legend>{t(...title)}</legend>
+      <div className="form-grid">
+        {fields.map(([key, zh, en, rule, type, placeholder]) => (
+          <label key={key}>{t(zh, en)}<ProfileField name={key} rule={rule} type={type} placeholder={placeholder} value={form[key]} onChange={value => set(key, value)} /></label>
+        ))}
+      </div>
+    </fieldset>
+  );
   return (
     <form className="card-section" id="applicant" ref={card} onSubmit={save}>
       <h2><UserRound size={18} />{t('申请资料', 'Application profile')}</h2>
-      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。只保存在这台电脑上；上传简历、密码和提交前的检查始终由你来。',
-        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. They stay on this computer; uploading your resume, passwords and the final check are always yours.')}</p>
-      {PROFILE_GROUPS.map(group => (
-        <fieldset key={group.title[0]} className="profile-group">
-          <legend>{t(...group.title)}</legend>
-          <div className="form-grid">
-            {group.fields.map(([key, zh, en, rule, type]) => (
-              <label key={key}>{t(zh, en)}
-                {rule === 'yes-no' ? (
-                  <select name={key} value={form[key]} onChange={event => set(key, event.target.value)}>
-                    <option value="">{t('不填', 'Leave blank')}</option><option value="yes">{t('是', 'Yes')}</option><option value="no">{t('否', 'No')}</option>
-                  </select>
-                ) : <input type={type || 'text'} name={key} value={form[key]} maxLength={rule} onChange={event => set(key, event.target.value)} />}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      ))}
+      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。只保存在这台电脑上；上传简历和提交前的检查始终由你来。',
+        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. They stay on this computer; uploading your resume and the final check are always yours.')}</p>
+      {PROFILE_GROUPS.map(group)}
+      <ProfileEntries kind="education" items={form.education} setItems={setList('education')} inputs={EDUCATION_INPUTS} blank={EMPTY_EDUCATION} max={MAX_EDUCATION}
+        legend={t('教育经历', 'Education')} addText={t('添加教育经历', 'Add a school')} />
+      <ProfileEntries kind="experience" items={form.experience} setItems={setList('experience')} inputs={EXPERIENCE_INPUTS} blank={EMPTY_EXPERIENCE} max={MAX_EXPERIENCE}
+        legend={t('工作经历', 'Work experience')} addText={t('添加工作经历', 'Add a job')} />
+      {group(QUESTIONS)}
       <label className="profile-letter">{t('求职信（只填进求职信文本框）', 'Cover letter (only goes into cover-letter boxes)')}
         <textarea rows={4} maxLength={5000} value={form.coverLetter} onChange={event => set('coverLetter', event.target.value)} />
       </label>
@@ -366,7 +467,9 @@ function ApplicantProfile({ boot, reload, focused }) {
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       <div className="form-actions">
-        <button type="button" className="button" onClick={fromResume} disabled={!boot.resumes.length} title={boot.resumes.length ? undefined : t('先上传简历', 'Upload a resume first')}><FileUp size={15} />{t('从简历读取', 'Read from my resume')}</button>
+        <button type="button" className="button" data-fx="sparkle" onClick={fromResume} disabled={!boot.resumes.length || reading} title={boot.resumes.length ? undefined : t('先上传简历', 'Upload a resume first')}>
+          {reading ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}{reading ? t('正在读简历…', 'Reading your resume…') : t('读简历填写', 'Fill in from my resume')}
+        </button>
         <button type="submit" className="button primary" disabled={busy}><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button>
       </div>
     </form>

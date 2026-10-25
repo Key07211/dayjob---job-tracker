@@ -19,7 +19,7 @@ import { createScheduler } from './jobs/scheduler.mjs';
 import { recommend } from './jobs/recommend.mjs';
 import { createGoals } from './jobs/goals.mjs';
 import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
-import { contactFromResume } from './jobs/applicant.mjs';
+import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -67,6 +67,7 @@ export async function createApp(options = {}) {
   const configuredOrigins = options.allowedOrigins || (process.env.DAYJOB_ALLOWED_ORIGINS || 'http://localhost:5174,http://127.0.0.1:5174').split(',').filter(Boolean);
   let scoringBatch = null;
   let recommending = null;
+  let readingProfile = null;
 
   async function sites(refresh = false) {
     const bridgeState = await jobspyStatus(refresh);
@@ -349,6 +350,15 @@ export async function createApp(options = {}) {
       } catch (error) {
         throw new HttpError(error.status || 502, error.message);
       } finally { recommending = null; }
+    }
+    // The application profile from the whole resume, for the user to check
+    // in the form; nothing is saved here.
+    if (pathname === '/api/applicant/extract' && method === 'POST') {
+      const resumes = repo.listResumes().map(resume => repo.getResume(resume.id, true));
+      if (!resumes.length) throw new HttpError(409, 'Upload a resume first.');
+      if (readingProfile) throw new HttpError(409, 'The AI is already reading the resume; wait for it to finish.');
+      readingProfile = extractProfile({ resumes, scorer, log });
+      try { return await readingProfile; } finally { readingProfile = null; }
     }
     // Closing the suggestions keeps them, so they can be shown again; the
     // next suggestions start open.
