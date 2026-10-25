@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { pick, createNowPlaying } = require('../desktop/now-playing.cjs');
+const { pick, createNowPlaying, soundPermission } = require('../desktop/now-playing.cjs');
+
+test('hearing the system sound asks for a screen capture, never a camera or microphone', () => {
+  assert.equal(soundPermission('display-capture'), true);
+  assert.equal(soundPermission('media', []), true, 'getDisplayMedia asks for media with no media types first');
+  assert.equal(soundPermission('media', ['audio']), false, 'a microphone');
+  assert.equal(soundPermission('media', ['video']), false, 'a camera');
+  assert.equal(soundPermission('media', ['audio', 'video']), false);
+  assert.equal(soundPermission('media', undefined), false);
+  assert.equal(soundPermission('notifications', []), false);
+});
 
 test('only music apps count as music; browsers never do, other apps only with an artist', () => {
   assert.deepEqual(pick([]), { track: null, browser: false });

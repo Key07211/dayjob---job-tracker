@@ -45,6 +45,8 @@ let vault;
 let updates;
 let music;
 let quitting = false;
+// How many system sound requests got past the permission check, for the smoke test.
+let soundRequests = 0;
 let shutdownStarted = false;
 let language = null;
 // Renderer errors during a smoke test, so a failed check says what broke.
@@ -466,6 +468,15 @@ async function runSmoke() {
   const updateCheck = await smokeUpdate();
   timings.update = Date.now() - started;
   const musicCheck = await nowPlaying.probe();
+  // Hearing the system sound for the wave: while following is on, Dayjob's page asks to capture it and nothing
+  // refuses that on the way. (The capture itself needs Windows and a sound device.)
+  const asked = soundRequests;
+  music.setFollow(true);
+  musicCheck.capture = await window.webContents.executeJavaScript(`navigator.mediaDevices.getDisplayMedia({ audio: true, video: true })
+    .then(stream => { const kinds = stream.getTracks().map(track => track.kind).sort().join(','); stream.getTracks().forEach(track => track.stop()); return kinds; }, error => error.name)`, true);
+  music.setFollow(false);
+  musicCheck.asked = soundRequests > asked;
+  musicCheck.ok = musicCheck.ok && musicCheck.asked;
   timings.music = Date.now() - started;
   // By default closing the window only hides it.
   window.close();
@@ -496,10 +507,12 @@ async function boot() {
   claude = createClaudeConnection({ command: process.execPath, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1', DAYJOB_URL: origin } });
   // Everything is refused, except that while "follow music" is on (Settings, off by default) Dayjob's own page may
   // hear the system sound, for the listening wave; it is analysed in the page and never recorded or sent anywhere.
-  const capture = (contents, permission, url) => permission === 'display-capture' && Boolean(music?.following) && Boolean(window) && contents === window.webContents && localUrl(url);
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(capture(contents, permission, details?.requestingUrl)));
+  const capture = (contents, permission, url, mediaTypes) => nowPlaying.soundPermission(permission, mediaTypes) && Boolean(music?.following) && Boolean(window)
+    && contents === window.webContents && localUrl(url);
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(capture(contents, permission, details?.requestingUrl, details?.mediaTypes)));
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin) => capture(contents, permission, requestingOrigin));
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    soundRequests += 1;
     if (process.platform !== 'win32' || !music?.following || !window || !request.audioRequested || !localUrl(request.frame?.url)) { callback(null); return; }
     // No thumbnails: only the sound is wanted, and a failed try may be repeated on the next click.
     desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })

@@ -16,8 +16,9 @@ const APP_NAMES = {
 export const appName = (app, t) => (APP_NAMES[app] ? t(...APP_NAMES[app]) : '');
 
 // capture: how the system sound reaches the wave. off (not following), waiting (needs a click, which browsers ask
-// for), starting, on, or failed (Windows refused; the next click or the retry button in the header tries again).
-let state = { track: null, browser: false, capture: 'off' };
+// for), starting, on, or failed (refused; the next click or the retry button in the header tries again). captureError
+// names why the last try failed, such as NotAllowedError, for the retry button's tooltip.
+let state = { track: null, browser: false, capture: 'off', captureError: '' };
 const listeners = new Set();
 let capture = null;
 let armed = false;
@@ -30,9 +31,9 @@ function publish(next) {
   attach();
   listeners.forEach(listener => listener());
 }
-function setCapture(value) {
-  if (state.capture === value) return;
-  state = { ...state, capture: value };
+function setCapture(value, error = '') {
+  if (state.capture === value && state.captureError === error) return;
+  state = { ...state, capture: value, captureError: error };
   listeners.forEach(listener => listener());
 }
 bridge?.onNowPlaying(publish);
@@ -72,8 +73,8 @@ async function startCapture() {
     sound.addEventListener('ended', () => { stopCapture(); if (prefs.get().followMusic) { setCapture('failed'); armCapture(); } });
     setCapture('on');
     attach();
-  } catch {
-    setCapture('failed');
+  } catch (error) {
+    setCapture('failed', [error?.name, error?.message].filter(Boolean).join(': ').slice(0, 200));
     armCapture();
   } finally {
     starting = false;

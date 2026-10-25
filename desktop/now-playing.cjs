@@ -121,4 +121,11 @@ function probe(timeout = 20000) {
   });
 }
 
-module.exports = { createNowPlaying, probe, pick };
+// The permissions hearing the system sound takes: Chromium asks for 'media' with no media types before a screen
+// capture (getDisplayMedia), then 'display-capture'. 'media' for a camera or microphone ('video' or 'audio' in
+// mediaTypes) is never one of them.
+function soundPermission(permission, mediaTypes) {
+  return permission === 'display-capture' || (permission === 'media' && Array.isArray(mediaTypes) && mediaTypes.length === 0);
+}
+
+module.exports = { createNowPlaying, probe, pick, soundPermission };
