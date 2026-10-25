@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     autofill: options => ipcRenderer.invoke('dayjob:browser-autofill', options),
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
+    fillLogin: id => ipcRenderer.invoke('dayjob:browser-login-fill', id),
+    answerOffer: keep => ipcRenderer.invoke('dayjob:browser-login-offer', keep),
+  }),
+  // Saved passwords: in to be kept, never back out; the list has sites and user names only.
+  vault: Object.freeze({
+    list: () => ipcRenderer.invoke('dayjob:vault-list'),
+    save: entry => ipcRenderer.invoke('dayjob:vault-save', entry),
+    remove: id => ipcRenderer.invoke('dayjob:vault-delete', id),
   }),
   music: Object.freeze({
     // Following music reads the Windows media controls, so it exists only on Windows.

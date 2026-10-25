@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer } = require('electron');
+const { app, BrowserWindow, Menu, Tray, Notification, nativeImage, dialog, shell, ipcMain, session, desktopCapturer, safeStorage } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
@@ -6,6 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
 const { createBrowser } = require('./browser.cjs');
+const { createVault } = require('./vault.cjs');
 const { createUpdater } = require('./updater.cjs');
 const { freeInstallFolder } = require('./install-lock.cjs');
 const nowPlaying = require('./now-playing.cjs');
@@ -40,6 +41,7 @@ let tray;
 let origin;
 let claude;
 let browser;
+let vault;
 let updates;
 let music;
 let quitting = false;
@@ -123,6 +125,12 @@ function setupIpc() {
   handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true }));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
+  handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
+  handle('dayjob:browser-login-offer', keep => browser.answerOffer(keep === true));
+  // The password vault: the interface sends a password in to be kept, and only ever gets user names back.
+  handle('dayjob:vault-list', () => vault.list());
+  handle('dayjob:vault-save', entry => { const saved = vault.save(entry && typeof entry === 'object' ? entry : {}); browser.refreshLogin(); return saved; });
+  handle('dayjob:vault-delete', id => { vault.remove(String(id)); browser.refreshLogin(); return vault.list(); });
   handle('dayjob:update-state', () => updates.state());
   handle('dayjob:update-check', () => updates.check());
   handle('dayjob:update-download', () => updates.download());
@@ -190,8 +198,9 @@ async function createWindow() {
     else app.quit();
   });
 
+  vault = createVault({ file: path.join(profileDir, 'vault.json'), safeStorage });
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
-    getProfile: () => service.repo.getSettings().applicant,
+    getProfile: () => service.repo.getSettings().applicant, vault,
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
 
   tray = new Tray(image.resize({ width: 32, height: 32 }));
@@ -224,6 +233,15 @@ const APPLY_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta char
 const EMBED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head>
 <body><label>Phone <input name="phone" type="tel"></label> <label>LinkedIn profile <input name="linkedin" required></label> <label>Desired salary <input name="salary"></label></body></html>`;
 
+// A login form and a sign-up form, for the password vault. Signing in posts,
+// so the password never shows in an address.
+const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
+<body><h1>Sign in</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email" autocomplete="username"></label>
+<label>Password <input name="password" type="password" autocomplete="current-password"></label> <button>Sign in</button></form></body></html>`;
+const SIGNUP_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Create account · Smoke Co</title></head>
+<body><h1>Create account</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email"></label>
+<label>Password <input name="password" type="password"></label> <label>Confirm password <input name="confirm" type="password"></label> <button>Create account</button></form></body></html>`;
+
 async function until(check, ms) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -243,6 +261,17 @@ async function smokeBrowser(token) {
   const site = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    if (request.method === 'POST') {
+      let body = '';
+      request.on('data', chunk => { body += chunk; });
+      request.on('end', () => {
+        const form = new URLSearchParams(body);
+        response.end(`<!doctype html><title>Signed in</title><h1>Signed in as ${escape(form.get('email'))}</h1><p>${(form.get('password') || '').length}-character password</p>`);
+      });
+      return undefined;
+    }
+    if (url.pathname === '/login') return response.end(LOGIN_PAGE);
+    if (url.pathname === '/signup') return response.end(SIGNUP_PAGE);
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
@@ -301,6 +330,31 @@ async function smokeBrowser(token) {
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
     const clicked = await call('click', { ref: job.elements.find(item => item.name === 'Submit application').ref });
     steps.autoAllowed = /Auto-submit is on/.test(clicked.note || '') && clicked.page.url.startsWith(`${base}/submitted?name=Auto+Submit`);
+
+    // 密码保管: a saved sign-in is filled into its site's login form, where
+    // Claude's read only sees that the password box is filled; it is kept
+    // encrypted on disk; a password typed into a sign-up form is offered for
+    // keeping once the page moves on. The interface never gets a password.
+    vault.save({ site: '127.0.0.1', username: 'smoke@example.com', password: 'Sm0ke-pass!' });
+    steps.vaultEncrypted = !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0ke-pass!');
+    await call('open', { url: `${base}/login` });
+    steps.vaultFilled = await until(() => Boolean(browser.state().login?.filled), 6000);
+    const signIn = await call('read');
+    steps.vaultHidden = !JSON.stringify(signIn).includes('Sm0ke-pass!') && signIn.elements.find(item => item.name === 'Email')?.value === 'smoke@example.com';
+    const signedIn = await call('click', { ref: signIn.elements.find(item => item.name === 'Sign in').ref });
+    const welcome = (await call('read')).text;
+    steps.vaultSubmitted = welcome.includes('Signed in as smoke@example.com') && welcome.includes('11-character password') && !signedIn.page.url.includes('Sm0ke');
+    await call('open', { url: `${base}/signup` });
+    const view = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/signup`));
+    await view.webContents.executeJavaScript(`for (const [name, value] of [['email', 'new@example.com'], ['password', 'N3w-pass!'], ['confirm', 'N3w-pass!']]) {
+      const box = document.querySelector('[name="' + name + '"]'); box.value = value; box.dispatchEvent(new Event('input', { bubbles: true })); } true`);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const signup = await call('read');
+    await call('click', { ref: signup.elements.find(item => item.name === 'Create account').ref });
+    steps.vaultOffered = await until(() => browser.state().login?.offer?.username === 'new@example.com', 6000);
+    steps.vaultNoSecrets = !/Sm0ke-pass!|N3w-pass!/.test(JSON.stringify(browser.state()) + JSON.stringify(vault.list()));
+    browser.answerOffer(true);
+    steps.vaultKept = vault.list().entries.some(entry => entry.site === '127.0.0.1' && entry.username === 'new@example.com') && !browser.state().login.offer;
     browser.setAutoSubmit(false);
   } catch (error) {
     steps.error = error.message;
@@ -309,7 +363,8 @@ async function smokeBrowser(token) {
     embed.close();
   }
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
-    'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed'].every(step => steps[step] === true);
+    'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
+    'vaultNoSecrets', 'vaultKept'].every(step => steps[step] === true);
   return steps;
 }
 
@@ -399,8 +454,10 @@ async function runSmoke() {
     languageSaved = service.repo.getSettings().language === 'en' && language === 'en';
     if (!languageSaved) await new Promise(resolve => setTimeout(resolve, 100));
   }
-  // Let the first frame paint; a hidden window can otherwise capture the boot spinner.
+  // Let the first frame paint; a hidden window can otherwise capture the boot spinner. Its arrival motions
+  // barely move while it is hidden, so they are run to their end for the screenshot.
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
+  await window.webContents.executeJavaScript('document.getAnimations().forEach(animation => { try { animation.finish(); } catch { /* one that never ends */ } }); new Promise(resolve => setTimeout(resolve, 100))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
   timings.english = Date.now() - started;

@@ -347,7 +347,7 @@ function App() {
           {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
           {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
           {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} /> : null}
-          {view === 'settings' ? <SettingsView {...shared} update={update} /> : null}
+          {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
         </div>
         {browserOpen ? (
           <>

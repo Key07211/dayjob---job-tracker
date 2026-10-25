@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, ChevronsRight, CircleCheck, ExternalLink, FileUp, Globe, LoaderCircle, Maximize2,
+import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, ChevronsRight, CircleCheck, ExternalLink, FileUp, Globe, KeyRound, LoaderCircle, Maximize2,
   Minimize2, Plus, RotateCw, ShieldAlert, Square, WandSparkles, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
+import { serverText } from './server-text.js';
 import { emit } from './groove/bus.js';
 import { cue, reducedMotion } from './groove/sound.js';
 import { Q, flyTo, holdToConfirm, leave, shake } from './groove/fx.js';
@@ -135,6 +136,44 @@ function SaveForm({ draft, apply, onCancel, onSaved }) {
 const STATUS = { new: ['新岗位', 'New'], saved: ['已收藏', 'Saved'], dismissed: ['已忽略', 'Dismissed'], applied: ['已投递', 'Applied'] };
 const APPLICATION = { applied: ['已投递', 'Applied'], oa: ['测评', 'Assessment'], interview: ['面试', 'Interview'], offer: ['Offer', 'Offer'], accepted: ['已接受', 'Accepted'],
   rejected: ['被拒', 'Rejected'], withdrawn: ['已撤回', 'Withdrawn'], ghosted: ['无回音', 'Ghosted'] };
+
+// 密码保管 for this page: the sign-ins saved for its site (by user name only),
+// which one was filled in, and an offer to keep a password just typed.
+function Passwords({ login, openItem }) {
+  const { t } = useI18n();
+  const [error, setError] = useState('');
+  useEffect(() => setError(''), [login?.site]);
+  if (!login || (!login.offer && !login.accounts.length && !login.form)) return null;
+  const fill = id => { setError(''); desktop.fillLogin(id).then(() => cue('type')).catch(failure => setError(serverText(bridgeMessage(failure)))); };
+  const answer = keep => { desktop.answerOffer(keep).then(() => { if (keep) cue('note'); }).catch(failure => setError(serverText(bridgeMessage(failure)))); };
+  return (
+    <section className="assist-section">
+      <h3>{t('密码', 'Passwords')}</h3>
+      {login.offer ? (
+        <div className="assist-confirm" role="alertdialog">
+          <p>{t(`记住 ${login.offer.username} 在 ${login.offer.site} 的密码？`, `Keep the password for ${login.offer.username} on ${login.offer.site}?`)}</p>
+          <div className="form-actions">
+            <button className="button small" onClick={() => answer(false)}>{t('不用', 'No thanks')}</button>
+            <button className="button small primary" onClick={() => answer(true)}><KeyRound size={14} />{t('记住', 'Keep it')}</button>
+          </div>
+        </div>
+      ) : null}
+      {login.accounts.length ? (
+        <ul className="assist-accounts">
+          {login.accounts.map(account => (
+            <li key={account.id}>
+              <KeyRound size={13} /><span>{account.username}</span>
+              {login.filled === account.id ? <em className="chip">{t('已填入', 'Filled in')}</em>
+                : login.form === 'login' ? <button className="link" onClick={() => fill(account.id)}>{t('填入', 'Fill in')}</button> : null}
+            </li>
+          ))}
+        </ul>
+      ) : login.form === 'login' && !login.offer ? <small>{t('这个网站还没有保存的密码，登录后可以让 Dayjob 记住。', 'No saved password for this site yet; Dayjob can keep it after you sign in.')}</small> : null}
+      {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
+      <button className="link" onClick={() => openItem('settings', 'vault')}>{t('管理密码', 'Manage passwords')}</button>
+    </section>
+  );
+}
 
 // The side panel: what Dayjob knows about this page, 自动填写 and 自动提交,
 // and whether Claude may use the browser.
@@ -325,6 +364,8 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           : t('关闭时，提交前总会先让你确认。', 'While off, you always confirm before anything is submitted.')}</small>}
         <button className="link" onClick={() => openItem('resume', 'applicant')}>{t('编辑申请资料', 'Edit the application profile')}</button>
       </section>
+
+      <Passwords login={state.login} openItem={openItem} />
 
       <section className="assist-section">
         <h3>Claude</h3>
