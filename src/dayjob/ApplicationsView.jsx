@@ -9,7 +9,7 @@ import { ListenWave } from './groove/ListenWave.jsx';
 import { emit } from './groove/bus.js';
 import { BEAT, cue } from './groove/sound.js';
 import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tint, underline, wiggle } from './groove/fx.js';
-import { NoteLoader } from './groove/BrandNote.jsx';
+import { BeatLoader } from './groove/BrandMark.jsx';
 import { DateField } from './groove/Picker.jsx';
 
 const TABS = [
@@ -177,7 +177,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
     });
   }
 
-  if (!item) return <div className="detail-empty">{error || <NoteLoader />}</div>;
+  if (!item) return <div className="detail-empty">{error || <BeatLoader />}</div>;
   const quiet = daysSince(item.statusChangedAt);
   return (
     <article className="application-detail" ref={card}>
@@ -305,7 +305,7 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
       {items ? <div className="header-actions"><button className="button" onClick={toggleAdding}><Plus size={15} />{t('手动添加', 'Add manually')}</button></div> : null}
     </header>
   );
-  if (!items) return <section className="applications">{header}<div className="list-empty">{error || <NoteLoader />}</div></section>;
+  if (!items) return <section className="applications">{header}<div className="list-empty">{error || <BeatLoader />}</div></section>;
   return (
     <section className="applications">
       {header}

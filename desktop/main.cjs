@@ -565,6 +565,13 @@ async function runSmoke() {
   // barely move while it is hidden, so they are run to their end for the screenshot.
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
   await window.webContents.executeJavaScript('document.getAnimations().forEach(animation => { try { animation.finish(); } catch { /* one that never ends */ } }); new Promise(resolve => setTimeout(resolve, 100))');
+  // Run to its end like that, the opening takes its cover away, so the screenshot shows the page under it.
+  let openingClosed = false;
+  for (let attempt = 0; attempt < 30 && !openingClosed; attempt += 1) {
+    openingClosed = await window.webContents.executeJavaScript("!document.querySelector('.opening')");
+    if (!openingClosed) await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
   timings.english = Date.now() - started;
@@ -588,8 +595,8 @@ async function runSmoke() {
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && browserCheck.ok && updateCheck.ok && musicCheck.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, browser: browserCheck, update: updateCheck, music: musicCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && openingClosed && browserCheck.ok && updateCheck.ok && musicCheck.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, browser: browserCheck, update: updateCheck, music: musicCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the

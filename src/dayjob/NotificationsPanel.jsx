@@ -5,7 +5,7 @@ import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { reducedMotion } from './groove/sound.js';
 import { Q, leave } from './groove/fx.js';
-import { NoteLoader } from './groove/BrandNote.jsx';
+import { BeatLoader } from './groove/BrandMark.jsx';
 
 const ICONS = { daily: Sparkles, scored: Sparkles, 'follow-up': BellRing, ghost: Ghost, 'posting-closed': CalendarX, error: TriangleAlert };
 const TARGET = { daily: 'feed', scored: 'feed', 'follow-up': 'applications', ghost: 'applications', 'posting-closed': 'applications' };
@@ -49,7 +49,7 @@ export function NotificationsPanel({ onClose, onChanged, setView }) {
     <div className="notifications" ref={panel} role="dialog" aria-label={t('通知', 'Notifications')}>
       <header><h2>{t('通知', 'Notifications')}</h2><div>{items?.some(item => !item.read) ? <button className="link" onClick={markAll}>{t('全部标为已读', 'Mark all as read')}</button> : null}
         <button className="icon-button" title={t('关闭', 'Close')} onClick={() => close.current()}><X size={16} /></button></div></header>
-      {!items ? <div className="list-empty">{error || <NoteLoader />}</div> : null}
+      {!items ? <div className="list-empty">{error || <BeatLoader />}</div> : null}
       {items && !items.length ? <div className="list-empty"><Bell size={24} /><p>{t('还没有通知。每日抓取、跟进提醒和岗位关闭都会出现在这里。', 'No notifications yet. Daily results, follow-up reminders and closed postings show up here.')}</p></div> : null}
       <ul>
         {items?.map(item => {

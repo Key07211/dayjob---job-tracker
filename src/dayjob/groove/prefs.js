@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from 'react';
 
-// Sound and music choices for this computer. They only change how Dayjob sounds and moves, so they live in
+// Sound, music and motion choices for this computer. They only change how Dayjob sounds and moves, so they live in
 // the browser storage; if that is unavailable the defaults still work for the session.
 export const KEY_WINDOWS = [500, 750, 1000, 1500, 2000];
 // How the header wave draws the music: glowing bars, stacked dots, or one soft line.
 export const WAVE_STYLES = ['beam', 'dots', 'flow'];
-const DEFAULTS = { sound: false, keyWindow: 750, tune: 'auto', followMusic: false, waveStyle: 'beam' };
+const DEFAULTS = { sound: false, keyWindow: 750, tune: 'auto', followMusic: false, waveStyle: 'beam', opening: true };
 const STORAGE_KEY = 'dayjob-groove';
 
 function load() {
@@ -17,6 +17,7 @@ function load() {
       tune: ['auto', 'morning', 'moon', 'elise'].includes(saved.tune) ? saved.tune : DEFAULTS.tune,
       followMusic: saved.followMusic === true,
       waveStyle: WAVE_STYLES.includes(saved.waveStyle) ? saved.waveStyle : DEFAULTS.waveStyle,
+      opening: saved.opening !== false,
     };
   } catch { return { ...DEFAULTS }; }
 }
