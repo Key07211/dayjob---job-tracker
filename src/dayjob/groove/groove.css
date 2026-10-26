@@ -23,8 +23,15 @@
   --key-on: #CFE6F7;
   --key-on-text: #285A80;
   --key-on-lip: #8DB8DA;
-  /* Dayjob's mark (the app icon): a lake blue tile, pale bars, the lit one warm yellow. */
+  /* Dayjob's mark (the app icon): a warm yellow briefcase on a lake blue tile, a pale record player inside. */
   --mark-tile: #2C5F8A;
+  --mark-case: #F9D77E;
+  --mark-inside: #1D4060;
+  --mark-deck: #CFE6F7;
+  --mark-side: #93B8D6;
+  --mark-disc: #1E2F40;
+  --mark-groove: #3B5670;
+  --mark-arm: #2C5F8A;
   --mark-bar: #CFE6F7;
   --mark-peak: #F9D77E;
   /* The header wave: lake blue in the bass to sky blue in the treble, warm yellow caps. */
@@ -59,6 +66,13 @@
   --key-on-lip: #B98F43;
   /* Under the desk lamp: amber in the bass to pale lamplight in the treble. */
   --mark-tile: #2D2925;
+  --mark-case: #F2C46D;
+  --mark-inside: #1C1916;
+  --mark-deck: #9C8868;
+  --mark-side: #6E5F49;
+  --mark-disc: #2A2420;
+  --mark-groove: #4A4037;
+  --mark-arm: #3A342D;
   --mark-bar: #B39260;
   --mark-peak: #F2C46D;
   --wave-low: #E39B4F;
@@ -77,23 +91,33 @@
 .brand .brand-mark:focus-visible { outline: 2px solid var(--side-text); outline-offset: 2px; }
 .brand strong { font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 
-/* The logo: the app icon's tile with four bars of a level meter, the third one lit. */
+/* The logo: the app icon, an open briefcase with a record player in it and music rising above the record. */
 .mark-glyph .mk-tile { fill: var(--mark-tile); }
+.mark-glyph .mk-handle { fill: none; stroke: var(--mark-case); stroke-width: 24px; }
+.mark-glyph .mk-case { fill: var(--mark-case); }
+.mark-glyph .mk-inside { fill: var(--mark-inside); }
+.mark-glyph .mk-side { fill: var(--mark-side); }
+.mark-glyph .mk-deck { fill: var(--mark-deck); stroke: var(--mark-deck); stroke-width: 16px; stroke-linejoin: round; }
+.mark-glyph .mk-disc { fill: var(--mark-disc); }
+.mark-glyph .mk-groove { fill: none; stroke: var(--mark-groove); stroke-width: 4px; }
+.mark-glyph .mk-label { fill: var(--mark-peak); }
+.mark-glyph .mk-arm { fill: none; stroke: var(--mark-arm); stroke-width: 10px; stroke-linecap: round; stroke-linejoin: round; }
+.mark-glyph .mk-pivot { fill: var(--mark-arm); }
 .mark-glyph .mk-bar { fill: var(--mark-bar); transform-box: fill-box; transform-origin: 50% 100%; }
-.mark-glyph .mk-bar.peak { fill: var(--mark-peak); }
+.mark-glyph .mk-note { fill: var(--mark-peak); transform-box: fill-box; transform-origin: 30% 100%; }
+.mark-glyph .mk-note path { fill: none; stroke: var(--mark-peak); stroke-width: 6.6px; stroke-linecap: round; }
 /* The wordmark's letters rise one after another when Dayjob opens, and ripple under the pointer. */
 .wordmark { display: inline-flex; }
 .wordmark > span { display: inline-block; font-size: inherit; color: inherit; animation: letter-up 468ms cubic-bezier(.2, .9, .3, 1.3) calc(156ms + var(--i) * 78ms) both; }
 @keyframes letter-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
-/* Loading: the meter's bars rise and fall on the beat (96 BPM) instead of a spinner, each a little apart. */
+/* Loading: a level meter's bars rise and fall on the beat (96 BPM) instead of a spinner, each a little apart. */
 .beat-loader { display: inline-grid; place-items: center; color: var(--green); }
-.beat-loader .mark-glyph { width: 30px; height: 30px; }
-.beat-loader .mk-tile { display: none; }
-.beat-loader .mk-bar { fill: currentColor; opacity: .5; animation: meter 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
+.beat-loader .meter-glyph { display: block; width: 30px; height: 30px; }
+.beat-loader .mk-bar { fill: currentColor; opacity: .5; transform-box: fill-box; transform-origin: 50% 100%; animation: meter 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
 .beat-loader .mk-bar.peak { opacity: 1; }
-.beat-loader .mk-bar:nth-of-type(3) { animation-delay: -470ms; }
-.beat-loader .mk-bar:nth-of-type(4) { animation-delay: -156ms; }
-.beat-loader .mk-bar:nth-of-type(5) { animation-delay: -312ms; }
+.beat-loader .mk-bar:nth-of-type(2) { animation-delay: -470ms; }
+.beat-loader .mk-bar:nth-of-type(3) { animation-delay: -156ms; }
+.beat-loader .mk-bar:nth-of-type(4) { animation-delay: -312ms; }
 @keyframes meter { 0%, 100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
 .brand .language-toggle { margin-left: 0; }
 .brand .sound-button { margin-left: auto; }

@@ -107,7 +107,8 @@ function playDay({ scene: g, parts: p, all, play }) {
   const at = (el, points, own) => play(el, points, total, own);
   at(all('.op-ground')[0], [[690, { opacity: 1 }], [790, { opacity: 0 }]]);
   at(all('.op-sun')[0], [[0, { opacity: 0, transform: 'scale(.4)' }, EASE.out], [600, { opacity: 1, transform: 'scale(1.1)' }, EASE.inout], [1000, { opacity: 0, transform: 'scale(1.2)' }]]);
-  // The icon lands on the half beat, bounces its bars, then flies into the sidebar as its logo.
+  // The icon lands on the half beat, bounces the meter over its record and its note, then flies into the sidebar as
+  // its logo.
   const toLogo = move(g.logo.x - g.hero.x, g.logo.y - g.hero.y, g.logo.size / HERO);
   at(all('.op-hero')[0], [[0, { opacity: 0, transform: move(0, -220) }, BACK], [312, { opacity: 1, transform: move(0, 0) }], [705, { opacity: 1, transform: move(0, 0) }, EASE.inout],
     [985, { opacity: 1, transform: toLogo }], [1025, { opacity: 0, transform: toLogo }]]);
@@ -115,6 +116,7 @@ function playDay({ scene: g, parts: p, all, play }) {
     const t = 330 + i * 45;
     at(bar, [[t, { transform: 'scaleY(1)' }, EASE.inout], [t + 90, { transform: 'scaleY(1.3)' }, EASE.inout], [t + 190, { transform: 'scaleY(.8)' }, EASE.inout], [t + 290, { transform: 'scaleY(1)' }]]);
   });
+  at(all('.op-hero .mk-note')[0], [[480, { transform: 'none' }, EASE.out], [590, { transform: 'translateY(-20px) rotate(-10deg)' }, EASE.inout], [700, { transform: 'none' }]]);
   // The cards fly in from the right and land as bars, all by the second beat; they hop on it and glide into the header.
   const gap = g.n > 1 ? Math.min(45, 220 / (g.n - 1)) : 0;
   const wraps = all('.op-bw');

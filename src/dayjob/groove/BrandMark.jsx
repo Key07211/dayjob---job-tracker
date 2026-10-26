@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useGroove } from './bus.js';
 import { BEAT, cue } from './sound.js';
 import { EASE, E8, Q, animate, floatNote } from './fx.js';
-import { MarkGlyph } from './MarkGlyph.jsx';
+import { MarkGlyph, MeterGlyph } from './MarkGlyph.jsx';
 import { openingPlays } from './Opening.jsx';
 
 // A ripple through the wordmark's letters, one after another.
@@ -11,9 +11,9 @@ function ripple() {
     { duration: Q * 3, delay: i * 52, easing: EASE.inout }));
 }
 
-// The logo. Its bars rise one after another when Dayjob opens (unless the opening brings it in), bounce under the
-// pointer, the tile hops when clicked (which goes home), the bars nod on each beat while a music app plays, and it
-// hops twice when a batch of scores is done.
+// The logo. The meter's bars over its record rise one after another when Dayjob opens (unless the opening brings it in)
+// and bounce under the pointer; it hops and its note jumps when clicked (which goes home), the bars nod on each beat
+// while a music app plays, and it hops twice when a batch of scores is done.
 export function BrandMark({ label, onClick }) {
   const box = useRef(null);
   const busy = useRef(null);
@@ -26,6 +26,8 @@ export function BrandMark({ label, onClick }) {
     busy.current = animate(box.current?.querySelector('.mark-glyph'), [
       { transform: 'none' }, { transform: 'translateY(-6px)', offset: 0.35 }, { transform: 'translateY(0) scale(1.1, .9)', offset: 0.6 }, { transform: 'none' },
     ], { duration: BEAT * 0.8, iterations: times, easing: EASE.inout });
+    animate(box.current?.querySelector('.mk-note'), [{ transform: 'none' }, { transform: 'translateY(-20px) rotate(-10deg)', offset: 0.4 }, { transform: 'none' }],
+      { duration: BEAT * 0.8, iterations: times, easing: EASE.inout });
     bounce(0.22, times);
   };
 
@@ -64,5 +66,5 @@ export function Wordmark({ text = 'dayjob' }) {
   return <strong className="wordmark" aria-label={text} onPointerEnter={ripple}>{[...text].map((letter, i) => <span key={i} aria-hidden="true" style={{ '--i': i }}>{letter}</span>)}</strong>;
 }
 
-// The meter's bars rising and falling on the beat, for a page or a list that is still loading.
-export const BeatLoader = ({ className = '' }) => <span className={`beat-loader ${className}`} role="status"><MarkGlyph /></span>;
+// A level meter's bars rising and falling on the beat, for a page or a list that is still loading.
+export const BeatLoader = ({ className = '' }) => <span className={`beat-loader ${className}`} role="status"><MeterGlyph /></span>;
