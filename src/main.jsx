@@ -32,7 +32,7 @@ import './dayjob/groove/keys.css';
 import './dayjob/groove/fx.css';
 import './dayjob/groove/picker.css';
 
-// note: which of the tune's eight phrases the page's key plays, the same with or without the browser.
+// note: the page's key, 0–7 from the top, so its note (C D E F G A B C) stays the same with or without the browser.
 const VIEWS = [
   { id: 'home', label: ['主页', 'Home'], icon: LayoutDashboard, note: 0 },
   { id: 'feed', label: ['今日岗位', 'Today'], icon: Inbox, note: 1 },
