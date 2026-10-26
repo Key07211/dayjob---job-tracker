@@ -9,7 +9,7 @@ import { emit } from './groove/bus.js';
 import { cue } from './groove/sound.js';
 import { flyTo, keyBump, leave } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
-import { NoteLoader } from './groove/BrandNote.jsx';
+import { BeatLoader } from './groove/BrandMark.jsx';
 import { DateField } from './groove/Picker.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
@@ -190,7 +190,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   const restore = () => { cue('restore'); setStatus('new'); };
 
   if (error && !posting) return <div className="detail-empty">{error}</div>;
-  if (!posting) return <div className="detail-empty"><NoteLoader /></div>;
+  if (!posting) return <div className="detail-empty"><BeatLoader /></div>;
   const salary = salaryText(posting.salary);
   const facts = [jobTypeText(posting.jobType), posting.jobLevel, posting.isRemote ? t('远程', 'Remote') : null, posting.department, posting.jobFunction].filter(Boolean);
   return (

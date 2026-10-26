@@ -14,7 +14,8 @@ import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import { PianoNav } from './dayjob/groove/PianoNav.jsx';
-import { BrandNote, NoteLoader, Wordmark } from './dayjob/groove/BrandNote.jsx';
+import { BeatLoader, BrandMark, Wordmark } from './dayjob/groove/BrandMark.jsx';
+import { Opening } from './dayjob/groove/Opening.jsx';
 import { Turntable } from './dayjob/groove/Turntable.jsx';
 import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
@@ -31,6 +32,7 @@ import './dayjob/groove/groove.css';
 import './dayjob/groove/keys.css';
 import './dayjob/groove/fx.css';
 import './dayjob/groove/picker.css';
+import './dayjob/groove/opening.css';
 
 // note: the page's key, 0–7 from the top, so its note (C D E F G A B C) stays the same with or without the browser.
 const VIEWS = [
@@ -256,10 +258,14 @@ function App() {
     finally { setStopping(false); }
   }
 
+  // The opening plays over the page when the window first shows. It is the first child of the root div in both trees
+  // below, so it carries on when the first data arrives.
+  const opening = <Opening ready={Boolean(boot)} failed={Boolean(error) && !boot} newJobs={boot?.stats?.newPostings} />;
   if (!boot) {
     return (
       <div className="boot-screen">
-        {error ? <><p>{error}</p><button className="button primary" onClick={reload}>{t('重试', 'Retry')}</button></> : <NoteLoader />}
+        {opening}
+        {error ? <><p>{error}</p><button className="button primary" onClick={reload}>{t('重试', 'Retry')}</button></> : <BeatLoader />}
       </div>
     );
   }
@@ -333,9 +339,10 @@ function App() {
 
   return (
     <div className="app-shell">
+      {opening}
       <aside className="sidebar">
         <div className="brand">
-          <BrandNote label={t('回到主页', 'Back to Home')} onClick={() => goTo('home')} />
+          <BrandMark label={t('回到主页', 'Back to Home')} onClick={() => goTo('home')} />
           <Wordmark />
           <button type="button" className={`sound-button${groove.sound ? ' on' : ''}`} onClick={toggleSound} aria-pressed={groove.sound}
             title={groove.sound ? t('关闭提示音', 'Turn sounds off') : t('打开提示音', 'Turn sounds on')} aria-label={t('提示音', 'Sounds')}>

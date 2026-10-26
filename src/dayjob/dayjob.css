@@ -778,7 +778,7 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .vault-how summary { cursor: pointer; width: fit-content; color: var(--step-hi); }
 .vault-how ol { margin: 8px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; line-height: 1.55; color: var(--text); }
 .vault-how small { font-size: 12px; }
-.vault-auto-login { display: flex; margin-top: 0 !important; }
+.vault-auto-login, .opening-line { display: flex; margin-top: 0 !important; }
 .assist-auto-login { display: flex; margin-top: 2px !important; min-height: 0; font-size: 12.5px !important; line-height: 1.4; }
 .browser-login { animation: notice-in 234ms cubic-bezier(.2, .8, .2, 1); }
 .browser-login.failed { background: var(--amber-soft); }

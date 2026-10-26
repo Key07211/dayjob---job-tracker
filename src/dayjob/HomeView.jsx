@@ -9,7 +9,7 @@ import { CountUp } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { pressThen } from './groove/fx.js';
-import { NoteLoader } from './groove/BrandNote.jsx';
+import { BeatLoader } from './groove/BrandMark.jsx';
 
 const FUNNEL = ['applied', 'oa', 'interview', 'offer'];
 const OPEN = ['applied', 'oa', 'interview', 'offer'];
@@ -390,7 +390,7 @@ export function HomeView({ dataVersion, setView, openItem }) {
         <div className="header-actions"><button className="icon-button" data-fx="refresh" title={t('刷新', 'Refresh')} onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={16} /></button></div>
       </header>
       {error ? <p className="notice error">{error}</p> : null}
-      {!report ? (error ? null : <div className="list-empty"><NoteLoader /></div>) : (
+      {!report ? (error ? null : <div className="list-empty"><BeatLoader /></div>) : (
         <>
           <Kpis kpis={report.kpis} setView={setView} />
           <GoalsPanel version={dataVersion + reloadKey} />
