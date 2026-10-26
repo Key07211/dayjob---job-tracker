@@ -1,0 +1,45 @@
+/* The opening (Opening.jsx, the 打开动画 board). It covers the window while it plays; a click or a key skips it. */
+.opening { position: fixed; inset: 0; z-index: 1000; overflow: hidden; cursor: pointer;
+  --op-card: var(--card); --op-bar: var(--wave-high); --op-peak: var(--wave-peak); }
+.opening.night { --op-card: #3A342D; --op-bar: #B39260; --op-peak: #F2C46D; }
+.opening > * { position: absolute; display: block; pointer-events: none; }
+.op-ground { inset: 0; background: var(--surface); }
+
+/* Day: the morning light behind the icon, the icon, the fetched cards. */
+.op-sun { width: 360px; height: 360px; border-radius: 50%; background: radial-gradient(circle, rgb(249 215 126 / 55%) 0, rgb(249 215 126 / 0%) 68%); opacity: 0; }
+.op-hero { width: 96px; height: 96px; opacity: 0; filter: drop-shadow(0 10px 22px rgb(30 43 56 / 18%)); }
+.op-hero .mark-glyph { display: block; width: 100%; height: 100%; overflow: visible; }
+/* A card hangs from its landing point (the wrapper, which moves) and narrows into a bar; its lines are clipped away. */
+.op-bw { width: 0; height: 0; }
+.op-card { position: absolute; left: 0; bottom: 0; transform: translateX(-50%); overflow: hidden; opacity: 0; }
+.op-card i, .op-card b { position: absolute; }
+.op-card i { height: 5px; border-radius: 3px; }
+.op-card b { border-radius: 50%; }
+.opening.day .op-card { box-shadow: 0 3px 10px rgb(30 43 56 / 12%); }
+.opening.day .op-card i { left: 34px; background: var(--line); }
+.opening.day .op-card i:first-child { top: 10px; width: 66px; }
+.opening.day .op-card i:nth-child(2) { top: 22px; width: 42px; }
+.opening.day .op-card b { left: 18px; top: 15px; width: 8px; height: 8px; background: var(--green); }
+.opening.night .op-card i { left: 28px; background: #5F5547; }
+.opening.night .op-card i:first-child { top: 8px; width: 44px; }
+.opening.night .op-card i:nth-child(2) { top: 17px; width: 28px; }
+.opening.night .op-card b { left: 15px; top: 12px; width: 6px; height: 6px; background: #F2C46D; }
+
+/* Night: the desk lamp, its light and the pool it lays down, the record player under it. */
+.op-glow { inset: 0; background: var(--glow); opacity: 0; }
+.op-lamp { top: 0; width: 64px; height: 61px; opacity: 0; }
+.op-lamp svg { display: block; width: 100%; height: 100%; }
+.op-lamp .lamp-cord { fill: none; stroke: #7D7366; stroke-width: 2; }
+.op-lamp .lamp-shade { fill: #3A342D; stroke: #5F5547; stroke-width: 1.5; stroke-linejoin: round; }
+.op-lamp .lamp-bulb { fill: #F2C46D; }
+.op-cone { background: linear-gradient(180deg, rgb(242 196 109 / 30%), rgb(242 196 109 / 4%)); opacity: 0; }
+.op-pool { border-radius: 50%; background: radial-gradient(ellipse at center, rgb(242 196 109 / 30%), rgb(242 196 109 / 0%) 70%); opacity: 0; }
+.op-deck { width: 132px; height: 132px; opacity: 0; }
+.op-deck > * { position: absolute; display: block; }
+.op-disc { inset: 0; border-radius: 50%; box-shadow: 0 8px 22px rgb(0 0 0 / 35%);
+  background: radial-gradient(circle, var(--mark-peak) 0 18px, var(--disc) 19px 22px, transparent 23px), repeating-radial-gradient(circle, var(--disc) 0 3px, var(--groove) 3px 5px); }
+.op-disc i { position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 40deg, rgb(255 236 200 / 16%) 58deg, transparent 78deg 220deg, rgb(255 236 200 / 10%) 238deg, transparent 258deg); }
+.op-arm { left: 134px; top: -4px; width: 7px; height: 88px; border-radius: 4px; background: #B3A998; transform-origin: 3.5px 0; transform: rotate(27deg); }
+.op-arm b { position: absolute; left: -4px; bottom: -7px; width: 15px; height: 17px; border-radius: 3px; background: #CFC5B3; }
+.op-pivot { left: 128px; top: -14px; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; background: #4D463D; border: 2px solid #B3A998; }

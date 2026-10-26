@@ -12,7 +12,7 @@ import { useGroove } from './groove/bus.js';
 import { BEAT, cue, reducedMotion } from './groove/sound.js';
 import { E8, Q, flipList } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
-import { NoteLoader } from './groove/BrandNote.jsx';
+import { BeatLoader } from './groove/BrandMark.jsx';
 import { Select } from './groove/Picker.jsx';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
@@ -248,7 +248,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       {error ? <p className="notice error">{error}</p> : null}
       <div className="split">
         <div className="posting-list" role="list" ref={list}>
-          {loading && !result.items.length ? <div className="list-empty"><NoteLoader /></div> : null}
+          {loading && !result.items.length ? <div className="list-empty"><BeatLoader /></div> : null}
           {empty ? (
             <div className="list-empty">
               <Inbox size={28} />

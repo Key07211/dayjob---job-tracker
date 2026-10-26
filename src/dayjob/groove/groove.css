@@ -23,6 +23,10 @@
   --key-on: #CFE6F7;
   --key-on-text: #285A80;
   --key-on-lip: #8DB8DA;
+  /* Dayjob's mark (the app icon): a lake blue tile, pale bars, the lit one warm yellow. */
+  --mark-tile: #2C5F8A;
+  --mark-bar: #CFE6F7;
+  --mark-peak: #F9D77E;
   /* The header wave: lake blue in the bass to sky blue in the treble, warm yellow caps. */
   --wave-low: #2F6D9C;
   --wave-high: #79B4E0;
@@ -54,6 +58,9 @@
   --key-on-text: #1C1916;
   --key-on-lip: #B98F43;
   /* Under the desk lamp: amber in the bass to pale lamplight in the treble. */
+  --mark-tile: #2D2925;
+  --mark-bar: #B39260;
+  --mark-peak: #F2C46D;
   --wave-low: #E39B4F;
   --wave-high: #F8E3B4;
   --wave-peak: #FFF3D4;
@@ -63,30 +70,31 @@
 /* ---------- sidebar ---------- */
 .sidebar { background: var(--side); color: var(--side-text); border-right: 0; padding: 22px 0 14px; gap: 18px; overflow: hidden; }
 .brand { padding: 0 14px 0 16px; gap: 8px; }
-.brand .brand-mark { width: 32px; height: 32px; flex: none; border-radius: 11px; display: grid; place-items: center; background: var(--acc); color: var(--on-acc);
+.brand .brand-mark { width: 32px; height: 32px; flex: none; padding: 0; border: 0; border-radius: 8px; display: block; background: none;
   transition: transform 78ms cubic-bezier(.3, 0, 0, 1); }
+.brand .brand-mark .mark-glyph { display: block; width: 100%; height: 100%; overflow: visible; }
 .brand .brand-mark:active { transform: translateY(1px); }
 .brand .brand-mark:focus-visible { outline: 2px solid var(--side-text); outline-offset: 2px; }
 .brand strong { font-family: var(--display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 
-/* The logo's note: a "d" whose bowl is a note head, with a stem and a small flag. */
-.note-glyph { width: 26px; height: 26px; overflow: visible; }
-.note-glyph * { fill: none; stroke: currentColor; stroke-width: 2.7; stroke-linecap: round; stroke-linejoin: round; }
-.note-glyph .bn-head ellipse { stroke-width: 3; }
-.note-glyph .bn-stem { stroke-dasharray: 15; }
-.note-glyph .bn-note, .note-glyph .bn-head { transform-box: fill-box; transform-origin: 50% 100%; }
-.note-glyph .bn-flag { transform-box: view-box; transform-origin: 19.2px 5.6px; }
+/* The logo: the app icon's tile with four bars of a level meter, the third one lit. */
+.mark-glyph .mk-tile { fill: var(--mark-tile); }
+.mark-glyph .mk-bar { fill: var(--mark-bar); transform-box: fill-box; transform-origin: 50% 100%; }
+.mark-glyph .mk-bar.peak { fill: var(--mark-peak); }
 /* The wordmark's letters rise one after another when Dayjob opens, and ripple under the pointer. */
 .wordmark { display: inline-flex; }
 .wordmark > span { display: inline-block; font-size: inherit; color: inherit; animation: letter-up 468ms cubic-bezier(.2, .9, .3, 1.3) calc(156ms + var(--i) * 78ms) both; }
 @keyframes letter-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
-/* Loading: the note hops on the beat (96 BPM) instead of a spinner. */
-.note-loader { display: inline-grid; place-items: center; color: var(--green); }
-.note-loader .note-glyph { width: 28px; height: 28px; }
-.note-loader .bn-note { animation: note-hop 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
-.note-loader .bn-flag { animation: flag-flick 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
-@keyframes note-hop { 0%, 100% { transform: none; } 35% { transform: translateY(-5px); } 62% { transform: scale(1.1, .88); } }
-@keyframes flag-flick { 35% { transform: rotate(-18deg); } 62% { transform: rotate(8deg); } }
+/* Loading: the meter's bars rise and fall on the beat (96 BPM) instead of a spinner, each a little apart. */
+.beat-loader { display: inline-grid; place-items: center; color: var(--green); }
+.beat-loader .mark-glyph { width: 30px; height: 30px; }
+.beat-loader .mk-tile { display: none; }
+.beat-loader .mk-bar { fill: currentColor; opacity: .5; animation: meter 625ms cubic-bezier(.45, 0, .55, 1) infinite; }
+.beat-loader .mk-bar.peak { opacity: 1; }
+.beat-loader .mk-bar:nth-of-type(3) { animation-delay: -470ms; }
+.beat-loader .mk-bar:nth-of-type(4) { animation-delay: -156ms; }
+.beat-loader .mk-bar:nth-of-type(5) { animation-delay: -312ms; }
+@keyframes meter { 0%, 100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
 .brand .language-toggle { margin-left: 0; }
 .brand .sound-button { margin-left: auto; }
 .sound-button { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--side-muted); border: 1.5px solid var(--side-hover); transition: color 156ms, border-color 156ms, background 156ms; }
@@ -266,7 +274,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pkey, .tonearm, .rim circle, .bar, .toggle, .toggle > i, .deck-text { transition: none; }
-  .wave-hint, .wordmark > span, .note-loader .bn-note, .note-loader .bn-flag, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
+  .wave-hint, .wordmark > span, .beat-loader .mk-bar, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
 }
 
 /* The theme turning: the new one sweeps over the page with a soft edge, night falling from the top like dusk and
