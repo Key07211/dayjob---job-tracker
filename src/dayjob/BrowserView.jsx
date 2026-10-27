@@ -179,8 +179,8 @@ function SaveOffer({ offer, locked, onKept }) {
 }
 
 // 自动登录 over the page: signing in, signed in, or a sign-in that did not go through (the login form came back);
-// and on a login page while the vault is locked, a box for the vault password, without saying whether this site
-// has a saved sign-in.
+// and on a login page while passwords saved before 0.20.0 wait for the vault password, a box for it, without saying
+// whether this site has a saved sign-in. Once typed, they fill even while the vault is locked.
 function LoginStrip({ login, autoLogin }) {
   const { t } = useI18n();
   const bar = useRef(null);
@@ -199,7 +199,7 @@ function LoginStrip({ login, autoLogin }) {
           : t(`已用 ${auto.username} 自动登录 ${auto.site}。`, `Signed in to ${auto.site} as ${auto.username}.`)}</p>
     );
   }
-  // While the vault is locked, opening it comes first.
+  // While older passwords wait for the vault password, typing it comes first.
   if (auto?.state === 'failed' && !login.locked) {
     const retry = () => { setBusy(true); setError(''); desktop.retryLogin().then(() => setBusy(false)).catch(failed); };
     return (
@@ -225,8 +225,8 @@ function LoginStrip({ login, autoLogin }) {
   return (
     <form className="browser-offer browser-login" ref={bar} onSubmit={open} autoComplete="off">
       <Lock size={18} />
-      <p>{autoLogin ? t('密码箱锁着。输入开箱密码，Dayjob 就能替你登录。', 'The vault is locked. Enter the vault password and Dayjob signs you in.')
-        : t('密码箱锁着。输入开箱密码，Dayjob 就能填好登录框。', 'The vault is locked. Enter the vault password and Dayjob fills in the login form.')}</p>
+      <p>{autoLogin ? t('密码箱里有旧版本存的密码，输入一次开箱密码，Dayjob 就能替你登录；以后上锁也照样自动登录。', 'The vault holds passwords saved by an older version. Enter the vault password once and Dayjob signs you in; after that it signs in even while the vault is locked.')
+        : t('密码箱里有旧版本存的密码，输入一次开箱密码，Dayjob 就能填好登录框；以后上锁也照样填写。', 'The vault holds passwords saved by an older version. Enter the vault password once and Dayjob fills in the login form; after that it fills even while the vault is locked.')}</p>
       <input type="password" value={unlock} onChange={event => setUnlock(event.target.value)} maxLength={32} placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required />
       <div className="form-actions">
         <button type="button" className="button" onClick={() => setLater(sites => new Set(sites).add(login.site))}>{t('这次不用', 'Not now')}</button>
@@ -238,7 +238,7 @@ function LoginStrip({ login, autoLogin }) {
 }
 
 // 密码保管 for this page: the sign-ins saved for its site (by user name only), and which one was filled in. While
-// the vault is locked it can be opened here.
+// passwords saved before 0.20.0 wait for the vault password, it can be typed here.
 function Passwords({ login, autoLogin, openItem }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
@@ -256,7 +256,7 @@ function Passwords({ login, autoLogin, openItem }) {
       <h3>{t('密码', 'Passwords')}</h3>
       {login.locked ? (
         <form className="assist-unlock" onSubmit={open} autoComplete="off">
-          <small><Lock size={12} />{t('密码箱已锁上，打开后才能自动填写。', 'The vault is locked; open it to fill in passwords.')}</small>
+          <small><Lock size={12} />{t('旧版本存的密码要先输入一次开箱密码才能自动填写。', 'Passwords saved by an older version fill in once the vault password is entered.')}</small>
           <div className="vault-secret">
             <input type="password" value={unlock} onChange={event => setUnlock(event.target.value)} maxLength={32} placeholder={t('开箱密码', 'Vault password')} aria-label={t('开箱密码', 'Vault password')} required />
             <button type="submit" className="button small"><LockOpen size={13} />{t('打开', 'Open')}</button>
@@ -605,7 +605,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
       {state.approval ? <Approval key={state.approval.id} approval={state.approval} /> : null}
-      {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.locked} onKept={setKept} />
+      {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.closed} onKept={setKept} />
         : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p>
         : <LoginStrip login={state.login} autoLogin={state.autoLogin} />}
       {error ? <p className="notice error browser-notice" onClick={() => setError('')}>{error}</p> : null}

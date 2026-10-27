@@ -3,16 +3,22 @@ const { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } = re
 
 // 密码保管: sign-ins for job sites, kept in one file on this computer with each
 // password encrypted by the operating system (on Windows, DPAPI, tied to the
-// Windows account). A password only ever goes into the login form of its own
-// site in the Dayjob browser: never back to the interface, never to the local
-// server or its API, and never to Claude.
+// Windows account). A password goes into the login form of its own site in the
+// Dayjob browser, and to the Settings page only when the user asks there to see
+// the passwords of the open vault: never to the local server or its API, and
+// never to Claude.
 //
-// The vault can also have its own password (开箱密码). Then each saved password
-// is first sealed with a key made from it (scrypt, AES-256-GCM) and only then by
-// the system, so the file is no use without it, even to a program running as
-// the same Windows user. The vault opens with that password once per start of
-// Dayjob and closes again when Dayjob quits, the computer locks or sleeps, or
-// the user closes it. Neither password is ever stored.
+// The vault can also have its own password (开箱密码). It guards the vault in
+// Dayjob: while it is locked nothing is listed, shown, changed, imported or
+// deleted, but saved passwords are still filled in on their sites, so the lock
+// never gets in the way of signing in. It opens with that password and closes
+// again when Dayjob quits, the computer locks or sleeps, or the user closes it.
+// Neither password is ever stored, only a check value sealed with a key made
+// from the vault password (scrypt, AES-256-GCM).
+//
+// Before 0.20.0 a vault password also sealed each saved password with that key
+// (wrapped), so a locked vault could fill nothing. Those are opened with it and
+// sealed by the system alone the next time the vault is opened.
 const MAX_ENTRIES = 2000;
 // 6 to 32 letters or digits.
 const LOCK_RULE = /^[A-Za-z0-9]{6,32}$/;
@@ -94,7 +100,7 @@ function unwrap(key, value) {
 
 function createVault({ file, safeStorage, now = () => new Date(), clock = () => Date.now() }) {
   let entries = [];
-  // The vault password's salt and a check value sealed with its key; with it set, every entry is wrapped.
+  // The vault password's salt and a check value sealed with its key.
   let lock = null;
   let key = null;
   let misses = 0;
@@ -113,17 +119,25 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
   const available = () => { try { return safeStorage.isEncryptionAvailable(); } catch { return false; } };
   const locked = () => Boolean(lock) && !key;
   const mustBeOpen = () => { if (locked()) fail('Open the password vault with its password first.'); };
-  const system = text => {
+  const seal = text => {
     if (!available()) fail('This computer cannot encrypt saved passwords, so none can be saved.');
     return safeStorage.encryptString(text).toString('base64');
   };
-  const seal = password => system(lock ? wrap(key, password) : password);
-  // The saved password itself, with the key it is wrapped in (the open vault's, or one just checked).
+  // The saved password itself; one from before 0.20.0 needs the key it is wrapped in (the open vault's, or one just checked).
   const plain = (entry, withKey = key) => {
     const opened = safeStorage.decryptString(Buffer.from(entry.secret, 'base64'));
     return entry.wrapped ? unwrap(withKey, opened) : opened;
   };
   const shown = ({ id, site, username, createdAt, updatedAt, usedAt }) => ({ id, site, username, createdAt, updatedAt, usedAt: usedAt || null });
+  // A saved password from before 0.20.0 still sealed with the vault password: it fills only once that has opened it.
+  const waiting = entry => entry.wrapped && !key;
+  // Opened with the vault password once, every password from before 0.20.0 is sealed by the system alone.
+  function release(withKey) {
+    const old = entries.filter(entry => entry.wrapped);
+    if (!old.length) return;
+    old.forEach(entry => { entry.secret = seal(plain(entry, withKey)); delete entry.wrapped; });
+    persist();
+  }
   const find = id => entries.find(entry => entry.id === id) || fail('No such saved password.');
 
   // While the vault is closed, not even its sites and user names are listed.
@@ -143,13 +157,14 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     const existing = input.id ? find(input.id) : entries.find(entry => entry.site === site && entry.username === username);
     if (existing) {
       if (entries.some(entry => entry !== existing && entry.site === site && entry.username === username)) fail('That site already has a saved password for this user name.');
-      Object.assign(existing, { site, username, updatedAt: at }, password ? { secret: seal(password), wrapped: Boolean(lock) } : {});
+      if (password) delete existing.wrapped;
+      Object.assign(existing, { site, username, updatedAt: at }, password ? { secret: seal(password) } : {});
       persist();
       return shown(existing);
     }
     if (!password) fail('Enter the password.');
     if (entries.length >= MAX_ENTRIES) fail(`Up to ${MAX_ENTRIES} passwords can be saved.`);
-    const entry = { id: randomUUID(), site, username, secret: seal(password), wrapped: Boolean(lock), createdAt: at, updatedAt: at, usedAt: null };
+    const entry = { id: randomUUID(), site, username, secret: seal(password), createdAt: at, updatedAt: at, usedAt: null };
     entries.push(entry);
     persist();
     return shown(entry);
@@ -173,11 +188,12 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
         let known = false;
         try { known = plain(existing) === password; } catch { known = false; }
         if (known) { result.same += 1; continue; }
-        Object.assign(existing, { secret: seal(password), wrapped: Boolean(lock), updatedAt: at });
+        delete existing.wrapped;
+        Object.assign(existing, { secret: seal(password), updatedAt: at });
         result.updated += 1;
       } else if (entries.length >= MAX_ENTRIES) result.skipped.full += 1;
       else {
-        entries.push({ id: randomUUID(), site, username, secret: seal(password), wrapped: Boolean(lock), createdAt: at, updatedAt: at, usedAt: null });
+        entries.push({ id: randomUUID(), site, username, secret: seal(password), createdAt: at, updatedAt: at, usedAt: null });
         result.added += 1;
       }
     }
@@ -191,23 +207,38 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     persist();
     return true;
   }
+  // 全部删除: every saved password goes; a vault password stays as it is.
+  function clear() {
+    mustBeOpen();
+    entries = [];
+    persist();
+    return list();
+  }
+  // 显示密码 in Settings: the open vault's passwords by entry, only when the user asks to see them.
+  function reveal() {
+    mustBeOpen();
+    return Object.fromEntries(entries.map(entry => [entry.id, plain(entry)]));
+  }
+  // Whether the Dayjob browser can fill saved passwords now: always, unless some are from before 0.20.0 and the
+  // vault has not been opened since.
+  const fillable = () => !entries.some(waiting);
   // The sign-ins for a page's host, the most recently used first.
   function forHost(host) {
     const name = String(host || '').toLowerCase();
     return entries.filter(entry => covers(entry.site, name))
       .sort((a, b) => (b.usedAt || '').localeCompare(a.usedAt || '') || b.updatedAt.localeCompare(a.updatedAt)).map(shown);
   }
-  // Only for filling a login form in the Dayjob browser.
+  // Only for filling a login form in the Dayjob browser, locked or not.
   function password(id) {
-    mustBeOpen();
-    return plain(find(id));
+    const entry = find(id);
+    if (waiting(entry)) fail('Open the password vault once with its password, so it can fill this one.');
+    return plain(entry);
   }
-  // Whether this password is already saved for the host, so it is not offered again. While the vault is closed,
-  // a saved sign-in for the same user name counts.
+  // Whether this password is already saved for the host, so it is not offered again. One from before 0.20.0 that
+  // the vault password has not opened yet counts by its user name.
   function knows(host, username, typed) {
     const same = entries.filter(entry => covers(entry.site, host) && entry.username === username);
-    if (locked()) return same.length > 0;
-    return same.some(entry => { try { return plain(entry) === typed; } catch { return false; } });
+    return same.some(entry => { if (waiting(entry)) return true; try { return plain(entry) === typed; } catch { return false; } });
   }
 
   // The key of the vault password, if this is it.
@@ -225,34 +256,32 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     return candidate;
   }
   async function unlock(password) {
-    if (lock && !key) key = await check(password);
+    if (lock && !key) {
+      key = await check(password);
+      release(key);
+    }
     return list();
   }
   function close() {
     key = null;
     return list();
   }
-  // Sets the vault password, or changes it (with the current one): every saved password is opened with the old
-  // key and sealed again with the new one.
+  // Sets the vault password, or changes it (with the current one). The saved passwords stay sealed by the system.
   async function setLock({ current, next } = {}) {
     if (typeof next !== 'string' || !LOCK_RULE.test(next)) fail('The vault password must be 6 to 32 letters or digits.');
     if (!available()) fail('This computer cannot encrypt saved passwords, so none can be saved.');
-    const oldKey = lock ? await check(current) : null;
-    const opened = entries.map(entry => plain(entry, oldKey));
+    if (lock) release(await check(current));
     const salt = randomBytes(16);
     const newKey = await derive(next, salt);
     lock = { salt: salt.toString('base64'), check: wrap(newKey, CHECK) };
     key = newKey;
-    entries.forEach((entry, index) => Object.assign(entry, { secret: system(wrap(newKey, opened[index])), wrapped: true }));
     persist();
     return list();
   }
-  // Takes the vault password off (with it): the saved passwords stay, sealed by the system only.
+  // Takes the vault password off (with it): the saved passwords stay, sealed by the system.
   async function removeLock(current) {
     if (!lock) return list();
-    const oldKey = await check(current);
-    const opened = entries.map(entry => plain(entry, oldKey));
-    entries.forEach((entry, index) => { entry.secret = system(opened[index]); delete entry.wrapped; });
+    release(await check(current));
     lock = null;
     key = null;
     persist();
@@ -274,7 +303,7 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     persist();
   }
 
-  return { available, locked, list, save, importMany, remove, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
+  return { available, locked, fillable, list, save, importMany, remove, clear, reveal, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
 }
 
 module.exports = { createVault, siteOf, parseCsv, readPasswordCsv, VaultError, LOCK_RULE };
