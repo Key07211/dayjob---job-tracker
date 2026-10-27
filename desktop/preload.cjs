@@ -34,11 +34,14 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     retryLogin: () => ipcRenderer.invoke('dayjob:browser-login-retry'),
     dismissLogin: () => ipcRenderer.invoke('dayjob:browser-login-dismiss'),
   }),
-  // Saved passwords: in to be kept, never back out; the list has sites and user names only.
+  // Saved passwords: in to be kept; the list has sites and user names only, and the passwords come out only when the
+  // open vault is asked to show them in Settings.
   vault: Object.freeze({
     list: () => ipcRenderer.invoke('dayjob:vault-list'),
     save: entry => ipcRenderer.invoke('dayjob:vault-save', entry),
     remove: id => ipcRenderer.invoke('dayjob:vault-delete', id),
+    clear: () => ipcRenderer.invoke('dayjob:vault-clear'),
+    reveal: () => ipcRenderer.invoke('dayjob:vault-reveal'),
     // The vault's own password: open, close, set or change, take off, or (forgotten) empty the vault.
     unlock: password => ipcRenderer.invoke('dayjob:vault-unlock', password),
     close: () => ipcRenderer.invoke('dayjob:vault-close'),

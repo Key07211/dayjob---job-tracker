@@ -197,10 +197,12 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   };
   function loginState() {
     if (!vault) return null;
-    const locked = vault.locked();
+    // A locked vault still fills; only passwords saved before 0.20.0 wait for the vault password to be typed once.
+    const locked = !vault.fillable();
     const accounts = login.site && !locked ? vault.forHost(login.site).map(({ id, username }) => ({ id, username })) : [];
-    // While locked, only whether anything is saved at all, for the strip that asks to open the vault.
-    return { site: login.site, form: login.form, accounts, filled: login.filled, locked, stored: locked && vault.list().count > 0,
+    // While they wait, only whether anything is saved at all, for the strip that asks to open the vault.
+    // closed: the vault itself is locked, so keeping a new password asks for the vault password first.
+    return { site: login.site, form: login.form, accounts, filled: login.filled, locked, stored: locked && vault.list().count > 0, closed: vault.locked(),
       offer: offer && { site: offer.site, username: offer.username }, auto };
   }
   const userFor = (site, username) => username || (lastUser && lastUser.site === site && Date.now() - lastUser.at < OFFER_MS ? lastUser.username : '');
@@ -282,7 +284,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       else if (!seen.form && typed) moveOn();
       if (seen.form !== login.form) { login.form = seen.form; broadcast(); }
       if (!seen.form && auto?.state === 'failed') setAuto(null);
-      if (vault.locked()) return;
+      if (!vault.fillable()) return;
       const last = sent.get(login.site);
       const recent = last && Date.now() - last.at < GUARD_MS ? last : null;
       // The login form is back, empty, soon after Dayjob sent it: say so (once the page had time to send it), and

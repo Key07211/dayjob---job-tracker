@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
+import { CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
   ShieldAlert, Sun, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
@@ -204,8 +204,8 @@ function LockForm({ mode, onCancel, onDone }) {
   );
   return (
     <form className="vault-form" ref={form} onSubmit={submit} autoComplete="off">
-      {mode === 'set' ? <p className="hint">{t('设好后，每次打开 Dayjob 都要先输入开箱密码，才能查看密码和自动填写；电脑锁屏或睡眠时，密码箱也会锁上。开箱密码忘了没法找回，只能清空密码箱重来。',
-        'Once set, the vault must be opened with it each time Dayjob starts before passwords are listed or filled in, and it locks again when the computer locks or sleeps. A forgotten vault password cannot be recovered; the vault can only be emptied.')}</p> : null}
+      {mode === 'set' ? <p className="hint">{t('设好后，每次打开 Dayjob 都要先输入开箱密码，才能查看、修改、导入或删除密码；自动填写不受影响，上锁时也照样填写。电脑锁屏或睡眠时，密码箱也会锁上。开箱密码忘了没法找回，只能清空密码箱重来。',
+        'Once set, the vault must be opened with it each time Dayjob starts before passwords are listed, shown, changed, imported or deleted. Filling in is not affected: it works while the vault is locked too. The vault locks again when the computer locks or sleeps. A forgotten vault password cannot be recovered; the vault can only be emptied.')}</p> : null}
       <div className="form-grid">
         {mode !== 'set' ? box(t('现在的开箱密码', 'Current vault password'), current, setCurrent, 'current-password') : null}
         {mode !== 'remove' ? box(t('新的开箱密码（6–32 位字母或数字）', 'New vault password (6–32 letters or digits)'), next, setNext, 'new-password') : null}
@@ -280,8 +280,6 @@ function AutoLogin() {
   return <label className="check-line vault-auto-login"><input type="checkbox" checked={on} onChange={toggle} />{t('在 Dayjob 浏览器打开登录页时，自动填好并登录', 'Fill in and sign in by itself on login pages in the Dayjob browser')}</label>;
 }
 
-const VAULT_PAGE = 30;
-
 function PasswordVault() {
   const { t } = useI18n();
   const [data, setData] = useState(null);
@@ -293,10 +291,18 @@ function PasswordVault() {
   const [imported, setImported] = useState(null);
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState('');
-  const [shown, setShown] = useState(VAULT_PAGE);
+  // 展开全部 / 收起全部: the list starts folded; a search opens it.
+  const [open, setOpen] = useState(false);
+  // 显示密码: the open vault's passwords by entry, asked for when the user clicks, dropped when it locks.
+  const [secrets, setSecrets] = useState(null);
+  const showing = useRef(false);
   useEffect(() => {
     if (!desktop?.vault) return undefined;
-    const load = () => desktop.vault.list().then(setData).catch(() => {});
+    const load = () => desktop.vault.list().then(list => {
+      setData(list);
+      if (list.locked || !showing.current) { showing.current = false; setSecrets(null); return; }
+      desktop.vault.reveal().then(found => { if (showing.current) setSecrets(found); }).catch(() => { showing.current = false; setSecrets(null); });
+    }).catch(() => {});
     load();
     return desktop.vault.onChanged(load);
   }, []);
@@ -307,7 +313,8 @@ function PasswordVault() {
   }, [note]);
   if (!desktop?.vault) return null;
   const NOTES = { opened: ['密码箱已打开。', 'The vault is open.'], reset: ['密码箱已清空。', 'The vault is empty.'], set: ['开箱密码已设好。', 'The vault password is set.'],
-    change: ['开箱密码已修改。', 'The vault password is changed.'], remove: ['开箱密码已取消。', 'The vault password is removed.'], closed: ['密码箱已锁上。', 'The vault is locked.'] };
+    change: ['开箱密码已修改。', 'The vault password is changed.'], remove: ['开箱密码已取消。', 'The vault password is removed.'], closed: ['密码箱已锁上。', 'The vault is locked.'],
+    cleared: ['密码已全部删除。', 'All the passwords are deleted.'] };
   function changed(list, what) {
     setData(list);
     setLockMode(null);
@@ -333,6 +340,25 @@ function PasswordVault() {
     } catch (failure) { setError(bridgeText(failure)); }
     finally { setImporting(false); }
   }
+  async function toggleSecrets() {
+    setError('');
+    if (showing.current) { showing.current = false; setSecrets(null); return; }
+    try {
+      showing.current = true;
+      setSecrets(await desktop.vault.reveal());
+      setOpen(true);
+    } catch (failure) { showing.current = false; setError(bridgeText(failure)); }
+  }
+  async function clearAll() {
+    const count = data?.entries.length || 0;
+    if (!window.confirm(t(`删除密码箱里全部 ${count} 个密码？删除后不能恢复。`, `Delete all ${count} saved ${count === 1 ? 'password' : 'passwords'}? This cannot be undone.`))) return;
+    setError('');
+    try {
+      showing.current = false;
+      setSecrets(null);
+      changed(await desktop.vault.clear(), 'cleared');
+    } catch (failure) { setError(bridgeText(failure)); }
+  }
   function remove(entry, row) {
     if (!window.confirm(t(`删除 ${entry.site} 上 ${entry.username} 的密码？`, `Delete the password for ${entry.username} on ${entry.site}?`))) return;
     setError('');
@@ -346,25 +372,35 @@ function PasswordVault() {
   return (
     <section className="card-section" id="vault">
       <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}</h2>
-      <p className="hint">{t('密码只保存在这台电脑上，由系统加密；只会在 Dayjob 浏览器打开对应网站的登录页时自动填进去并登录，不会再显示出来，也不会交给 Claude。可以从 Edge、Chrome 导出的 CSV 一次导入。',
-        'Passwords stay on this computer, encrypted by the system. They are only filled into their own site\'s login page in the Dayjob browser to sign in, never shown again and never given to Claude. A CSV exported from Edge or Chrome imports them all at once.')}</p>
+      <p className="hint">{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。可以从 Edge、Chrome 导出的 CSV 一次导入。',
+        'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. A CSV exported from Edge or Chrome imports them all at once.')}</p>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
       {note ? <p className="vault-note"><CheckCircle2 size={14} />{note}</p> : null}
       {data?.locked ? <VaultUnlock count={data.count} onChanged={changed} /> : null}
       {imported && !data?.locked ? <ImportResult key={`${imported.file}${imported.rows}${imported.added}`} result={imported} onClose={() => setImported(null)} /> : null}
+      {!data?.locked && data?.entries.length ? (
+        <div className="vault-bar">
+          <span>{t(`已保存 ${data.entries.length} 个密码`, `${data.entries.length} saved ${data.entries.length === 1 ? 'password' : 'passwords'}`)}</span>
+          <button className="link" onClick={() => setOpen(value => !value)} aria-expanded={open || Boolean(words)}>
+            {open || words ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{open || words ? t('收起全部', 'Fold all') : t('展开全部', 'Show all')}</button>
+          <button className="link" onClick={toggleSecrets}>{secrets ? <EyeOff size={14} /> : <Eye size={14} />}{secrets ? t('隐藏密码', 'Hide passwords') : t('显示密码', 'Show passwords')}</button>
+          <button className="link danger" onClick={clearAll}><Trash2 size={14} />{t('全部删除', 'Delete all')}</button>
+        </div>
+      ) : null}
       {!data?.locked && data?.entries.length > 8 ? (
         <label className="vault-search"><Search size={14} />
-          <input type="search" value={query} onChange={event => { setQuery(event.target.value); setShown(VAULT_PAGE); }} placeholder={t(`在 ${data.entries.length} 个密码里搜索网站或用户名`, `Search ${data.entries.length} passwords by site or user name`)}
+          <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t(`在 ${data.entries.length} 个密码里搜索网站或用户名`, `Search ${data.entries.length} passwords by site or user name`)}
             aria-label={t('搜索密码', 'Search passwords')} />
         </label>
       ) : null}
-      {data?.locked ? null : data?.entries.length ? (
-        <ul className="vault-list">
-          {matching.slice(0, shown).map(entry => (
+      {data?.locked ? null : !data?.entries.length ? (data?.available ? <p className="hint">{t('还没有保存的密码。', 'No saved passwords yet.')}</p> : null) : open || words ? (
+        <ul className={`vault-list${secrets ? ' with-secrets' : ''}`}>
+          {matching.map(entry => (
             <li key={entry.id} className={arrived === entry.id ? 'arrived' : undefined}>
               <KeyRound size={14} />
               <span className="vault-site">{entry.site}</span>
               <span className="vault-user">{entry.username}</span>
+              {secrets ? <code className="vault-pass">{secrets[entry.id] ?? ''}</code> : null}
               <small>{entry.usedAt ? t(`上次填写 ${formatTime(entry.usedAt)}`, `Last filled ${formatTime(entry.usedAt)}`) : t('还没填写过', 'Not filled yet')}</small>
               <button className="icon-button" title={t('修改', 'Edit')} onClick={() => setEditing(entry)}><Pencil size={14} /></button>
               <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(entry, event.currentTarget.closest('li'))}><Trash2 size={14} /></button>
@@ -372,10 +408,6 @@ function PasswordVault() {
           ))}
           {!matching.length ? <li className="vault-none">{t('没有找到。', 'Nothing found.')}</li> : null}
         </ul>
-      ) : data?.available ? <p className="hint">{t('还没有保存的密码。', 'No saved passwords yet.')}</p> : null}
-      {!data?.locked && matching.length > shown ? (
-        <button className="link vault-more" onClick={() => setShown(value => value + VAULT_PAGE)}>
-          {t(`再显示 ${Math.min(VAULT_PAGE, matching.length - shown)} 个（还有 ${matching.length - shown} 个）`, `Show ${Math.min(VAULT_PAGE, matching.length - shown)} more (${matching.length - shown} left)`)}</button>
       ) : null}
       {data?.locked ? null : editing ? <VaultForm key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing} onCancel={() => setEditing(null)} onSaved={saved} />
         : lockMode ? <LockForm key={lockMode} mode={lockMode} onCancel={() => setLockMode(null)} onDone={changed} />

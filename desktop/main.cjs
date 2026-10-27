@@ -137,12 +137,14 @@ function setupIpc() {
   handle('dayjob:browser-login-retry', () => browser.retryLogin());
   handle('dayjob:browser-login-dismiss', () => browser.dismissLogin());
   handle('dayjob:browser-auto-login', value => browser.setAutoLogin(value === true));
-  // The password vault: the interface sends passwords in (to keep, or the vault's own to open it), and only ever
-  // gets user names back.
+  // The password vault: the interface sends passwords in (to keep, or the vault's own to open it), and gets them
+  // back only from the open vault, when the user asks Settings to show them.
   const vaultChanged = result => { browser.refreshLogin(); if (window && !window.isDestroyed()) window.webContents.send('dayjob:vault-changed'); return result; };
   handle('dayjob:vault-list', () => vault.list());
   handle('dayjob:vault-save', entry => vaultChanged(vault.save(entry && typeof entry === 'object' ? entry : {})));
   handle('dayjob:vault-delete', id => { vault.remove(String(id)); return vaultChanged(vault.list()); });
+  handle('dayjob:vault-clear', () => vaultChanged(vault.clear()));
+  handle('dayjob:vault-reveal', () => vault.reveal());
   handle('dayjob:vault-unlock', async password => vaultChanged(await vault.unlock(String(password ?? ''))));
   handle('dayjob:vault-close', () => vaultChanged(vault.close()));
   handle('dayjob:vault-set-lock', async input => vaultChanged(await vault.setLock({ current: String(input?.current ?? ''), next: String(input?.next ?? '') })));
@@ -415,17 +417,19 @@ async function smokeBrowser(token) {
     steps.vaultNoSecrets = !/Sm0ke-pass!|N3w-pass!/.test(JSON.stringify(browser.state()) + JSON.stringify(vault.list()));
     await browser.answerOffer(true);
     steps.vaultKept = vault.list().entries.some(entry => entry.site === '127.0.0.1' && entry.username === 'new@example.com') && !browser.state().login.offer;
-    // With a vault password, the closed vault lists nothing and fills nothing; opening it fills the login form.
+    // With a vault password, the closed vault lists, shows and deletes nothing, but still fills the login form;
+    // opened, it shows the passwords when Settings asks.
+    const refused = action => { try { action(); return false; } catch { return true; } };
     await vault.setLock({ next: 'Sm0keVault1' });
     vault.close();
     browser.refreshLogin();
-    steps.vaultClosed = vault.list().locked && !vault.list().entries.length && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0keVault1');
+    steps.vaultClosed = vault.list().locked && !vault.list().entries.length && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('Sm0keVault1')
+      && refused(() => vault.reveal()) && refused(() => vault.clear());
     await call('open', { url: `${base}/login` });
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    steps.vaultClosedNoFill = browser.state().login?.locked === true && browser.state().login?.stored === true && !browser.state().login?.filled && !browser.state().login?.accounts.length;
+    steps.vaultClosedFills = await until(() => Boolean(browser.state().login?.filled), 6000) && browser.state().login.closed === true && browser.state().login.locked === false;
     await vault.unlock('Sm0keVault1');
     browser.refreshLogin();
-    steps.vaultOpened = await until(() => Boolean(browser.state().login?.filled), 6000);
+    steps.vaultOpened = !vault.locked() && Object.values(vault.reveal()).includes('Sm0ke-pass!');
     browser.setAutoSubmit(false);
 
     // A password export from Edge (UTF-8 with a BOM, quoted fields): new sign-ins are added, a saved one with
@@ -462,6 +466,8 @@ async function smokeBrowser(token) {
     await browser.go(`${local}/login-step1`);
     steps.autoTwoStep = await until(() => signedInAs('two@example.com', `${local}/signed-in`), 12000);
     browser.setAutoLogin(false);
+    // 全部删除: every saved password goes, the vault password stays.
+    steps.vaultCleared = vault.clear().count === 0 && vault.list().lock && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('two@example.com');
   } catch (error) {
     steps.error = error.message;
   } finally {
@@ -470,8 +476,8 @@ async function smokeBrowser(token) {
   }
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
-    'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedNoFill', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep'].every(step => steps[step] === true);
+    'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
+    'autoTwoStep', 'vaultCleared'].every(step => steps[step] === true);
   return steps;
 }
 
