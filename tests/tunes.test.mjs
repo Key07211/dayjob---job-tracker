@@ -1,35 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KEY_NOTES, TUNES, tuneFor } from '../src/dayjob/groove/sound.js';
+import { TUNES, tuneFor } from '../src/dayjob/groove/sound.js';
 
-const C_MAJOR = new Set([0, 2, 4, 5, 7, 9, 11]);
+const notes = phrase => phrase.flat();
 
-test('each sidebar key has its own note, C3 at the top up to middle C at the bottom', () => {
-  assert.deepEqual(KEY_NOTES, [48, 50, 52, 53, 55, 57, 59, 60]);
-});
-
-test('in every piece each key\'s fragment ends on that key\'s note and stays in C major', () => {
+test('every tune gives each of the eight sidebar keys its own short phrase', () => {
   for (const [name, tune] of Object.entries(TUNES)) {
-    assert.equal(tune.keys.length, KEY_NOTES.length, name);
-    tune.keys.forEach((notes, i) => {
-      assert.ok(notes.length >= 2 && notes.length <= 3, `${name} key ${i} is a short fragment`);
-      assert.equal(notes.at(-1), KEY_NOTES[i], `${name} key ${i} lands on its note`);
-      notes.forEach(midi => assert.ok(C_MAJOR.has(midi % 12), `${name} key ${i}: ${midi} is in C major`));
-    });
+    assert.equal(tune.keys.length, 8, name);
+    tune.keys.forEach((phrase, i) => assert.ok(phrase.length >= 2 && phrase.length <= 3, `${name} key ${i} is a short phrase`));
+    assert.equal(new Set(tune.keys.map(phrase => JSON.stringify(phrase))).size, 8, `${name}: no two keys sound the same`);
   }
 });
 
-// Higher than this the keys turned shrill (an earlier version climbed to F5).
-test('no piece goes above F4', () => {
+// The keys once climbed to F5 and turned shrill; they stay between B2 and D5.
+test('no key goes above D5 or below B2', () => {
   for (const [name, tune] of Object.entries(TUNES)) {
-    tune.keys.flat().forEach(midi => assert.ok(midi <= 65, `${name}: ${midi} is above F4`));
+    tune.keys.forEach((phrase, i) => notes(phrase).forEach(midi => assert.ok(midi >= 47 && midi <= 74, `${name} key ${i}: ${midi} is out of range`)));
   }
 });
 
-test('with the theme, days play the prelude and nights the Gymnopédie; a piece no longer offered follows the theme', () => {
-  assert.equal(tuneFor('auto', 'day'), 'prelude');
-  assert.equal(tuneFor('auto', 'night'), 'gymnopedie');
-  assert.equal(tuneFor('traumerei', 'night'), 'traumerei');
-  assert.equal(tuneFor('moon', 'night'), 'gymnopedie');
-  assert.equal(tuneFor('elise', 'day'), 'prelude');
+test('with the theme, days play Dew and nights the Canon; a tune no longer offered follows the theme', () => {
+  assert.equal(tuneFor('auto', 'day'), 'dew');
+  assert.equal(tuneFor('auto', 'night'), 'canon');
+  assert.equal(tuneFor('canon', 'day'), 'canon');
+  assert.equal(tuneFor('dew', 'night'), 'dew');
+  assert.equal(tuneFor('prelude', 'day'), 'dew');
+  assert.equal(tuneFor('gymnopedie', 'night'), 'canon');
 });
