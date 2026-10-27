@@ -3,7 +3,7 @@ import { KEY_WINDOWS, WAVE_STYLES, prefs, usePrefs, useTheme } from './prefs.js'
 import { playHello, previewTune } from './sound.js';
 import { appName, canFollow, setFollow, useNowPlaying } from './music.js';
 
-const TUNES = [['auto', '跟随主题', 'With the theme'], ['prelude', '前奏曲', 'Prelude'], ['gymnopedie', '吉诺佩蒂', 'Gymnopédie'], ['traumerei', '梦幻曲', 'Träumerei']];
+const TUNES = [['auto', '跟随主题', 'With the theme'], ['dew', '晨露', 'Dew'], ['canon', '卡农', 'Canon']];
 const WAVE_NAMES = { beam: ['光柱', 'Light bars'], dots: ['点阵', 'Dots'], flow: ['流光', 'Soft line'] };
 
 function Toggle({ on, label, onChange }) {
@@ -27,14 +27,14 @@ export function SoundSettings() {
         <small>{t('落分、投递、开始抓取和按侧栏时弹一个音，一次只响一个。', 'A note when a score lands, you apply, a search starts or you press a sidebar key, one at a time.')}</small>
       </div>
       <div className="option-row">
-        <span>{t('侧栏的曲子', 'Sidebar tune')}</span>
+        <span>{t('琴键音效', 'Key sounds')}</span>
         <div className="segmented">
           {TUNES.map(([value, zh, en]) => (
             <button key={value} type="button" className={groove.tune === value ? 'active' : ''} onClick={() => { prefs.set({ tune: value }); previewTune(value, theme); }}>{t(zh, en)}</button>
           ))}
         </div>
-        <small>{t('每个琴键固定一个音，从上到下是 C、D、E、F、G、A、B 和高音 C。曲子切成小段，每段都落在自己琴键的音上。跟随主题时，白天是巴赫《C 大调前奏曲》，黑夜是萨蒂《吉诺佩蒂第一号》，也可以选舒曼《梦幻曲》。点一下可以试听。',
-          'Each key has its own note, from the top C, D, E, F, G, A, B and the C above. The piece is cut into short fragments, each ending on its key\'s note. With the theme, days play Bach\'s Prelude in C and nights Satie\'s Gymnopédie No. 1; Schumann\'s Träumerei is the third choice. Pick one to hear it.')}</small>
+        <small>{t('每个琴键有自己固定的一小段乐句，都在中低音区，越高的音越轻。晨露是清脆的玻璃钢琴，卡农是用毛毡钢琴弹的帕赫贝尔《卡农》八个和弦，从上到下按一遍就是卡农的旋律。跟随主题时白天用晨露，黑夜用卡农。点一下可以试听。',
+          'Each key has its own short phrase, in the low and middle range, with higher notes played quieter. Dew is a crisp glass piano; Canon is the eight chords of Pachelbel\'s Canon on a felt piano, whose top notes, key after key, are its melody. With the theme, days play Dew and nights Canon. Pick one to hear it.')}</small>
       </div>
       <div className="option-row">
         <span>{t('按键间隔', 'Key gap')}</span>

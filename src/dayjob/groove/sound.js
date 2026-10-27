@@ -12,33 +12,25 @@ export const tierOf = score => (score >= 85 ? 'hi' : score >= 65 ? 'mid' : 'lo')
 const ODE = [64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62, 64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60];
 const CHORD_C = [48, 55, 60, 64];
 
-// Each sidebar key has its own note, like a piano keyboard on its side, low at the top: Home C4, Today D4, Saved E4,
-// Applications F4, Browser G4, Searches A4, Resume B4, Settings C5. A tune is a gentle piano piece (all public domain),
-// moved to C major and cut into eight short fragments, one per key; each fragment comes from the piece and ends on its
-// key's note, which rings on, so a key always sounds like itself whichever piece plays, and any keys in any order
-// stay in tune. bass: a soft low note under the fragment, from the piece's own harmony.
-export const KEY_NOTES = [60, 62, 64, 65, 67, 69, 71, 72];
+// Each sidebar key has its own short phrase, the same each time, so a page always sounds like itself. A tune is a set of
+// eight phrases on one voice, all in D major and low enough to stay gentle: nothing above D5, and higher notes play
+// quieter. A step is a note, or notes that sound together. Days play 晨露, new phrases in the soft style of Japanese
+// film piano; nights play Pachelbel's Canon in D (public domain).
 export const TUNES = {
-  // Bach, Prelude in C major (The Well-Tempered Clavier, Book I): a rising broken chord from one of its bars, every
-  // note held as in the prelude.
-  prelude: { step: 0.13, gain: 0.1, ring: 1.5, hold: true,
-    keys: [[52, 55, 60], [50, 57, 62], [59, 60, 64], [57, 62, 65], [59, 62, 67], [60, 64, 69], [62, 67, 71], [64, 67, 72]] },
-  // Satie, Gymnopédie No. 1 (in D, moved down a tone): slow steps and falls from its melody over the low F or C that
-  // its left hand rocks between.
-  gymnopedie: { step: 0.3, gain: 0.09, ring: 2.2,
-    keys: [[57, 59, 60], [64, 62], [67, 65, 64], [64, 67, 65], [72, 67], [71, 69], [77, 76, 71], [69, 71, 72]],
-    bass: [41, 48, 48, 41, 48, 41, 48, 41] },
-  // Schumann, Träumerei (Scenes from Childhood, in F, moved to C): the rising fourth it opens with, its arpeggio and
-  // its falling line.
-  traumerei: { step: 0.24, gain: 0.1, ring: 1.8,
-    keys: [[55, 60], [64, 62], [60, 64], [64, 65], [64, 67], [71, 69], [72, 71], [67, 72]],
-    bass: [48, 43, 48, 41, 48, 41, 43, 48] },
+  // 晨露: a glass piano, a clear strike and a short tail, like drops on the keys.
+  dew: { voice: 'glass', beat: 0.11, gain: 0.112,
+    keys: [[62, 69], [64, 71], [66, 69], [69, 74], [71, 66], [69, 64], [71, 74], [73, 69]] },
+  // 卡农: a felt piano playing the canon's eight chords D A Bm F#m G D G A, one per key, rolled up from the bottom; key
+  // after key, the top notes are its melody F# E D C# B A B C#.
+  canon: { voice: 'felt', beat: 0.07, gain: 0.091,
+    keys: [[50, 57, 66], [57, 61, 64], [54, 59, 62], [54, 57, 61], [50, 55, 59], [50, 54, 57], [47, 55, 59], [52, 57, 61]] },
 };
-export const tuneFor = (choice, theme) => (choice === 'auto' || !TUNES[choice] ? (theme === 'night' ? 'gymnopedie' : 'prelude') : choice);
+export const tuneFor = (choice, theme) => (choice === 'auto' || !TUNES[choice] ? (theme === 'night' ? 'canon' : 'dew') : choice);
 
 let ctx = null;
 let master = null;
 let cueBus = null;
+let room = null;
 let lastVoice = null;
 let analyser = null;
 let noteIndex = 0;
@@ -65,6 +57,18 @@ export function ensureAudio() {
     cueBus = ctx.createGain();
     cueBus.gain.value = ducked ? 0.32 : 1;
     cueBus.connect(master);
+    // A small soft room for the sidebar's keys: a short decaying noise as its echo.
+    room = ctx.createConvolver();
+    const length = Math.floor(ctx.sampleRate * 1.6);
+    const echo = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch += 1) {
+      const d = echo.getChannelData(ch);
+      for (let i = 0; i < length; i += 1) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3.2);
+    }
+    room.buffer = echo;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.22;
+    room.connect(wet).connect(cueBus);
     analyser = ctx.createAnalyser();
     analyser.fftSize = 8192;
     analyser.smoothingTimeConstant = 0.6;
@@ -106,28 +110,58 @@ export function duck(on) {
 
 // A hammer-struck string: a few slightly stretched partials, the high ones dying first.
 const BRIGHT = [[1, 1, 1, 'triangle'], [2, 0.42, 0.6, 'sine'], [3, 0.18, 0.4, 'sine'], [4, 0.08, 0.28, 'sine']];
-// soft: a felt-damped piano for the sidebar's pieces, a gentler hammer and fewer, quieter overtones.
-const FELT = [[1, 1, 1, 'triangle'], [2, 0.26, 0.5, 'sine'], [3, 0.07, 0.3, 'sine']];
-function piano(midi, { at = 0, gain = 0.12, dur = 1.1, soft = false } = {}, out) {
+function piano(midi, { at = 0, gain = 0.12, dur = 1.1 } = {}, out) {
   if (!out) return;
   const f = hz(midi);
   const t = ctx.currentTime + at;
   const tone = ctx.createBiquadFilter();
   tone.type = 'lowpass';
-  tone.frequency.setValueAtTime(Math.min(12000, f * (soft ? 5 : 9)), t);
-  tone.frequency.exponentialRampToValueAtTime(Math.max(soft ? 300 : 400, f * (soft ? 1.5 : 2)), t + dur);
+  tone.frequency.setValueAtTime(Math.min(12000, f * 9), t);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(400, f * 2), t + dur);
   tone.connect(out);
-  (soft ? FELT : BRIGHT).forEach(([h, level, life, wave]) => {
+  BRIGHT.forEach(([h, level, life, wave]) => {
     const osc = ctx.createOscillator();
     const amp = ctx.createGain();
     osc.type = wave;
     osc.frequency.value = f * h * (1 + 0.0005 * h * h);
     amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(level * gain, t + (soft ? 0.014 : 0.006));
+    amp.gain.linearRampToValueAtTime(level * gain, t + 0.006);
     amp.gain.exponentialRampToValueAtTime(0.0001, t + dur * life);
     osc.connect(amp).connect(tone);
     osc.start(t);
     osc.stop(t + dur + 0.05);
+  });
+}
+
+// The sidebar's voices: a few sine partials under a filter that closes as the note dies, the high partials going first.
+// Higher notes play quieter, so the top never feels sharp. glass: a clear strike and a short tail; felt: slower to
+// speak, rounder and longer.
+const KEY_VOICES = {
+  glass: { parts: [[1, 1], [2, 0.18], [3.01, 0.06]], dur: 0.55, attack: 0.004, open: 4 },
+  felt: { parts: [[1, 1], [2, 0.22], [3, 0.07], [4, 0.03]], dur: 1.1, attack: 0.012, open: 2.2 },
+};
+function keyNote(kind, midi, { at = 0, gain = 0.14 } = {}, out) {
+  if (!out) return;
+  const v = KEY_VOICES[kind];
+  const f = hz(midi);
+  const t = ctx.currentTime + at;
+  const g = gain * Math.pow(261.6 / f, 0.45);
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(Math.min(2400, f * v.open), t);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(260, f * 1.2), t + v.dur);
+  tone.connect(out);
+  v.parts.forEach(([ratio, level]) => {
+    const osc = ctx.createOscillator();
+    const amp = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = f * ratio;
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(g * level, t + v.attack);
+    amp.gain.exponentialRampToValueAtTime(0.0001, t + v.dur * (ratio > 2 ? 0.45 : 1));
+    osc.connect(amp).connect(tone);
+    osc.start(t);
+    osc.stop(t + v.dur + 0.05);
   });
 }
 
@@ -334,16 +368,13 @@ export function cue(name, arg) {
   if (out) CUES[name](out, arg);
 }
 
-// One key's fragment: the bass first, then the notes; the last one, the key's own note, rings on.
-function fragment(t, index, at, out) {
-  const notes = t.keys[index % t.keys.length];
-  const last = notes.length - 1;
-  if (t.bass) piano(t.bass[index % t.bass.length], { at, gain: t.gain * 0.45, dur: t.ring * 1.2, soft: true }, out);
-  notes.forEach((midi, i) => piano(midi, { at: at + i * t.step, gain: t.gain, dur: i === last ? t.ring : t.hold ? t.ring * 0.8 : t.step * 2.4, soft: true }, out));
-  return last * t.step;
+// One key's phrase, its steps a beat apart; the room's echo follows the voice.
+function phrase(t, index, at, out) {
+  out.connect(room);
+  t.keys[index % t.keys.length].forEach((step, i) => [step].flat().forEach(midi => keyNote(t.voice, midi, { at: at + i * t.beat, gain: t.gain }, out)));
 }
 
-// A sidebar key: one fragment per window (0.75 s unless changed), counted from the click that sounded.
+// A sidebar key: one phrase per window (0.75 s unless changed), counted from the click that sounded.
 // Clicks inside the window still press the key and switch the page, they just stay silent.
 export function playKey(index, theme) {
   const { sound, keyWindow, tune } = prefs.get();
@@ -353,16 +384,15 @@ export function playKey(index, theme) {
   const out = voice();
   if (!out) return false;
   keyGate.phraseAt = now;
-  fragment(TUNES[tuneFor(tune, theme)], index, 0.02, out);
+  phrase(TUNES[tuneFor(tune, theme)], index, 0.02, out);
   return true;
 }
-// Picking a tune previews it: the keys top to bottom, a scale through the piece, outside the click window.
+// Picking a tune previews it: the keys top to bottom, 0.42 s apart, outside the click window.
 export function previewTune(choice, theme) {
   const out = voice(true);
   if (!out) return 0;
   const t = TUNES[tuneFor(choice, theme)];
-  let at = 0.05;
-  t.keys.forEach((_, i) => { at += fragment(t, i, at, out) + Math.max(0.32, t.step * 1.6); });
-  keyGate.phraseAt = performance.now() + at * 1000;
+  t.keys.forEach((_, i) => phrase(t, i, 0.05 + i * 0.42, out));
+  keyGate.phraseAt = performance.now() + (0.05 + t.keys.length * 0.42) * 1000;
   return t.keys.length;
 }

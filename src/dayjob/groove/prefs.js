@@ -15,7 +15,7 @@ function load() {
       sound: saved.sound === true,
       keyWindow: KEY_WINDOWS.includes(saved.keyWindow) ? saved.keyWindow : DEFAULTS.keyWindow,
       // A piece from an older Dayjob that is no longer offered goes back to following the theme.
-      tune: ['auto', 'prelude', 'gymnopedie', 'traumerei'].includes(saved.tune) ? saved.tune : DEFAULTS.tune,
+      tune: ['auto', 'dew', 'canon'].includes(saved.tune) ? saved.tune : DEFAULTS.tune,
       followMusic: saved.followMusic === true,
       waveStyle: WAVE_STYLES.includes(saved.waveStyle) ? saved.waveStyle : DEFAULTS.waveStyle,
       opening: saved.opening !== false,
