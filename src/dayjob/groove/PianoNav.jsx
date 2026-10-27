@@ -5,9 +5,8 @@ import { BEAT, playKey } from './sound.js';
 const BLACK_AFTER = [0, 1, 3, 4, 5];
 
 // The sidebar as a row of piano keys coming out of the left wall: each page is a white key, the short black keys
-// only divide them. A key sinks for a quarter beat when pressed and plays its own note, a fragment of the sidebar's
-// piece that ends on it (C at the top up to the C above at the bottom); the sound gate keeps fast clicking to one
-// fragment per window.
+// only divide them. A key sinks for a quarter beat when pressed and plays its own short phrase from the sidebar's
+// tune; the sound gate keeps fast clicking to one phrase per window.
 export function PianoNav({ items, theme, label }) {
   const [down, setDown] = useState(null);
   const timer = useRef(0);
