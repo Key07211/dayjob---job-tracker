@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bookmark, EyeOff, Inbox, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
 import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
+import { JobMenu } from './JobMenu.jsx';
+import { hasBrowser, openInBrowser } from './BrowserView.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { useGroove } from './groove/bus.js';
 import { BEAT, cue, reducedMotion } from './groove/sound.js';
-import { E8, Q, flipList } from './groove/fx.js';
+import { E8, Q, flipList, flyTo, keyBump } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { Select } from './groove/Picker.jsx';
@@ -48,6 +50,10 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   const [returning, setReturning] = useState({});
   // Refreshing deals the rows in again, an eighth note apart.
   const [wave, setWave] = useState(0);
+  // The right-click menu on a row, and what it asks of the detail pane: to load the job again, or to open 我已投递.
+  const [menu, setMenu] = useState(null);
+  const [detailVersion, setDetailVersion] = useState(0);
+  const [applyAsk, setApplyAsk] = useState(null);
   const list = useRef(null);
   const flip = useMemo(() => flipList({ get children() { return list.current?.children; } }), []);
   // Ripples behind a job row: a soft ring when its score lands, three yellow rings when it is applied to.
@@ -193,6 +199,43 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
   }
   const scoreAll = () => scoreJobs(result.items.filter(item => !item.score).map(item => item.id));
 
+  // 收藏, 取消收藏 and 删去 from the right-click menu, as the buttons in the detail pane do them.
+  async function setStatus(item, status) {
+    setScoringMessage('');
+    const row = list.current?.querySelector(`[data-id="${CSS.escape(item.id)}"]`);
+    try {
+      const updated = await api(`/api/postings/${encodeURIComponent(item.id)}`, { method: 'PATCH', body: { status } });
+      if (status === 'saved') flyTo(row, 'saved');
+      else if (item.status === 'saved') keyBump('saved');
+      onChanged(updated, { removed: status === 'dismissed' || (mode === 'saved' && status !== 'saved') });
+      setDetailVersion(value => value + 1);
+    } catch (failure) { setScoringMessage(failure.message); }
+  }
+  function openMenu(event, item) {
+    event.preventDefault();
+    const row = event.currentTarget;
+    // From the keyboard (the menu key or Shift+F10) there is no pointer: the menu opens under the row's title.
+    const keyboard = !event.clientX && !event.clientY;
+    const box = row.getBoundingClientRect();
+    setSelected(item.id);
+    setMenu(current => ({ n: (current?.n || 0) + 1, item, row, at: keyboard ? { x: box.left + 56, y: box.top + 34 } : { x: event.clientX, y: event.clientY } }));
+  }
+  const menuItems = item => {
+    if (item.application) return [{ id: 'track', icon: <CircleCheck size={15} />, label: t('查看投递追踪', 'View tracking'), run: () => setView('applications') }];
+    const saved = item.status === 'saved';
+    return [
+      saved ? { id: 'unsave', icon: <BookmarkMinus size={15} />, label: t('取消收藏', 'Unsave'), run: () => { cue('unfav'); setStatus(item, 'new'); } }
+        : { id: 'save', icon: <Bookmark size={15} />, label: t('收藏', 'Save'), run: () => { cue('fav'); setStatus(item, 'saved'); } },
+      { id: 'apply', icon: <CircleCheck size={15} />, label: t('我已投递…', 'I applied…'), hint: t('在右边填投递日期后确认', 'Confirm with the date on the right'),
+        run: () => { setSelected(item.id); setApplyAsk(current => ({ id: item.id, n: (current?.n || 0) + 1 })); } },
+      { id: 'open', icon: <Globe size={15} />, label: t('打开原帖', 'Open posting'), fx: 'open',
+        run: () => (hasBrowser ? openInBrowser(item.jobUrl, setView) : window.open(item.jobUrl, '_blank', 'noreferrer')) },
+      '-',
+      { id: 'dismiss', icon: <EyeOff size={15} />, label: t('删去', 'Remove'), note: t('移到不感兴趣', 'to Not interested'), danger: true,
+        hint: t('移到“不感兴趣”，可以撤销', 'Moves it to Not interested; it can be undone'), run: () => { cue('dismiss'); setStatus(item, 'dismissed'); } },
+    ];
+  };
+
   const empty = !loading && !result.items.length;
   return (
     <section className="feed">
@@ -246,6 +289,8 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
         <label className="check"><input type="checkbox" checked={filters.includeClosed} onChange={event => set('includeClosed', event.target.checked)} />{t('显示已关闭', 'Show closed')}</label>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
+      {menu ? <JobMenu key={menu.n} at={menu.at} title={[menu.item.title, menu.item.company].filter(Boolean).join(' · ')} items={menuItems(menu.item)} returnFocus={menu.row}
+        onClose={() => setMenu(current => (current?.n === menu.n ? null : current))} /> : null}
       <div className="split">
         <div className="posting-list" role="list" ref={list}>
           {loading && !result.items.length ? <div className="list-empty"><BeatLoader /></div> : null}
@@ -270,7 +315,8 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                     title={t('勾选后一起打分', 'Tick to score it')} aria-label={t(`勾选“${item.title}”来打分`, `Pick “${item.title}” for scoring`)} /> : null}
                 </span>
               ) : null}
-              <button className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}`} data-fx="select" onClick={() => setSelected(item.id)}>
+              <button className={`posting-row${selected === item.id ? ' selected' : ''}${item.closedAt ? ' closed' : ''}${menu?.item.id === item.id ? ' menu-open' : ''}`} data-fx="select"
+                onClick={() => setSelected(item.id)} onContextMenu={event => openMenu(event, item)}>
                 <div className="logo">{item.companyLogo ? <img src={item.companyLogo} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span>{(item.company || item.title).slice(0, 1).toUpperCase()}</span>}</div>
                 <div className="row-main">
                   <strong><Hit text={item.title} q={text} /></strong>
@@ -293,7 +339,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
           {result.total > result.items.length ? <p className="list-more">{t(`显示前 ${result.items.length} 个，共 ${result.total} 个。用筛选缩小范围。`, `Showing ${result.items.length} of ${result.total}. Use the filters to narrow it down.`)}</p> : null}
         </div>
         <div className="detail-pane">
-          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} />
+          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} version={detailVersion} applyAsk={applyAsk} />
             : <div className="detail-empty">{t('选择左侧的岗位查看详情', 'Pick a job on the left to see it here')}</div>}
         </div>
       </div>

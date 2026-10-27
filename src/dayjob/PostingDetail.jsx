@@ -104,6 +104,7 @@ function ApplyForm({ onApply, onCancel, busy }) {
   const [day, setDay] = useState(localDateInput());
   const [note, setNote] = useState('');
   const form = useRef(null);
+  useEffect(() => { form.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); }, []);
   return (
     <form className="apply-form" ref={form} onSubmit={event => { event.preventDefault(); onApply({ appliedAt: day === localDateInput() ? undefined : dateInputToIso(day), note }); }}>
       <label>{t('投递日期', 'Applied on')}<DateField value={day} max={localDateInput()} onChange={event => setDay(event.target.value)} required /></label>
@@ -118,7 +119,7 @@ function ApplyForm({ onApply, onCancel, busy }) {
   );
 }
 
-export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto' }) {
+export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto', version = 0, applyAsk = null }) {
   const { t } = useI18n();
   const [posting, setPosting] = useState(null);
   const [error, setError] = useState('');
@@ -145,6 +146,14 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
       .catch(failure => { if (!cancelled) setError(failure.message); });
     return () => { cancelled = true; };
   }, [id]);
+  // The list's right-click menu changed this job: load it again in place. Or it asked for 我已投递: open the form.
+  useEffect(() => {
+    if (!version) return undefined;
+    let cancelled = false;
+    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) setPosting(value); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [version]);
+  useEffect(() => { if (applyAsk?.id === id) setApplying(true); }, [applyAsk]);
 
   async function act(name, work) {
     const own = () => shown.current === id;
