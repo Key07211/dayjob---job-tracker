@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createCipheriv, randomBytes, scryptSync } from 'node:crypto';
 import vaultModule from '../desktop/vault.cjs';
 import loginModule from '../desktop/login.cjs';
 
@@ -145,14 +146,15 @@ test('an import adds new sign-ins, updates changed ones, leaves the same ones an
   assert.equal(vault.password(greenhouse.id), 'gh-pass');
   assert.deepEqual(vault.importMany(rows), { added: 0, updated: 0, same: 3, skipped: { site: 1, username: 1, password: 2, full: 0 } }, 'importing again changes nothing');
 
-  // With a vault password, a closed vault takes nothing in, and an open one seals the new ones with it too.
+  // With a vault password, a closed vault takes nothing in; what an open one takes in fills once it is closed again.
   await vault.setLock({ next: 'Lock1234' });
   vault.close();
   assert.throws(() => vault.importMany(rows), /Open the password vault/);
   await vault.unlock('Lock1234');
   vault.importMany([{ url: 'https://lever.co', username: 'ana', password: 'lever-pass' }]);
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.ok(stored.entries.every(entry => entry.wrapped));
+  assert.ok(stored.entries.every(entry => !entry.wrapped) && !fs.readFileSync(file, 'utf8').includes('lever-pass'));
+  vault.close();
   assert.equal(vault.password(vault.forHost('jobs.lever.co')[0].id), 'lever-pass');
 });
 
@@ -164,7 +166,7 @@ test('an import stops adding at the limit and says how many did not fit', () => 
   assert.throws(() => vault.save({ site: 'one-more.example.com', username: 'ana', password: 'x' }), /Up to 2000 passwords/);
 });
 
-test('a vault password seals every password again, and the locked vault lists and fills nothing', async () => {
+test('a vault password guards listing, showing and changes, and the locked vault still fills', async () => {
   const file = vaultFile();
   const safeStorage = fakeSafeStorage();
   let time = 0;
@@ -177,27 +179,28 @@ test('a vault password seals every password again, and the locked vault lists an
   assert.deepEqual(await vault.setLock({ next: 'Lock1234' }).then(list => [list.lock, list.locked, list.entries.length]), [true, false, 2]);
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.ok(!JSON.stringify(stored).includes('Lock1234'), 'the vault password is not stored');
-  assert.ok(stored.entries.every(entry => entry.wrapped && !['linked-secret', 'Hunter2!pass'].includes(safeStorage.decryptString(Buffer.from(entry.secret, 'base64')))),
-    'under the system layer each password is sealed again with the vault password');
-  assert.equal(vault.password(linkedin.id), 'linked-secret', 'open, it fills as before');
+  assert.deepEqual(stored.entries.map(entry => [Boolean(entry.wrapped), safeStorage.decryptString(Buffer.from(entry.secret, 'base64'))]).sort(),
+    [[false, 'Hunter2!pass'], [false, 'linked-secret']], 'each password stays sealed by the system');
 
-  // Locked: nothing is listed, filled or changed; a typed password for a saved user name is not offered again.
+  // Locked: nothing is listed, shown, changed or deleted, but every saved password still fills its site.
   assert.deepEqual([vault.close().locked, vault.list().entries, vault.list().count], [true, [], 2]);
-  assert.throws(() => vault.password(linkedin.id), /Open the password vault/);
+  assert.equal(vault.fillable(), true);
+  assert.deepEqual([vault.password(linkedin.id), vault.password(workday.id)], ['linked-secret', 'Hunter2!pass']);
   assert.throws(() => vault.save({ site: 'greenhouse.io', username: 'a', password: 'b' }), /Open the password vault/);
   assert.throws(() => vault.remove(linkedin.id), /Open the password vault/);
-  assert.equal(vault.knows('www.linkedin.com', 'yuan', 'anything'), true);
-  assert.equal(vault.knows('www.linkedin.com', 'someone else', 'anything'), false);
+  assert.throws(() => vault.reveal(), /Open the password vault/);
+  assert.throws(() => vault.clear(), /Open the password vault/);
+  assert.equal(vault.knows('www.linkedin.com', 'yuan', 'linked-secret'), true);
+  assert.equal(vault.knows('www.linkedin.com', 'yuan', 'a new password'), false);
 
   // It starts locked after a restart, and opens only with its password; too many wrong tries make it wait.
   const again = createVault({ file, safeStorage, now, clock });
-  assert.equal(again.locked(), true);
+  assert.deepEqual([again.locked(), again.password(workday.id)], [true, 'Hunter2!pass']);
   await assert.rejects(again.unlock('Wrong1234'), /not the vault password/);
   for (let i = 0; i < 4; i += 1) await assert.rejects(again.unlock('Wrong1234'), /not the vault password/);
   await assert.rejects(again.unlock('Lock1234'), /Too many wrong tries\. Try again in 30 seconds/);
   time += 30000;
   assert.equal((await again.unlock('Lock1234')).locked, false);
-  assert.equal(again.password(workday.id), 'Hunter2!pass');
   const added = again.save({ site: 'greenhouse.io', username: 'yuan', password: 'green-secret' });
 
   // Changing it needs the current one; the passwords carry over.
@@ -208,12 +211,63 @@ test('a vault password seals every password again, and the locked vault lists an
   await third.unlock('NewLock99');
   assert.deepEqual([third.password(linkedin.id), third.password(added.id)], ['linked-secret', 'green-secret']);
 
-  // Taking it off keeps the passwords under the system's encryption only.
+  // Taking it off keeps the passwords under the system's encryption.
   await assert.rejects(third.removeLock('Lock1234'), /not the vault password/);
   assert.equal((await third.removeLock('NewLock99')).lock, false);
   const plain = createVault({ file, safeStorage, now, clock });
   assert.deepEqual([plain.locked(), plain.password(workday.id)], [false, 'Hunter2!pass']);
   assert.ok(!JSON.parse(fs.readFileSync(file, 'utf8')).lock);
+});
+
+test('the open vault shows its passwords when asked, and deletes them all at once', async () => {
+  const file = vaultFile();
+  const vault = createVault({ file, safeStorage: fakeSafeStorage(), now });
+  const linkedin = vault.save({ site: 'linkedin.com', username: 'yuan', password: 'linked-secret' });
+  const workday = vault.save({ site: 'acme.wd5.myworkdayjobs.com', username: 'yuan@example.com', password: 'Hunter2!pass' });
+  assert.deepEqual(vault.reveal(), { [linkedin.id]: 'linked-secret', [workday.id]: 'Hunter2!pass' });
+  assert.ok(!JSON.stringify(vault.list()).includes('linked-secret'), 'the list itself still has no passwords');
+
+  await vault.setLock({ next: 'Lock1234' });
+  vault.close();
+  assert.throws(() => vault.clear(), /Open the password vault/);
+  assert.equal(vault.list().count, 2);
+  await vault.unlock('Lock1234');
+  assert.deepEqual([vault.clear().count, vault.list().lock], [0, true], 'the vault password stays');
+  const after = createVault({ file, safeStorage: fakeSafeStorage(), now });
+  assert.deepEqual([after.locked(), after.list().count], [true, 0]);
+  assert.ok(!/secret|Hunter2|yuan/.test(fs.readFileSync(file, 'utf8')));
+});
+
+test('passwords a vault password sealed before 0.20.0 fill once the vault has been opened', async () => {
+  // A vault as 0.19 and earlier wrote it: each password sealed with the vault password's key under the system's.
+  const safeStorage = fakeSafeStorage();
+  const salt = randomBytes(16);
+  const key = scryptSync('Lock1234', salt, 32, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  const seal = text => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const body = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+  };
+  const at = now().toISOString();
+  const old = (id, site, username, password) => ({ id, site, username, secret: safeStorage.encryptString(seal(password)).toString('base64'), wrapped: true, createdAt: at, updatedAt: at, usedAt: null });
+  const file = vaultFile();
+  fs.writeFileSync(file, JSON.stringify({ version: 2, entries: [old('a', 'linkedin.com', 'yuan', 'linked-secret'), old('b', 'greenhouse.io', 'ana', 'green-secret')],
+    lock: { salt: salt.toString('base64'), check: seal('dayjob-vault') } }));
+
+  const vault = createVault({ file, safeStorage, now });
+  assert.deepEqual([vault.locked(), vault.fillable()], [true, false]);
+  assert.throws(() => vault.password('a'), /Open the password vault once/);
+  assert.equal(vault.knows('www.linkedin.com', 'yuan', 'anything'), true, 'a saved user name is not offered again while it waits');
+
+  await vault.unlock('Lock1234');
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(stored.entries.every(entry => !entry.wrapped));
+  assert.deepEqual(stored.entries.map(entry => safeStorage.decryptString(Buffer.from(entry.secret, 'base64'))), ['linked-secret', 'green-secret']);
+  vault.close();
+  assert.deepEqual([vault.locked(), vault.fillable(), vault.password('a'), vault.password('b')], [true, true, 'linked-secret', 'green-secret']);
+  const restarted = createVault({ file, safeStorage, now });
+  assert.deepEqual([restarted.locked(), restarted.password('b')], [true, 'green-secret']);
 });
 
 test('a forgotten vault password empties the vault', async () => {
