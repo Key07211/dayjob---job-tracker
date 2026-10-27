@@ -4,8 +4,8 @@ import { KEY_NOTES, TUNES, tuneFor } from '../src/dayjob/groove/sound.js';
 
 const C_MAJOR = new Set([0, 2, 4, 5, 7, 9, 11]);
 
-test('each sidebar key has its own note, C at the top up to the C above at the bottom', () => {
-  assert.deepEqual(KEY_NOTES, [60, 62, 64, 65, 67, 69, 71, 72]);
+test('each sidebar key has its own note, C3 at the top up to middle C at the bottom', () => {
+  assert.deepEqual(KEY_NOTES, [48, 50, 52, 53, 55, 57, 59, 60]);
 });
 
 test('in every piece each key\'s fragment ends on that key\'s note and stays in C major', () => {
@@ -16,10 +16,13 @@ test('in every piece each key\'s fragment ends on that key\'s note and stays in 
       assert.equal(notes.at(-1), KEY_NOTES[i], `${name} key ${i} lands on its note`);
       notes.forEach(midi => assert.ok(C_MAJOR.has(midi % 12), `${name} key ${i}: ${midi} is in C major`));
     });
-    if (tune.bass) {
-      assert.equal(tune.bass.length, KEY_NOTES.length, `${name} bass`);
-      tune.bass.forEach((midi, i) => assert.ok(C_MAJOR.has(midi % 12) && midi < 60, `${name} bass ${i} is a low note in C major`));
-    }
+  }
+});
+
+// Higher than this the keys turned shrill (an earlier version climbed to F5).
+test('no piece goes above F4', () => {
+  for (const [name, tune] of Object.entries(TUNES)) {
+    tune.keys.flat().forEach(midi => assert.ok(midi <= 65, `${name}: ${midi} is above F4`));
   }
 });
 

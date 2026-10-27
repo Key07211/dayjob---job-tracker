@@ -33,8 +33,8 @@ export function SoundSettings() {
             <button key={value} type="button" className={groove.tune === value ? 'active' : ''} onClick={() => { prefs.set({ tune: value }); previewTune(value, theme); }}>{t(zh, en)}</button>
           ))}
         </div>
-        <small>{t('每个琴键固定一个音，从上到下是 C、D、E、F、G、A、B 和高音 C。曲子切成小段，每段都落在自己琴键的音上。跟随主题时，白天是巴赫《C 大调前奏曲》，黑夜是萨蒂《吉诺佩蒂第一号》，也可以选舒曼《梦幻曲》。点一下可以试听。',
-          'Each key has its own note, from the top C, D, E, F, G, A, B and the C above. The piece is cut into short fragments, each ending on its key\'s note. With the theme, days play Bach\'s Prelude in C and nights Satie\'s Gymnopédie No. 1; Schumann\'s Träumerei is the third choice. Pick one to hear it.')}</small>
+        <small>{t('每个琴键固定一个音，从上到下是 C、D、E、F、G、A、B 和高音 C，在中央 C 下面的那个八度，用柔和的毛毡钢琴音色。曲子切成小段，每段都落在自己琴键的音上。跟随主题时，白天是巴赫《C 大调前奏曲》，黑夜是萨蒂《吉诺佩蒂第一号》，也可以选舒曼《梦幻曲》。点一下可以试听。',
+          'Each key has its own note, from the top C, D, E, F, G, A, B and the C above, in the octave below middle C on a soft felt piano. The piece is cut into short fragments, each ending on its key\'s note. With the theme, days play Bach\'s Prelude in C and nights Satie\'s Gymnopédie No. 1; Schumann\'s Träumerei is the third choice. Pick one to hear it.')}</small>
       </div>
       <div className="option-row">
         <span>{t('按键间隔', 'Key gap')}</span>

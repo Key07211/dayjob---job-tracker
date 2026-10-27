@@ -12,27 +12,25 @@ export const tierOf = score => (score >= 85 ? 'hi' : score >= 65 ? 'mid' : 'lo')
 const ODE = [64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62, 64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60];
 const CHORD_C = [48, 55, 60, 64];
 
-// Each sidebar key has its own note, like a piano keyboard on its side, low at the top: Home C4, Today D4, Saved E4,
-// Applications F4, Browser G4, Searches A4, Resume B4, Settings C5. A tune is a gentle piano piece (all public domain),
-// moved to C major and cut into eight short fragments, one per key; each fragment comes from the piece and ends on its
-// key's note, which rings on, so a key always sounds like itself whichever piece plays, and any keys in any order
-// stay in tune. bass: a soft low note under the fragment, from the piece's own harmony.
-export const KEY_NOTES = [60, 62, 64, 65, 67, 69, 71, 72];
+// Each sidebar key has its own note, like a piano keyboard on its side, low at the top: Home C3, Today D3, Saved E3,
+// Applications F3, Browser G3, Searches A3, Resume B3, Settings C4 (middle C). That is the octave below middle C, where
+// a soft piano sounds warm; an octave higher the top keys turned shrill. A tune is a gentle piano piece (all public
+// domain), moved to C major and cut into eight short fragments, one per key; each fragment comes from the piece and
+// ends on its key's note, which rings on, so a key always sounds like itself whichever piece plays, and any keys in
+// any order stay in tune. No note goes above F4.
+export const KEY_NOTES = [48, 50, 52, 53, 55, 57, 59, 60];
 export const TUNES = {
   // Bach, Prelude in C major (The Well-Tempered Clavier, Book I): a rising broken chord from one of its bars, every
   // note held as in the prelude.
   prelude: { step: 0.13, gain: 0.1, ring: 1.5, hold: true,
-    keys: [[52, 55, 60], [50, 57, 62], [59, 60, 64], [57, 62, 65], [59, 62, 67], [60, 64, 69], [62, 67, 71], [64, 67, 72]] },
-  // Satie, Gymnopédie No. 1 (in D, moved down a tone): slow steps and falls from its melody over the low F or C that
-  // its left hand rocks between.
+    keys: [[40, 43, 48], [38, 45, 50], [47, 48, 52], [45, 50, 53], [47, 50, 55], [48, 52, 57], [50, 55, 59], [52, 55, 60]] },
+  // Satie, Gymnopédie No. 1 (in D, moved down a tone): slow steps and falls from its melody.
   gymnopedie: { step: 0.3, gain: 0.09, ring: 2.2,
-    keys: [[57, 59, 60], [64, 62], [67, 65, 64], [64, 67, 65], [72, 67], [71, 69], [77, 76, 71], [69, 71, 72]],
-    bass: [41, 48, 48, 41, 48, 41, 48, 41] },
+    keys: [[45, 47, 48], [52, 50], [55, 53, 52], [52, 55, 53], [60, 55], [59, 57], [65, 64, 59], [57, 59, 60]] },
   // Schumann, Träumerei (Scenes from Childhood, in F, moved to C): the rising fourth it opens with, its arpeggio and
   // its falling line.
   traumerei: { step: 0.24, gain: 0.1, ring: 1.8,
-    keys: [[55, 60], [64, 62], [60, 64], [64, 65], [64, 67], [71, 69], [72, 71], [67, 72]],
-    bass: [48, 43, 48, 41, 48, 41, 43, 48] },
+    keys: [[43, 48], [52, 50], [48, 52], [52, 53], [52, 55], [59, 57], [60, 59], [55, 60]] },
 };
 export const tuneFor = (choice, theme) => (choice === 'auto' || !TUNES[choice] ? (theme === 'night' ? 'gymnopedie' : 'prelude') : choice);
 
@@ -106,29 +104,73 @@ export function duck(on) {
 
 // A hammer-struck string: a few slightly stretched partials, the high ones dying first.
 const BRIGHT = [[1, 1, 1, 'triangle'], [2, 0.42, 0.6, 'sine'], [3, 0.18, 0.4, 'sine'], [4, 0.08, 0.28, 'sine']];
-// soft: a felt-damped piano for the sidebar's pieces, a gentler hammer and fewer, quieter overtones.
-const FELT = [[1, 1, 1, 'triangle'], [2, 0.26, 0.5, 'sine'], [3, 0.07, 0.3, 'sine']];
-function piano(midi, { at = 0, gain = 0.12, dur = 1.1, soft = false } = {}, out) {
+function piano(midi, { at = 0, gain = 0.12, dur = 1.1 } = {}, out) {
   if (!out) return;
   const f = hz(midi);
   const t = ctx.currentTime + at;
   const tone = ctx.createBiquadFilter();
   tone.type = 'lowpass';
-  tone.frequency.setValueAtTime(Math.min(12000, f * (soft ? 5 : 9)), t);
-  tone.frequency.exponentialRampToValueAtTime(Math.max(soft ? 300 : 400, f * (soft ? 1.5 : 2)), t + dur);
+  tone.frequency.setValueAtTime(Math.min(12000, f * 9), t);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(400, f * 2), t + dur);
   tone.connect(out);
-  (soft ? FELT : BRIGHT).forEach(([h, level, life, wave]) => {
+  BRIGHT.forEach(([h, level, life, wave]) => {
     const osc = ctx.createOscillator();
     const amp = ctx.createGain();
     osc.type = wave;
     osc.frequency.value = f * h * (1 + 0.0005 * h * h);
     amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(level * gain, t + (soft ? 0.014 : 0.006));
+    amp.gain.linearRampToValueAtTime(level * gain, t + 0.006);
     amp.gain.exponentialRampToValueAtTime(0.0001, t + dur * life);
     osc.connect(amp).connect(tone);
     osc.start(t);
     osc.stop(t + dur + 0.05);
   });
+}
+
+// The sidebar's felt piano: six partials, each from two strings a hair apart, a filter that closes as the note dies,
+// and a soft hammer thump. Fuller than a near-pure tone, so it sounds like a piano rather than a beep, and kept under
+// about 1.8 kHz. Higher notes play a little quieter (about 3 dB an octave), so no key stands out.
+const FELT = [[1, 1], [0.55, 0.6], [0.32, 0.42], [0.18, 0.3], [0.09, 0.22], [0.05, 0.16]];
+function felt(midi, { at = 0, gain = 0.1, dur = 1.5 } = {}, out) {
+  if (!out) return;
+  const f = hz(midi);
+  const t = ctx.currentTime + at;
+  const g = gain * Math.pow(2, -(midi - 60) / 24);
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.Q.value = 0.5;
+  tone.frequency.setValueAtTime(Math.min(1800, f * 8), t);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(300, Math.min(500, f * 2.5)), t + dur * 0.6);
+  tone.connect(out);
+  FELT.forEach(([level, life], k) => {
+    const n = k + 1;
+    const fn = f * n * Math.sqrt(1 + 0.0004 * n * n);
+    [-1.2, 1.2].forEach(cents => {
+      const osc = ctx.createOscillator();
+      const amp = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = fn * Math.pow(2, cents / 1200);
+      amp.gain.setValueAtTime(0, t);
+      amp.gain.linearRampToValueAtTime(level * g * 0.5, t + 0.008);
+      amp.gain.exponentialRampToValueAtTime(0.0001, t + dur * life);
+      osc.connect(amp).connect(tone);
+      osc.start(t);
+      osc.stop(t + dur + 0.05);
+    });
+  });
+  const len = Math.floor(ctx.sampleRate * 0.025);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i += 1) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  const thump = ctx.createBufferSource();
+  const muffle = ctx.createBiquadFilter();
+  const thumpAmp = ctx.createGain();
+  thump.buffer = buf;
+  muffle.type = 'lowpass';
+  muffle.frequency.value = Math.max(300, Math.min(900, f * 2));
+  thumpAmp.gain.value = g * 0.12;
+  thump.connect(muffle).connect(thumpAmp).connect(out);
+  thump.start(t);
 }
 
 // Karplus-Strong: a burst of noise fed back through a short delay rings like a plucked steel string.
@@ -334,12 +376,11 @@ export function cue(name, arg) {
   if (out) CUES[name](out, arg);
 }
 
-// One key's fragment: the bass first, then the notes; the last one, the key's own note, rings on.
+// One key's fragment: the notes in turn; the last one, the key's own note, rings on.
 function fragment(t, index, at, out) {
   const notes = t.keys[index % t.keys.length];
   const last = notes.length - 1;
-  if (t.bass) piano(t.bass[index % t.bass.length], { at, gain: t.gain * 0.45, dur: t.ring * 1.2, soft: true }, out);
-  notes.forEach((midi, i) => piano(midi, { at: at + i * t.step, gain: t.gain, dur: i === last ? t.ring : t.hold ? t.ring * 0.8 : t.step * 2.4, soft: true }, out));
+  notes.forEach((midi, i) => felt(midi, { at: at + i * t.step, gain: t.gain, dur: i === last ? t.ring : t.hold ? t.ring * 0.8 : t.step * 2.4 }, out));
   return last * t.step;
 }
 
