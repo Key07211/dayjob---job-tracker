@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import net from 'node:net';
 import JSZip from 'jszip';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -76,6 +77,21 @@ test('the local server only answers this machine and its own pages', async () =>
     const frontend = await fetch(`${url}/applications`);
     assert.equal(frontend.status, 503, 'no build yet');
   } finally { await app.close(); }
+});
+
+test('closing does not wait for a request that never finishes', async () => {
+  const { app, url } = await start();
+  const target = new URL(url);
+  const socket = net.connect(Number(target.port), target.hostname);
+  await new Promise(resolve => socket.once('connect', resolve));
+  socket.on('error', () => {});
+  socket.write(`GET /api/status HTTP/1.1\r\nHost: ${target.host}\r\n`);
+  const dropped = new Promise(resolve => socket.once('close', resolve));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const started = Date.now();
+  await app.close();
+  assert.ok(Date.now() - started < 2500, `closed in ${Date.now() - started} ms`);
+  await dropped;
 });
 
 test('the built interface is served with a strict policy', async () => {

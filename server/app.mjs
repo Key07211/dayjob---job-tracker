@@ -444,7 +444,15 @@ export async function createApp(options = {}) {
     },
     async close() {
       scheduler.stop();
-      if (listening) await new Promise(resolve => { server.close(resolve); server.closeIdleConnections(); });
+      // A request still running (a fetch or a scoring call can take minutes) or stuck halfway would hold the close
+      // forever, since Node stops its request timeouts once the server closes. After a second every connection is dropped.
+      if (listening) {
+        await new Promise(resolve => {
+          const drop = setTimeout(() => server.closeAllConnections(), 1000);
+          server.close(() => { clearTimeout(drop); resolve(); });
+          server.closeIdleConnections();
+        });
+      }
       listening = false;
       // Let an in-flight run record its result, but never hold shutdown long.
       await Promise.race([scheduler.wait(), new Promise(resolve => setTimeout(resolve, 3000))]);

@@ -28,15 +28,20 @@ const port = Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <=
 const icon = path.join(__dirname, 'assets', 'icon.png');
 // On Windows the window and the tray take the .ico, which has a plainer drawing (no record grooves, a bolder note) for the small sizes.
 const windowIcon = process.platform === 'win32' ? path.join(__dirname, 'assets', 'icon.ico') : icon;
-// What the updater did, so a failed update can be looked into afterwards.
-const updateLog = path.join(profileDir, 'logs', 'update.log');
-function logUpdate(message) {
+// What the updater did (update.log), and what happened to the window and to quitting (app.log), so a failed update
+// or a Dayjob that would not open can be looked into afterwards.
+function writeLog(name, message) {
+  const file = path.join(profileDir, 'logs', name);
   try {
-    fs.mkdirSync(path.dirname(updateLog), { recursive: true });
-    if (fs.statSync(updateLog, { throwIfNoEntry: false })?.size > 512 * 1024) fs.renameSync(updateLog, `${updateLog}.old`);
-    fs.appendFileSync(updateLog, `${new Date().toISOString()} ${String(message).replace(/^\[dayjob\] update: /, '')}\n`);
-  } catch { /* logging never stops an update */ }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.statSync(file, { throwIfNoEntry: false })?.size > 512 * 1024) fs.renameSync(file, `${file}.old`);
+    fs.appendFileSync(file, `${new Date().toISOString()} ${message}\n`);
+  } catch { /* logging never stops Dayjob */ }
 }
+const logUpdate = message => writeLog('update.log', String(message).replace(/^\[dayjob\] update: /, ''));
+const logApp = message => writeLog('app.log', message);
+// How long quitting may wait for the local service, and then for the quit itself, before Dayjob ends anyway.
+const QUIT_WAIT_MS = 5000;
 let service;
 let window;
 let tray;
@@ -223,6 +228,17 @@ async function createWindow() {
     });
     window.webContents.on('render-process-gone', (_event, details) => smokeLog.push(`renderer gone: ${details.reason}`));
   }
+  // A page that crashed is loaded again (at most once a minute), so the window never stays blank.
+  let reloadedAt = 0;
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logApp(`page gone: ${details.reason} (exit code ${details.exitCode})`);
+    if (quitting || window.isDestroyed() || Date.now() - reloadedAt < 60000) return;
+    reloadedAt = Date.now();
+    window.webContents.reload();
+  });
+  window.on('unresponsive', () => logApp('window not responding'));
+  window.on('responsive', () => logApp('window responding again'));
+  window.on('closed', () => logApp(quitting ? 'window closed to quit' : 'window closed while Dayjob kept running'));
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalLink(url)) shell.openExternal(url).catch(console.error);
     return { action: 'deny' };
@@ -528,7 +544,7 @@ async function smokeUpdate() {
       const left = await freeInstallFolder({ dir: path.dirname(process.execPath), log: logUpdate });
       steps.freed = left.length === 0 && await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 5000))]);
     }
-    steps.logged = /Checking for update|stopping/i.test(fs.readFileSync(updateLog, 'utf8'));
+    steps.logged = /Checking for update|stopping/i.test(fs.readFileSync(path.join(profileDir, 'logs', 'update.log'), 'utf8'));
   } catch (error) {
     steps.error = error.message;
   } finally {
@@ -675,19 +691,39 @@ app.on('before-quit', event => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
+  logApp('quitting');
   updates?.stop();
   music?.stop();
-  Promise.resolve(service?.close()).catch(console.error).finally(() => {
+  // A quit must never leave Dayjob running without its window or tray: the local service gets a few seconds to close,
+  // and if the quit itself is still held up after that, the process ends.
+  const waited = new Promise(resolve => setTimeout(resolve, QUIT_WAIT_MS, 'late'));
+  Promise.race([Promise.resolve(service?.close()), waited]).then(result => {
+    if (result === 'late') logApp('the local service did not close in time');
+  }, console.error).finally(() => {
     tray?.destroy();
     quitting = true;
     app.quit();
+    setTimeout(() => { logApp('the quit did not finish: ending the process'); app.exit(0); }, QUIT_WAIT_MS).unref();
   });
 });
 
 if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 } else {
-  app.on('second-instance', showWindow);
+  // Opening Dayjob again shows its window. An instance that is quitting, or was left without a window (its quit got
+  // stuck partway), makes way instead: Dayjob starts afresh once this one has ended, so the launch still opens it.
+  let relaunching = false;
+  app.on('second-instance', () => {
+    if (!shutdownStarted && !window?.isDestroyed()) { showWindow(); return; }
+    if (relaunching) return;
+    // A quit that installs an update is left alone: the installer is replacing Dayjob's files.
+    if (shutdownStarted && ['downloaded', 'installing'].includes(updates?.state().status)) { logApp('opened again while an update installs'); return; }
+    relaunching = true;
+    logApp(shutdownStarted ? 'opened again while quitting: starting afresh after the quit' : 'opened again with no window left: starting afresh');
+    app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== '--hidden') });
+    // The new launch hears back first and closes; then this one exits and the fresh Dayjob starts.
+    if (!shutdownStarted) setTimeout(() => app.exit(0), 200);
+  });
   boot().catch(async error => {
     const copy = text();
     const message = error.code === 'EADDRINUSE' ? copy.portInUse(port) : copy.failed(error.message);
