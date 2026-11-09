@@ -11,7 +11,8 @@ const directory = path.resolve(process.argv[2] || 'demo-data');
 const DAY = 864e5;
 const base = Date.now();
 const ago = days => new Date(base - days * DAY).toISOString();
-const day = days => ago(days).slice(0, 10);
+// Calendar days on this computer, as the app shows them.
+const day = days => localDay(new Date(base - days * DAY));
 let clockOffset = 0;
 const { db } = openDatabase(directory);
 const repo = createRepository(db, { now: () => new Date(base - clockOffset) });

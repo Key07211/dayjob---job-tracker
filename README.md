@@ -6,15 +6,15 @@
 
 Dayjob 是 [Daylight](https://github.com/Key07211/daylight) 的求职模式，先作为独立项目开发，功能全部完成并验证后再合并进 Daylight（一个按键在 Daylight 和 Dayjob 之间切换）。
 
-![今日岗位：AI 匹配分、发布日期、岗位详情](docs/media/feed.webp)
+![动图：今日岗位和右键菜单，投递追踪，内置浏览器自动填写申请表，再用日夜开关切到夜晚、回到白天](docs/media/demo.webp)
 
-> 截图里的公司、岗位、投递记录和简历都是虚构的演示数据（`scripts/seed-demo.mjs` 可以生成一份）。界面默认按时间切换白天 / 黑夜，也可以跟随系统或在设置里固定。
+白天和夜晚各有一套配色：白天是淡蓝和暖黄，夜晚是棕灰和台灯黄。默认按时间切换（07:00 天亮、19:00 入夜），也可以点顶部时间旁的日夜开关，或在设置里跟随系统、固定一种。
 
-<details><summary>深色模式</summary>
+| 白天 | 夜晚 |
+| --- | --- |
+| ![白天的今日岗位](docs/media/feed.webp) | ![夜晚的今日岗位](docs/media/feed-dark.webp) |
 
-![深色模式](docs/media/feed-dark.webp)
-
-</details>
+> 动图和截图里的公司、岗位、投递记录和简历都是虚构的演示数据（`scripts/seed-demo.mjs` 可以生成一份）。
 
 ## 功能
 
