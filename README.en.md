@@ -8,7 +8,7 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 
 ![Today: AI match scores, posting dates and the job details](docs/media/feed-en.webp)
 
-> The companies, jobs and resume in the screenshots are made-up data from `scripts/seed-demo.mjs`. The interface follows the system's light or dark theme, or a theme you pick in Settings.
+> The companies, jobs, applications and resume in the screenshots are made-up demo data (`scripts/seed-demo.mjs` makes a set). By default the interface turns from day to night by the clock; it can also follow the system or stay on one theme you pick in Settings.
 
 ## Features
 
