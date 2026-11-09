@@ -6,9 +6,15 @@ Dayjob fetches the jobs you want every day and scores each one against your resu
 
 Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight). It is developed as a separate project first and will be merged into Daylight, behind one button that switches between the two, once every feature is finished and verified.
 
-![Today: AI match scores, posting dates and the job details](docs/media/feed-en.webp)
+![Animation: Today and its right-click menu, Applications, the built-in browser filling in an application form, then the day / night switch going to night and back](docs/media/demo-en.webp)
 
-> The companies, jobs and resume in the screenshots are made-up data from `scripts/seed-demo.mjs`. The interface follows the system's light or dark theme, or a theme you pick in Settings.
+Day and night each have their own colours: pale blue and warm yellow by day, brown-grey and desk-lamp yellow at night. By default the theme follows the clock (day at 07:00, night at 19:00); you can also click the day / night switch next to the time at the top, or follow the system or keep one theme under Settings.
+
+| Day | Night |
+| --- | --- |
+| ![Today in the day theme](docs/media/feed-en.webp) | ![Today in the night theme](docs/media/feed-dark-en.webp) |
+
+> The companies, jobs, applications and resume in the animation and screenshots are made-up demo data (`scripts/seed-demo.mjs` makes a set).
 
 ## Features
 
@@ -30,6 +36,7 @@ Dayjob is the job-search mode of [Daylight](https://github.com/Key07211/daylight
 | Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
 | Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
+| Day / night | Follows the clock by default (day at 07:00, night at 19:00; change the hours under Settings → Appearance). When the theme changes, the new colours sweep down the page at nightfall and up at daybreak. Next to the time at the top of every page is a day / night switch: click it and the sun rolls over into a moon, the clouds sink and the stars come out one by one. In clock mode a theme picked this way holds until the next change on the clock, then the clock takes over again. Dropdowns, calendars and time pickers follow the theme too. |
 | Opening | When Dayjob opens it plays a short opening of just over a second, one for day and one for night. Day: the icon drops in, today's new jobs (up to 8 cards) fly in from the right and turn into beat bars, hop once and glide into the header's spectrum, and the icon flies to the top left as the logo. Night: a desk lamp comes on, the needle drops, the cards fall along the light as warm bars, and the record player goes back to the bottom left. Click or press any key to skip; it does not play when the window comes back from the tray. Turn it off under Settings → Appearance; it never plays when Windows asks for reduced motion. |
 | 中文 / English | Switch with the EN / 中 button at the top left or under Settings → Language. Notifications and the tray menu follow; the AI analysis language is set separately under Resume & AI. |
 

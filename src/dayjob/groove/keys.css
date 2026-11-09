@@ -18,7 +18,7 @@
   --row-on-lip: #2A2520;
 }
 
-/* The lid: the band reaches from the sidebar to the window's right edge, whatever width the page itself is capped at. */
+/* The lid: the band reaches from the sidebar to the window's right edge (or to the browser beside the page), whatever width the page itself is capped at. */
 .main { overflow-x: clip; }
 .view-header { isolation: isolate; padding-bottom: 16px; margin-bottom: 20px; }
 .view-header::before { content: ""; position: absolute; z-index: -1; top: -26px; bottom: 0; left: -28px; right: -100vw;
