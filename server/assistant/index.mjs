@@ -20,7 +20,8 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // The assistant in the Dayjob window: conversations, the two engines that can run them, and the tools they share.
 //
 // A conversation lives in memory. It is written to the database only while the user has "keep this conversation"
-// on; switching that off, or deleting the conversation, removes it again. Each engine holds its own working copy
+// on; switching that off, or deleting the conversation, removes it again. Archiving keeps a conversation and puts
+// it away from the list of kept ones until it is taken back out. Each engine holds its own working copy
 // while it runs (a Claude Code process, or the message list for the Claude API); whenever that copy is missing
 // (a kept conversation reopened, the engine switched, the process gone) the turns kept here are handed over as text.
 export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, now = () => new Date(), log = console.warn }) {
@@ -73,7 +74,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
   function create() {
     const at = iso();
-    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, turns: [], kept: false, actions: new Map(), notes: [], flight: null, live: null, engine: null, model: '', usedAt: Date.now() };
+    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, archivedAt: null, turns: [], kept: false, actions: new Map(), notes: [], flight: null, live: null, engine: null, model: '', usedAt: Date.now() };
     conversations.set(conversation.id, conversation);
     trim();
     return conversation;
@@ -90,13 +91,14 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     conversation.usedAt = Date.now();
     return conversation;
   }
-  const stored = conversation => ({ id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, turns: conversation.turns });
+  const stored = conversation => ({ id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
+    archivedAt: conversation.archivedAt, turns: conversation.turns });
   const persist = conversation => { if (conversation.kept && conversation.turns.length) store.save(stored(conversation)); };
   // What the pane gets: no tool inputs or results, and whether each change can still be undone.
   const toolView = (conversation, tool) => ({ id: tool.id, name: tool.name, tier: tool.tier, view: tool.view, ok: tool.ok, label: tool.label, error: tool.error, offset: tool.offset,
     undone: Boolean(tool.undone), undoable: Boolean(conversation.actions.get(tool.id) && !tool.undone) });
-  const view = conversation => ({ id: conversation.id, title: conversation.title, kept: conversation.kept, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
-    busy: Boolean(conversation.flight),
+  const view = conversation => ({ id: conversation.id, title: conversation.title, kept: conversation.kept, archivedAt: conversation.archivedAt || null,
+    createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, busy: Boolean(conversation.flight),
     turns: conversation.turns.map(turn => (turn.role === 'user' ? { role: 'user', text: turn.text, at: turn.at }
       : { role: 'assistant', text: turn.text, at: turn.at, engine: turn.engine, model: turn.model || null, stopped: Boolean(turn.stopped), error: turn.error || null, errorCode: turn.errorCode || null,
         usage: turn.usage || null, tools: turn.tools.map(tool => toolView(conversation, tool)) })) });
@@ -253,7 +255,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   async function http({ request, response, pathname, method, authorize }) {
     if (pathname === '/api/assistant/mcp') return mcp(request, response);
     if (request.headers['x-dayjob-client'] === 'mcp') throw new HttpError(403, 'The in-app assistant is used from the Dayjob window only.');
-    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/close)?$/);
+    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/archive|\/close)?$/);
     if (method === 'GET') {
       if (pathname === '/api/assistant') return respond(response, 200, await state());
       if (match && !match[2]) return respond(response, 200, view(need(load(match[1]))));
@@ -271,8 +273,22 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       if (typeof input.keep !== 'boolean') throw new HttpError(400, 'keep must be true or false.');
       const conversation = need(load(match[1]));
       conversation.kept = input.keep;
+      if (!input.keep) conversation.archivedAt = null;
       if (input.keep) persist(conversation); else store.remove(conversation.id);
       return respond(response, 200, { conversation: view(conversation), kept: store.list() });
+    }
+    // Archiving the open conversation also keeps it. One that is only in the database is changed there and not
+    // loaded, so tidying the list never pushes the open conversation out of memory.
+    if (match && method === 'POST' && match[2] === '/archive') {
+      if (typeof input.archived !== 'boolean') throw new HttpError(400, 'archived must be true or false.');
+      const at = input.archived ? iso() : null;
+      const conversation = conversations.get(match[1]);
+      if (conversation) {
+        conversation.archivedAt = at;
+        if (input.archived) conversation.kept = true;
+        persist(conversation);
+      } else need(store.archive(match[1], at));
+      return respond(response, 200, { conversation: conversation ? view(conversation) : null, kept: store.list() });
     }
     // Leaving a conversation: one that is not kept is forgotten, a kept one only leaves memory.
     if (match && method === 'POST' && match[2] === '/close') {
@@ -282,6 +298,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     }
     if (match && !match[2] && method === 'DELETE') {
       const conversation = conversations.get(match[1]);
+      // A reply that is still being written ends here; marked as not kept, it is not saved again as it stops.
+      if (conversation) conversation.kept = false;
       if (conversation) release(conversation);
       const removed = store.remove(match[1]);
       return respond(response, 200, { ok: Boolean(conversation) || removed, kept: store.list() });

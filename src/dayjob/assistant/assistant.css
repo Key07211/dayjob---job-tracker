@@ -64,6 +64,11 @@
 .asst-history-open strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asst-history-open small { font-size: 11.5px; color: var(--muted); }
 .asst-history-empty { padding: 6px 8px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.asst-history-list .icon-button { flex: none; width: 28px; height: 28px; }
+.asst-history-fold { display: flex; align-items: center; gap: 4px; margin-top: 4px; padding: 5px 8px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.asst-history-fold:hover { background: var(--soft); color: var(--text); }
+.asst-history-fold svg { transition: transform 156ms ease; }
+.asst-history-fold.open svg { transform: rotate(90deg); }
 .button.danger-fill, .button.danger-fill:hover:not(:disabled) { background: var(--red); color: var(--card); box-shadow: none; white-space: nowrap; }
 
 /* ---------- keep this conversation ---------- */
@@ -72,6 +77,8 @@
 .asst-keep > span { flex: 1; min-width: 0; }
 .asst-keep .button { flex: none; white-space: nowrap; }
 .asst-keep.kept { background: var(--amber-soft); color: var(--text); }
+.asst-keep.archived { color: var(--text); }
+.asst-keep .icon-button { flex: none; width: 26px; height: 26px; margin-left: -4px; }
 
 /* ---------- the conversation ---------- */
 .asst-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 10px; }
@@ -125,5 +132,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .speaker .sp-cone, .speaker .sp-tweeter, .speaker .sp-ring, .asst-dots b, .assistant-toggle.busy::after { animation: none !important; }
-  .assistant-toggle, .asst-compose, .asst-send, .sp-lamp { transition: none; }
+  .assistant-toggle, .asst-compose, .asst-send, .sp-lamp, .asst-history-fold svg { transition: none; }
 }

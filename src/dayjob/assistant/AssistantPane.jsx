@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, History, Pin, PinOff, Search, Square, SquarePen, Trash2, TriangleAlert, Undo2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUp, Check, ChevronRight, History, Pin, PinOff, Search, Square, SquarePen, Trash2, TriangleAlert, Undo2, X } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { relativeDay } from '../format.js';
 import { Markdown } from '../Markdown.jsx';
@@ -15,8 +15,8 @@ const STARTERS = [
 ];
 // What went wrong, in the user's language; anything not listed shows the server's own words.
 const ERRORS = {
-  'no-key': ['还没有可用的 Anthropic API key。到“简历与 AI”里添加一个，或者在“设置”里把助手换成用 Claude Code。', 'There is no Anthropic API key yet. Add one under Resume & AI, or switch the assistant to Claude Code in Settings.'],
-  'bad-key': ['这个 Anthropic API key 被拒绝了，请到“简历与 AI”里检查。', 'The Anthropic API key was rejected. Check it under Resume & AI.'],
+  'no-key': ['还没有可用的 Anthropic API key。到“设置”的 API key 里添加一个，或者把助手换成用 Claude Code。', 'There is no Anthropic API key yet. Add one under API key in Settings, or switch the assistant to Claude Code.'],
+  'bad-key': ['这个 Anthropic API key 被拒绝了，请到“设置”的 API key 里检查。', 'The Anthropic API key was rejected. Check it under API key in Settings.'],
   'rate-limit': ['Claude API 现在限流，稍等一会儿再试。', 'The Claude API is rate limiting requests. Try again in a moment.'],
   offline: ['连不上 Claude API，请检查网络。', 'Could not reach the Claude API. Check the network connection.'],
   refusal: ['Claude 没有接这个请求。', 'Claude declined this request.'],
@@ -83,24 +83,58 @@ function Reply({ turn, busy }) {
   );
 }
 
+// Delete asks once more: the first click turns the button into the question, and looking away takes it back.
+function DeleteButton({ id }) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+  if (confirming) {
+    return <button type="button" className="button small danger-fill" autoFocus onBlur={() => setConfirming(false)}
+      onClick={() => { setConfirming(false); void assistant.remove(id); }}>{t('确认删除', 'Delete')}</button>;
+  }
+  return <button type="button" className="icon-button" title={t('删除这段对话', 'Delete this conversation')} aria-label={t('删除这段对话', 'Delete this conversation')} onClick={() => setConfirming(true)}><Trash2 size={15} /></button>;
+}
+
+function ArchiveButton({ id, archived }) {
+  const { t } = useI18n();
+  const label = archived ? t('取消归档', 'Take out of the archive') : t('归档这段对话', 'Archive this conversation');
+  return <button type="button" className="icon-button" title={label} aria-label={label} onClick={() => assistant.archive(id, !archived)}>{archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>;
+}
+
+// The kept conversations, and under a fold the ones put away in the archive. Each can be opened, archived or deleted.
 function HistoryList({ kept, currentId, onPick }) {
   const { t } = useI18n();
-  const [confirming, setConfirming] = useState(null);
-  if (!kept.length) return <p className="asst-history-empty">{t('还没有保留的对话。对话默认不保存；想留下来的，点“保留这段对话”。', 'No kept conversations yet. Conversations are not saved unless you choose “Keep this conversation”.')}</p>;
-  return (
+  const [showArchived, setShowArchived] = useState(false);
+  const active = kept.filter(item => !item.archivedAt);
+  const archived = kept.filter(item => item.archivedAt);
+  const rows = items => (
     <ul className="asst-history-list">
-      {kept.map(item => (
+      {items.map(item => (
         <li key={item.id} className={item.id === currentId ? 'current' : ''}>
           <button type="button" className="asst-history-open" onClick={() => onPick(item.id)}>
             <strong>{item.title || t('（没有标题）', '(untitled)')}</strong>
             <small>{relativeDay(item.updatedAt)} · {t(`${Math.ceil(item.turns / 2)} 轮`, `${Math.ceil(item.turns / 2)} ${Math.ceil(item.turns / 2) === 1 ? 'exchange' : 'exchanges'}`)}</small>
           </button>
-          {confirming === item.id
-            ? <button type="button" className="button small danger-fill" onClick={() => { setConfirming(null); void assistant.remove(item.id); }} onBlur={() => setConfirming(null)} autoFocus>{t('确认删除', 'Delete')}</button>
-            : <button type="button" className="icon-button" title={t('删除这段对话', 'Delete this conversation')} aria-label={t('删除这段对话', 'Delete this conversation')} onClick={() => setConfirming(item.id)}><Trash2 size={15} /></button>}
+          <ArchiveButton id={item.id} archived={Boolean(item.archivedAt)} />
+          <DeleteButton id={item.id} />
         </li>
       ))}
     </ul>
+  );
+  return (
+    <>
+      {active.length ? rows(active) : (
+        <p className="asst-history-empty">{archived.length ? t('保留的对话都在归档里。', 'Every kept conversation is in the archive.')
+          : t('还没有保留的对话。对话默认不保存；想留下来的，点“保留这段对话”或归档。', 'No kept conversations yet. Conversations are not saved unless you choose “Keep” or archive one.')}</p>
+      )}
+      {archived.length ? (
+        <>
+          <button type="button" className={`asst-history-fold${showArchived ? ' open' : ''}`} aria-expanded={showArchived} onClick={() => setShowArchived(value => !value)}>
+            <ChevronRight size={14} />{t(`已归档 ${archived.length}`, `Archived ${archived.length}`)}
+          </button>
+          {showArchived ? rows(archived) : null}
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -116,6 +150,8 @@ export function AssistantPane({ onClose, openItem }) {
   const turns = conversation?.turns || [];
   const engine = info?.settings.engine;
   const engineState = engine ? info.engines[engine] : null;
+  const keptCount = (info?.kept || []).filter(item => !item.archivedAt).length;
+  const archived = Boolean(conversation?.archivedAt);
 
   useEffect(() => { void assistant.refresh(); }, []);
   useEffect(() => { field.current?.focus(); }, [conversation?.id]);
@@ -161,7 +197,7 @@ export function AssistantPane({ onClose, openItem }) {
         <button type="button" className="icon-button" title={t('新对话', 'New conversation')} aria-label={t('新对话', 'New conversation')} disabled={!turns.length}
           onClick={() => { setShowHistory(false); void assistant.reset(); }}><SquarePen size={17} /></button>
         <button type="button" className={`icon-button${showHistory ? ' on' : ''}`} title={t('保留的对话', 'Kept conversations')} aria-label={t('保留的对话', 'Kept conversations')} aria-expanded={showHistory}
-          onClick={() => { setShowHistory(value => !value); if (!showHistory) void assistant.refresh(); }}><History size={17} />{info?.kept.length ? <em>{info.kept.length}</em> : null}</button>
+          onClick={() => { setShowHistory(value => !value); if (!showHistory) void assistant.refresh(); }}><History size={17} />{keptCount ? <em>{keptCount}</em> : null}</button>
         <button type="button" className="icon-button" title={t('收起助手', 'Close the assistant')} aria-label={t('收起助手', 'Close the assistant')} onClick={onClose}><X size={18} /></button>
       </header>
       {showHistory ? (
@@ -170,10 +206,18 @@ export function AssistantPane({ onClose, openItem }) {
         </div>
       ) : null}
       {turns.length ? (
-        <div className={`asst-keep${conversation.kept ? ' kept' : ''}`}>
-          {conversation.kept ? <Pin size={14} /> : <PinOff size={14} />}
-          <span>{conversation.kept ? t('这段对话保留在这台电脑上', 'This conversation is kept on this computer') : t('这段对话不保存，新开对话或退出 Dayjob 后就没了', 'Not saved: it is gone once you start a new one or quit Dayjob')}</span>
-          <button type="button" className="button small" disabled={!conversation.id} onClick={() => assistant.keep(!conversation.kept)}>{conversation.kept ? t('不再保留', 'Stop keeping') : t('保留这段对话', 'Keep this conversation')}</button>
+        <div className={`asst-keep${archived ? ' archived' : conversation.kept ? ' kept' : ''}`}>
+          {archived ? <Archive size={14} /> : conversation.kept ? <Pin size={14} /> : <PinOff size={14} />}
+          <span>{archived ? t('这段对话已归档', 'This conversation is archived') : conversation.kept ? t('这段对话保留在这台电脑上', 'Kept on this computer')
+            : t('这段对话不保存，新开对话或退出后就没了', 'Not saved: gone once you start a new one or quit')}</span>
+          {archived ? <button type="button" className="button small" onClick={() => assistant.archive(conversation.id, false)}>{t('取消归档', 'Unarchive')}</button>
+            : <button type="button" className="button small" disabled={!conversation.id} onClick={() => assistant.keep(!conversation.kept)}>{conversation.kept ? t('不再保留', 'Stop keeping') : t('保留这段对话', 'Keep')}</button>}
+          {conversation.id ? (
+            <>
+              {archived ? null : <ArchiveButton id={conversation.id} archived={false} />}
+              <DeleteButton id={conversation.id} />
+            </>
+          ) : null}
         </div>
       ) : null}
       <div className="asst-scroll" ref={scroller} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }}>
@@ -194,7 +238,7 @@ export function AssistantPane({ onClose, openItem }) {
       {engineState && !engineState.available ? (
         <p className="asst-engine-off"><TriangleAlert size={14} />
           {engine === 'claude-cli' ? t('没有找到 Claude Code。', 'Claude Code was not found.') : t('还没有 Anthropic API key。', 'There is no Anthropic API key yet.')}
-          <button type="button" className="asst-link" onClick={() => openItem('settings', 'assistant')}>{t('去设置', 'Open Settings')}</button>
+          <button type="button" className="asst-link" onClick={() => openItem('settings', engine === 'claude-cli' ? 'assistant' : 'api-keys')}>{t('去设置', 'Open Settings')}</button>
         </p>
       ) : null}
       <form className="asst-compose" onSubmit={event => { event.preventDefault(); send(); }}>

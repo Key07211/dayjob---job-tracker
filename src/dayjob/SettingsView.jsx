@@ -704,7 +704,7 @@ export function SettingsView({ boot, reload, update, focus }) {
       <ApiKeys boot={boot} reload={reload} />
       <ClaudeConnection />
       <BrowserData />
-      <AssistantSettings />
+      <AssistantSettings hasKey={boot.settings.ai.hasApiKey} />
       <PasswordVault />
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />

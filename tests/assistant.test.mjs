@@ -154,6 +154,11 @@ test('a message streams a reply with its tool call, and the pane never gets tool
 
   const shown = await chat('call:show_in_app {"view":"applications"}', first.id);
   assert.deepEqual(shown.events.find(event => event.type === 'tool' && event.phase === 'done').ui, { open: 'applications', id: null });
+
+  // Each reply is counted in the usage log, on its own line and not with the search suggestions.
+  const used = app.repo.usageSummary().today;
+  assert.deepEqual(used.assistant, { calls: 3, measured: 3, inputTokens: 30, cachedTokens: 0, outputTokens: 15 });
+  assert.deepEqual([used.score.calls, used.other.calls], [0, 0]);
 });
 
 test('a change can be undone once, the model is told, and a later change blocks the undo', async t => {
@@ -305,6 +310,68 @@ test('a conversation is written to the database only while it is kept', async t 
   assert.deepEqual(removed.body, { ok: true, kept: [] });
   assert.equal((await call(`/api/assistant/conversations/${second.id}`)).status, 404);
   assert.equal((await chat('hello?', second.id)).status, 404);
+});
+
+test('a conversation can be archived and taken back out, open in the pane or straight from the list', async t => {
+  const { app, call, chat } = await start();
+  t.after(() => app.close());
+  const archive = (id, archived, headers) => call(`/api/assistant/conversations/${id}/archive`, { method: 'POST', body: { archived }, headers });
+  const first = await chat('plan the week');
+  assert.equal(first.conversation.archivedAt, null);
+
+  // Archiving the open conversation keeps it; it carries on as an archived one until it is taken out.
+  const archived = await archive(first.id, true);
+  assert.equal(archived.status, 200);
+  assert.equal(archived.body.conversation.kept, true);
+  assert.match(archived.body.conversation.archivedAt, /^\d{4}-\d\d-\d\dT/);
+  assert.deepEqual(archived.body.kept.map(item => [item.id, item.archivedAt]), [[first.id, archived.body.conversation.archivedAt]]);
+  await chat('and the weekend', first.id);
+  assert.equal(app.assistant.store.get(first.id).turns.length, 4);
+  assert.equal(app.assistant.store.get(first.id).archivedAt, archived.body.conversation.archivedAt);
+  const back = await archive(first.id, false);
+  assert.deepEqual([back.body.conversation.kept, back.body.conversation.archivedAt, back.body.kept[0].archivedAt], [true, null, null]);
+
+  // One that is only in the database is changed there and not loaded, so the open conversation keeps its place.
+  await call(`/api/assistant/conversations/${first.id}/close`, { method: 'POST' });
+  const open = await chat('something else');
+  const put = await archive(first.id, true);
+  assert.deepEqual([put.status, put.body.conversation], [200, null]);
+  assert.ok(put.body.kept[0].archivedAt);
+  assert.deepEqual([...app.assistant.conversations.keys()], [open.id]);
+  assert.equal((await call('/api/assistant')).body.kept[0].archivedAt, put.body.kept[0].archivedAt);
+
+  // Reopened it still says archived; "stop keeping" removes it from the database, archive and all.
+  assert.equal((await call(`/api/assistant/conversations/${first.id}`)).body.archivedAt, put.body.kept[0].archivedAt);
+  const dropped = await call(`/api/assistant/conversations/${first.id}/keep`, { method: 'POST', body: { keep: false } });
+  assert.deepEqual([dropped.body.conversation.kept, dropped.body.conversation.archivedAt, dropped.body.kept], [false, null, []]);
+
+  // Taking out one that was never kept saves nothing; a bad or unknown request is refused, and so is Claude over MCP.
+  assert.equal((await archive(open.id, false)).status, 200);
+  assert.equal(app.assistant.store.has(open.id), false);
+  assert.equal((await archive(open.id, 'yes')).status, 400);
+  assert.equal((await archive('nope', true)).status, 404);
+  assert.equal((await archive(open.id, true, { 'x-dayjob-client': 'mcp' })).status, 403);
+  assert.equal(app.assistant.store.has(open.id), false);
+});
+
+test('deleting a kept conversation while it is still answering leaves nothing behind', async t => {
+  const { app, url, call, chat, engines, writeHeaders } = await start();
+  t.after(() => app.close());
+  const first = await chat('keep this');
+  await call(`/api/assistant/conversations/${first.id}/keep`, { method: 'POST', body: { keep: true } });
+  const response = await fetch(`${url}/api/assistant/chat`, { method: 'POST', headers: writeHeaders, body: JSON.stringify({ text: 'slow', conversationId: first.id }) });
+  const reader = response.body.getReader();
+  let received = '';
+  while (!received.includes('"type":"text"')) received += new TextDecoder().decode((await reader.read()).value);
+  assert.equal(app.assistant.store.has(first.id), true);
+
+  const removed = await call(`/api/assistant/conversations/${first.id}`, { method: 'DELETE' });
+  assert.deepEqual(removed.body, { ok: true, kept: [] });
+  while (!(await reader.read()).done) { /* the reply ends as it is stopped */ }
+  assert.equal(app.assistant.store.has(first.id), false, 'the half reply is not saved again as it stops');
+  assert.equal(app.assistant.conversations.has(first.id), false);
+  assert.equal(engines['claude-cli'].live(first.id), false);
+  assert.equal((await call(`/api/assistant/conversations/${first.id}`)).status, 404);
 });
 
 test('stopping a reply marks it stopped, frees the conversation and tells the model', async t => {
@@ -460,6 +527,15 @@ test('kept conversations are stored, replaced and removed with secure delete, wh
   assert.equal(store.remove('c2'), false);
   assert.equal(store.has('c2'), false);
   assert.equal(mode(), before);
+  // Archived is a mark on the row: set and cleared on its own, and carried by a later save.
+  assert.equal(store.list()[0].archivedAt, null);
+  assert.equal(store.archive('c1', '2026-11-12T11:00:00.000Z'), true);
+  assert.equal(store.archive('nope', '2026-11-12T11:00:00.000Z'), false);
+  assert.deepEqual([store.list()[0].archivedAt, store.get('c1').archivedAt, store.get('c1').turns.length], ['2026-11-12T11:00:00.000Z', '2026-11-12T11:00:00.000Z', 2]);
+  store.save({ ...store.get('c1'), updatedAt: '2026-11-12T12:00:00.000Z' });
+  assert.equal(store.get('c1').archivedAt, '2026-11-12T11:00:00.000Z');
+  assert.equal(store.archive('c1', null), true);
+  assert.equal(store.get('c1').archivedAt, null);
   // A second store on the same database finds the table already there.
   assert.equal(createConversationStore(db).list().length, 1);
 });

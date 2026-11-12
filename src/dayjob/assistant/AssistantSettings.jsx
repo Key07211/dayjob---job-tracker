@@ -6,15 +6,16 @@ import { assistant, useAssistant } from './store.js';
 
 const ENGINES = [
   ['claude-cli', 'Claude Code', ['用这台电脑上已登录的 Claude Code，不需要 API key，用的是你订阅里的额度。', 'Uses the Claude Code signed in on this computer. No API key needed; it draws on your subscription.']],
-  ['anthropic-api', 'Claude API', ['用你自己的 Anthropic API key，按量计费。key 在“简历与 AI”里填。', 'Uses your own Anthropic API key, billed by use. Enter the key under Resume & AI.']],
+  ['anthropic-api', 'Claude API', ['用你自己的 Anthropic API key，按量计费。key 在上面的“API key”里填。', 'Uses your own Anthropic API key, billed by use. Enter the key under API key above.']],
 ];
 const MODEL_TAGS = { recommended: ['推荐', 'recommended'], top: ['最强', 'most capable'], fast: ['快、省', 'fast, cheap'], older: ['旧版', 'older'] };
 
 // Settings → Assistant: which engine answers in the pane, and with which model.
-export function AssistantSettings() {
+export function AssistantSettings({ hasKey }) {
   const { t } = useI18n();
   const { info } = useAssistant();
-  useEffect(() => { void assistant.refresh(); }, []);
+  // Asked again when a key is added or removed above, so the line below is never out of date.
+  useEffect(() => { void assistant.refresh(); }, [hasKey]);
   if (!info) return null;
   const { engine, models } = info.settings;
   const state = info.engines[engine];

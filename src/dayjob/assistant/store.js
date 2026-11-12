@@ -60,7 +60,7 @@ export const assistant = {
     const message = text.trim();
     if (!message || state.busy) return;
     const at = new Date().toISOString();
-    const base = state.conversation || { id: null, title: '', kept: false, turns: [] };
+    const base = state.conversation || { id: null, title: '', kept: false, archivedAt: null, turns: [] };
     const controller = new AbortController();
     flight = controller;
     set({ busy: true, phase: 'thinking', failure: '',
@@ -97,7 +97,16 @@ export const assistant = {
     if (!id) return;
     try {
       const result = await api(`/api/assistant/conversations/${id}/keep`, { method: 'POST', body: { keep } });
-      set({ conversation: state.busy ? { ...state.conversation, kept: result.conversation.kept } : result.conversation, info: state.info && { ...state.info, kept: result.kept } });
+      set({ conversation: state.busy ? { ...state.conversation, kept: result.conversation.kept, archivedAt: result.conversation.archivedAt } : result.conversation, info: state.info && { ...state.info, kept: result.kept } });
+    } catch (failure) { set({ failure: failure.message }); }
+  },
+  // Puts a kept conversation away, or takes it back out. Archiving the open one keeps it from then on.
+  async archive(id, archived) {
+    try {
+      const result = await api(`/api/assistant/conversations/${id}/archive`, { method: 'POST', body: { archived } });
+      const open = state.conversation?.id === id && result.conversation;
+      set({ info: state.info && { ...state.info, kept: result.kept },
+        ...(open ? { conversation: state.busy ? { ...state.conversation, kept: result.conversation.kept, archivedAt: result.conversation.archivedAt } : result.conversation } : {}) });
     } catch (failure) { set({ failure: failure.message }); }
   },
   async openKept(id) {

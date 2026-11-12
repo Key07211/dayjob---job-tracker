@@ -35,7 +35,7 @@ Day and night each have their own colours: pale blue and warm yellow by day, bro
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
 | Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
 | Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
-| Assistant | A small speaker at the right of the window (the button beside Notifications). Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change it makes can be undone in one click. Conversations are not saved unless you choose "Keep this conversation". It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
+| Assistant | A small speaker at the right of the window (the button beside Notifications). Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change it makes can be undone in one click. Conversations are not saved unless you keep or archive one, and any of them can be deleted. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | Day / night | Follows the clock by default (day at 07:00, night at 19:00; change the hours under Settings → Appearance). When the theme changes, the new colours sweep down the page at nightfall and up at daybreak. Next to the time at the top of every page is a day / night switch: click it and the sun rolls over into a moon, the clouds sink and the stars come out one by one. In clock mode a theme picked this way holds until the next change on the clock, then the clock takes over again. Dropdowns, calendars and time pickers follow the theme too. |
 | Opening | When Dayjob opens it plays a short opening of just over a second, one for day and one for night. Day: the icon drops in, today's new jobs (up to 8 cards) fly in from the right and turn into beat bars, hop once and glide into the header's spectrum, and the icon flies to the top left as the logo. Night: a desk lamp comes on, the needle drops, the cards fall along the light as warm bars, and the record player goes back to the bottom left. Click or press any key to skip; it does not play when the window comes back from the tray. Turn it off under Settings → Appearance; it never plays when Windows asks for reduced motion. |
@@ -123,7 +123,7 @@ Each scored job is one AI call and uses your Claude Code or Codex allowance (or 
 
 If you had turned off "Score after each search" in 0.2.0 or earlier, you get "Only when I ask" after updating.
 
-**Usage** under Resume & AI lists how many jobs were scored today and in the last 30 days, the input and output tokens they used, and the numbers for the latest score. The counts are what the AI reports (Claude Code, the Claude API, the OpenAI API; Codex reports none, so only its calls are counted) and are recorded from 0.22.0 on.
+**Usage** under Resume & AI lists how many jobs were scored today and in the last 30 days, the input and output tokens they used, and the numbers for the latest score. The counts are what the AI reports (Claude Code, the Claude API, the OpenAI API; Codex reports none, so only its calls are counted) and are recorded from 0.22.0 on. The assistant's replies are listed on a line of their own.
 
 While scoring runs, the bottom left shows "AI is scoring 3/12" and a **Pause scoring** button. Pausing stops the job being scored at once (the Claude Code or Codex process ends too, so it uses no more allowance) and keeps the rest waiting; new jobs from searches and scores you ask for wait as well. **Resume scoring** carries on, skipping jobs you have since marked not interested or applied to. Dayjob stays paused after a restart.
 
@@ -192,14 +192,21 @@ Each thing it does leaves a small line in the reply saying what it was. A line f
 
 A few things it cannot do, on purpose: it cannot see or use the password vault; it does not fill in or submit application forms or sign in to websites; it cannot delete jobs, applications or searches, change settings, or change a resume (it can read one and suggest wording).
 
-**Conversations are not saved by default**: one is gone when you start a new one or quit Dayjob. To keep one, click **Keep this conversation** above it. It is then stored in the local database, and you can continue or delete it from the clock button beside the speaker. **Stop keeping** or a delete overwrites it in the database. Dayjob holds the only copy: Claude Code runs without saving a session, and the Claude API keeps no conversation. As with AI scoring, what you say and what it looks up (jobs, applications, resume text) is sent to Claude.
+**Conversations are not saved by default**: one is gone when you start a new one or quit Dayjob. To keep one, click **Keep** above it. It is then stored in the local database, and you can continue it from the clock button beside the speaker.
+
+Every conversation can be archived or deleted. The buttons are at the right of the strip above the conversation, and on each row of the clock button's list:
+
+- **Archive** (the box icon) puts a conversation away under "Archived" at the bottom of the list, out of the kept ones. Archiving a conversation that was not kept yet also saves it. From "Archived" you can open it and carry on, or take it back out into the list.
+- **Delete** (the bin icon) asks once more with a "Delete" button. A conversation that was not kept is forgotten on the spot; a kept or archived one is also removed from the database. A deleted conversation cannot be brought back.
+
+**Stop keeping** or a delete overwrites it in the database. Dayjob holds the only copy: Claude Code runs without saving a session, and the Claude API keeps no conversation. As with AI scoring, what you say and what it looks up (jobs, applications, resume text) is sent to Claude.
 
 Choose the engine under **Settings → Assistant**. You can switch at any time and the open conversation carries on:
 
 | Engine | Notes |
 | --- | --- |
 | Claude Code (default) | Uses the Claude Code signed in on this computer: no API key, and it draws on your subscription. Each conversation starts one `claude -p` process with every built-in tool switched off and only Dayjob's own tools connected. It does not load the other MCP servers you set up in Claude Code and leaves no session behind there. |
-| Claude API | Uses your own Anthropic API key, billed by use. The default model is Claude Opus 5.5 and can be changed in the same place. The prompt and what has already been said go through prompt caching, so a running conversation costs less. |
+| Claude API | Uses your own Anthropic API key (entered under **Settings → API key**), billed by use. The default model is Claude Opus 5.5 and can be changed in the same place. The prompt and what has already been said go through prompt caching, so a running conversation costs less. |
 
 The assistant is not the "Browser assistant" panel inside the browser, which handles autofill and passwords. It is also separate from "Connect Claude (MCP)" below: that lets a Claude Code or Claude Desktop outside Dayjob use it, while the assistant lives in the Dayjob window and needs no setup.
 

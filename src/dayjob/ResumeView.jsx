@@ -154,6 +154,7 @@ function Usage({ landed, provider }) {
         <dt>{t('今天', 'Today')}</dt><dd>{scored(today.score)}</dd>
         <dt>{t('近 30 天', 'Last 30 days')}</dt><dd>{scored(month.score)}</dd>
         {lastLine ? <><dt>{t('最近一次', 'Latest score')}</dt><dd>{lastLine}</dd></> : null}
+        {month.assistant?.calls ? <><dt>{t('助手', 'Assistant')}</dt><dd>{t(`近 30 天回答 ${n(month.assistant.calls)} 次`, `${n(month.assistant.calls)} ${month.assistant.calls === 1 ? 'reply' : 'replies'} in 30 days`)}{month.assistant.measured ? ` · ${tokens(month.assistant)}` : ''}</dd></> : null}
         {month.other.calls ? <><dt>{t('其他', 'Other')}</dt><dd>{t(`近 30 天搜索建议和读取申请资料 ${n(month.other.calls)} 次`, `Search suggestions and profile reads in 30 days: ${n(month.other.calls)} ${month.other.calls === 1 ? 'call' : 'calls'}`)}{month.other.measured ? ` · ${tokens(month.other)}` : ''}</dd></> : null}
       </dl>
       <p className="hint">{t('数字是 AI 自己报告的 token 数，加入这项记录之前的打分不在内。输入包括简历、岗位描述，以及 AI 工具自己附带的内容。',
