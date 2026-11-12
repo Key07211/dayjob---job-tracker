@@ -7,7 +7,8 @@ import { PassThrough, Writable } from 'node:stream';
 import Anthropic from '@anthropic-ai/sdk';
 import { memoryRepo } from './helpers.mjs';
 import { posting } from '../server/jobs/normalize.mjs';
-import { buildUserPrompt, normalizeScore, parseScoreText, SCORE_SCHEMA } from '../server/jobs/scoring/prompt.mjs';
+import { buildUserPrompt, normalizeScore, parseScoreText, SCORE_SCHEMA, withSchema } from '../server/jobs/scoring/prompt.mjs';
+import { anthropicUsage, claudeCodeUsage, openAiUsage } from '../server/jobs/scoring/usage.mjs';
 import { claudeCandidates, cliArgs, createClaudeCliProvider, detectClaude, parseCliOutput, stopProcess } from '../server/jobs/scoring/claude-cli.mjs';
 import { apiRequest, createApiProvider } from '../server/jobs/scoring/anthropic-api.mjs';
 import { codexArgs, codexCandidates, createCodexCliProvider } from '../server/jobs/scoring/codex-cli.mjs';
@@ -358,4 +359,122 @@ test('pausing kills the running Claude Code process', async () => {
   stopProcess({ pid: 42, kill: () => runs.push('kill') }, { platform: 'win32', run: (command, args) => runs.push([command, ...args]) });
   stopProcess({ pid: 43, kill: () => runs.push('kill') }, { platform: 'linux' });
   assert.deepEqual(runs, [['taskkill', '/pid', '42', '/T', '/F'], 'kill'], 'on Windows the cmd.exe shim and Claude Code under it both go');
+});
+
+const SCHEMA_TEXT = JSON.stringify(SCORE_SCHEMA);
+const times = (text, part) => text.split(part).length - 1;
+
+test('the schema is sent once: as text only where no flag or setting carries it', async () => {
+  const prompt = buildUserPrompt({ resume: 'r', posting: { title: 'DS' } });
+  assert.equal(times(prompt, SCHEMA_TEXT), 0);
+  assert.equal(times(withSchema(prompt, SCORE_SCHEMA), SCHEMA_TEXT), 1);
+  const detect = command => async () => ({ available: true, command, version: 'x' });
+  const envelope = JSON.stringify({ type: 'result', is_error: false, structured_output: RESULT });
+
+  // --json-schema carries it.
+  const direct = fakeSpawn([{ stdout: envelope }]);
+  await createClaudeCliProvider({ getSettings: settings(), spawn: direct.spawn, detect: detect('claude') }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(direct.calls[0].stdin, SCHEMA_TEXT), 0);
+  assert.equal(times(direct.calls[0].args.join('\n'), SCHEMA_TEXT), 1);
+  // A .cmd shim gets no long arguments, and an older CLI no --json-schema.
+  const shim = fakeSpawn([{ stdout: envelope }]);
+  await createClaudeCliProvider({ getSettings: settings(), spawn: shim.spawn, detect: detect('C:\\npm\\claude.cmd') }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(shim.calls[0].stdin, SCHEMA_TEXT), 1);
+  const older = fakeSpawn([{ code: 1, stderr: "error: unknown option '--strict-mcp-config'" }, { stdout: JSON.stringify({ result: JSON.stringify(RESULT) }) }]);
+  await createClaudeCliProvider({ getSettings: settings(), spawn: older.spawn, detect: detect('claude') }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(older.calls[1].stdin, SCHEMA_TEXT), 1);
+
+  // Codex: schema.json carries it, until the fallback drops --output-schema.
+  const run = (_command, _args, _options, done) => done(null, 'Logged in', '');
+  const codex = fakeSpawn([{ code: 2, stderr: "error: unexpected argument '--output-schema' found" }, { file: JSON.stringify(RESULT) }]);
+  await createCodexCliProvider({ getSettings: settings({ provider: 'codex-cli' }), spawn: codex.spawn, run, detect: detect('codex') }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(codex.calls[0].stdin, SCHEMA_TEXT), 0);
+  assert.equal(times(codex.calls[1].stdin, SCHEMA_TEXT), 1);
+
+  // The APIs enforce it through structured outputs.
+  let request;
+  const createClient = () => ({ beta: { messages: { create: async body => { request = body; return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(RESULT) }] }; } } } });
+  await createApiProvider({ getSettings: settings({ apiKey: 'k' }), createClient }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(request.messages[0].content, SCHEMA_TEXT), 0);
+  assert.deepEqual(request.output_config.format.schema, SCORE_SCHEMA);
+  let sent;
+  const fetch = async (_url, options) => { sent = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(RESULT) }] }] }) }; };
+  await createOpenAiProvider({ getSettings: settings({ openaiApiKey: 'k' }), fetch }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.equal(times(sent.input, SCHEMA_TEXT), 0);
+  assert.deepEqual(sent.text.format.schema, SCORE_SCHEMA);
+});
+
+test('a score starts none of the MCP servers set up in Claude Code', () => {
+  assert.ok(cliArgs({}).includes('--strict-mcp-config'));
+  assert.ok(cliArgs({ shell: true }).includes('--strict-mcp-config'));
+  assert.ok(!cliArgs({}).includes('--mcp-config'), 'with no --mcp-config, strict means none');
+  assert.ok(!cliArgs({ basic: true }).includes('--strict-mcp-config'));
+});
+
+test('where an organization sets the MCP servers, the score runs without the strict flag', async () => {
+  const { spawn, calls } = fakeSpawn([{ code: 1, stderr: 'Error: You cannot use --strict-mcp-config when an enterprise MCP config is present' },
+    { stdout: JSON.stringify({ type: 'result', is_error: false, structured_output: RESULT }) }]);
+  const provider = createClaudeCliProvider({ getSettings: settings(), spawn, detect: async () => ({ available: true, command: 'claude', version: 'x' }) });
+  assert.equal((await provider.score({ resume: 'r', posting: { title: 'x' } })).score, 78);
+  assert.equal(calls.length, 2);
+  assert.ok(!calls[1].args.includes('--strict-mcp-config'));
+  assert.ok(calls[1].args.includes('--json-schema'), 'everything else stays');
+});
+
+test('every provider reports what a call used in one shape', async () => {
+  assert.deepEqual(anthropicUsage({ input_tokens: 12, output_tokens: 340, cache_read_input_tokens: 5000, cache_creation_input_tokens: 800 }),
+    { inputTokens: 12, outputTokens: 340, cacheReadTokens: 5000, cacheWriteTokens: 800 });
+  assert.equal(anthropicUsage(undefined), null);
+  assert.equal(anthropicUsage({}), null);
+  // Claude Code: every model the call used counts; the plain usage block is the fallback.
+  assert.deepEqual(claudeCodeUsage({ usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {
+    'claude-opus-5-5': { inputTokens: 10, outputTokens: 700, cacheReadInputTokens: 6000, cacheCreationInputTokens: 900, costUSD: 0.1 },
+    'claude-haiku-5-5': { inputTokens: 30, outputTokens: 20, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } }),
+  { inputTokens: 40, outputTokens: 720, cacheReadTokens: 6000, cacheWriteTokens: 900 });
+  assert.deepEqual(claudeCodeUsage({ usage: { input_tokens: 7, output_tokens: 9, cache_read_input_tokens: 3 }, modelUsage: { 'claude-opus-5-5': {} } }),
+    { inputTokens: 7, outputTokens: 9, cacheReadTokens: 3, cacheWriteTokens: 0 });
+  assert.equal(claudeCodeUsage({}), null);
+  // OpenAI counts cached tokens inside input_tokens.
+  assert.deepEqual(openAiUsage({ input_tokens: 9000, output_tokens: 600, input_tokens_details: { cached_tokens: 4000 } }),
+    { inputTokens: 5000, outputTokens: 600, cacheReadTokens: 4000, cacheWriteTokens: 0 });
+
+  const parsed = parseCliOutput(JSON.stringify({ type: 'result', is_error: false, num_turns: 2, structured_output: RESULT,
+    usage: { input_tokens: 4, output_tokens: 500, cache_read_input_tokens: 100, cache_creation_input_tokens: 7000 } }));
+  assert.deepEqual([parsed.usage, parsed.turns], [{ inputTokens: 4, outputTokens: 500, cacheReadTokens: 100, cacheWriteTokens: 7000 }, 2]);
+  assert.deepEqual(parseCliOutput(`Here you go:\n${JSON.stringify(RESULT)}`).usage, null, 'a plain-text reply has no envelope to read');
+
+  const createClient = () => ({ beta: { messages: { create: async () => ({ stop_reason: 'end_turn', usage: { input_tokens: 6100, output_tokens: 420 }, content: [{ type: 'text', text: JSON.stringify(RESULT) }] }) } } });
+  const viaApi = await createApiProvider({ getSettings: settings({ apiKey: 'k' }), createClient }).score({ resume: 'r', posting: { title: 'x' } });
+  assert.deepEqual(viaApi.usage, { inputTokens: 6100, outputTokens: 420, cacheReadTokens: 0, cacheWriteTokens: 0 });
+  assert.ok(viaApi.chars > 900, 'the characters sent are counted too');
+});
+
+test('the scorer logs what each answered call used', async () => {
+  const { repo } = memoryRepo();
+  for (const id of ['1', '2', '3']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: 'Acme', jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
+  repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
+  assert.deepEqual(repo.usageSummary(new Date('2026-10-21T16:00:00Z')).today.score, { calls: 0, measured: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0 });
+  const used = { 'Job 1': { inputTokens: 100, outputTokens: 700, cacheReadTokens: 6000, cacheWriteTokens: 900 }, 'Job 2': null };
+  const provider = { id: 'claude-cli', status: async () => ({ available: true, detail: 'ok' }),
+    score: async ({ posting: item }) => {
+      if (item.title === 'Job 3') throw new Error('The reply was cut off.');
+      return { ...normalizeScore(RESULT), provider: 'claude-cli', model: 'claude-opus-5-5', usage: used[item.title], turns: 2, chars: 5200 };
+    },
+    ask: async () => ({ value: {}, provider: 'claude-cli', model: 'claude-opus-5-5', usage: { inputTokens: 50, outputTokens: 60, cacheReadTokens: 0, cacheWriteTokens: 0 } }) };
+  const scorer = createScorer({ repo, providers: { 'claude-cli': provider }, log: () => {} });
+  const batch = await scorer.scoreBatch(['li-1', 'li-2', 'li-3']);
+  assert.deepEqual([batch.scored, batch.failed], [2, 1]);
+  await scorer.ask({ kind: 'recommend', system: 's', prompt: 'p', schema: {} });
+
+  const summary = repo.usageSummary(new Date('2026-10-21T16:00:00Z'));
+  // Two calls answered, one of them without numbers; the failed one is not a row.
+  assert.deepEqual(summary.today.score, { calls: 2, measured: 1, inputTokens: 7000, cachedTokens: 6000, outputTokens: 700 });
+  assert.deepEqual(summary.today.other, { calls: 1, measured: 1, inputTokens: 50, cachedTokens: 0, outputTokens: 60 });
+  assert.deepEqual(summary.month.score, summary.today.score);
+  assert.deepEqual([summary.last.measured, summary.last.model, summary.last.turns, summary.last.chars], [false, 'claude-opus-5-5', 2, 5200]);
+  assert.equal(repo.getPosting('li-1').score.score, 78, 'the score itself is stored as before');
+  // The log is by day: tomorrow starts at nothing, and 30 days still has it.
+  const later = repo.usageSummary(new Date('2026-10-23T16:00:00Z'));
+  assert.deepEqual([later.today.score.calls, later.month.score.calls], [0, 2]);
+  assert.equal(repo.usageSummary(new Date('2026-12-01T16:00:00Z')).month.score.calls, 0);
 });

@@ -73,7 +73,7 @@ export function buildRecommendPrompt({ resumes, searches = [], companies = [], p
   if (preference) parts.push(`<preferences>\n${preference}\n</preferences>`);
   const write = language === 'en' ? 'Write summary, names and reasons in English.'
     : 'Write summary, names and reasons in Simplified Chinese; keep job titles, keywords and company names in English.';
-  return `${parts.join('\n\n')}\n\nSuggest up to 6 saved searches and up to 10 companies. ${write} Reply with JSON only, matching this schema:\n${JSON.stringify(RECOMMEND_SCHEMA)}`;
+  return `${parts.join('\n\n')}\n\nSuggest up to 6 saved searches and up to 10 companies. ${write}`;
 }
 
 const clean = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
@@ -135,6 +135,7 @@ export async function recommend({ repo, scorer, http, preference = '', now = () 
   if (!resumes.length) throw Object.assign(new Error('Upload a resume first.'), { status: 409 });
   const { ai } = repo.getSettings();
   const reply = await scorer.ask({
+    kind: 'recommend',
     system: RECOMMEND_SYSTEM_PROMPT,
     prompt: buildRecommendPrompt({ resumes, searches: repo.listSearches(), companies: repo.listCompanies(), preference, language: ai.language }),
     schema: RECOMMEND_SCHEMA,

@@ -1,5 +1,6 @@
 import { effortFor, modelFor } from './models.mjs';
 import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore } from './prompt.mjs';
+import { openAiUsage } from './usage.mjs';
 
 const ENDPOINT = 'https://api.openai.com/v1/responses';
 
@@ -57,12 +58,13 @@ export function createOpenAiProvider({ getSettings, fetch = globalThis.fetch, ti
         if (response.status === 429) throw new Error('The OpenAI API is rate limiting requests; scoring will resume on the next run.');
         throw new Error(`OpenAI API error ${response.status}: ${String(data.error?.message || response.statusText || 'no detail').slice(0, 300)}`);
       }
-      return { value: JSON.parse(openAiReply(data)), provider: 'openai-api', model: data.model || request.model };
+      return { value: JSON.parse(openAiReply(data)), provider: 'openai-api', model: data.model || request.model, usage: openAiUsage(data.usage), turns: 1,
+        chars: system.length + prompt.length };
     },
     async score({ resume, posting, signal }) {
       const { ai } = getSettings();
       const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }
