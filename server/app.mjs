@@ -22,6 +22,7 @@ import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
+import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
 import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
   postingStatus, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
@@ -104,6 +105,12 @@ export async function createApp(options = {}) {
   function need(value, label) {
     if (!value) throw new HttpError(404, `${label} not found.`);
     return value;
+  }
+  // Every write carries the token /api/bootstrap handed to this window.
+  function requireToken(request) {
+    const supplied = Buffer.from(request.headers['x-dayjob-token'] || '');
+    const expected = Buffer.from(csrfToken);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new HttpError(403, 'Missing or invalid Dayjob token. Reload the app and try again.');
   }
 
   function validateRequest(request, response) {
@@ -405,6 +412,9 @@ export async function createApp(options = {}) {
     throw new HttpError(404, 'API endpoint not found.');
   }
 
+  const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, log, engines: options.assistantEngines,
+    baseUrl: () => `http://127.0.0.1:${server.address().port}` });
+
   const server = http.createServer(async (request, response) => {
     try {
       validateRequest(request, response);
@@ -416,11 +426,11 @@ export async function createApp(options = {}) {
         return response.end();
       }
       if (!pathname.startsWith('/api/')) return serveStatic(request, response, pathname);
+      // The in-app assistant answers for itself: its replies are streamed, and Claude Code reaches its tools here.
+      if (pathname.startsWith('/api/assistant')) return await assistant.http({ request, response, pathname, method, authorize: () => requireToken(request) });
       if (method === 'GET') return respond(response, 200, await get(pathname, url));
       if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
-      const supplied = Buffer.from(request.headers['x-dayjob-token'] || '');
-      const expected = Buffer.from(csrfToken);
-      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new HttpError(403, 'Missing or invalid Dayjob token. Reload the app and try again.');
+      requireToken(request);
       const result = await mutate(request, pathname, method, request.headers['x-dayjob-client'] === 'mcp' ? 'mcp' : 'user');
       const [code, value] = Array.isArray(result) ? result : [200, result];
       return respond(response, code, value);
@@ -435,7 +445,7 @@ export async function createApp(options = {}) {
   server.headersTimeout = 15000;
   let listening = false;
   return {
-    server, repo, scheduler, scorer, filename,
+    server, repo, scheduler, scorer, assistant, filename,
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); }); });
       listening = true;
@@ -444,6 +454,7 @@ export async function createApp(options = {}) {
     },
     async close() {
       scheduler.stop();
+      assistant.close();
       // A request still running (a fetch or a scoring call can take minutes) or stuck halfway would hold the close
       // forever, since Node stops its request timeouts once the server closes. After a second every connection is dropped.
       if (listening) {

@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, Fi
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { AssistantSettings } from './assistant/AssistantSettings.jsx';
 import { SoundSettings } from './groove/SoundSettings.jsx';
 import { prefs, usePrefs } from './groove/prefs.js';
 import { cue } from './groove/sound.js';
@@ -586,6 +587,7 @@ export function SettingsView({ boot, reload, update, focus }) {
       </form>
       <ClaudeConnection />
       <BrowserData />
+      <AssistantSettings />
       <PasswordVault />
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />

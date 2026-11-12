@@ -392,7 +392,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
   return (
     <aside className="browser-assist" aria-label={t('浏览器助手', 'Browser assistant')}>
       <div className="assist-head">
-        <strong>{t('助手', 'Assistant')}</strong>
+        <strong>{t('浏览器助手', 'Browser assistant')}</strong>
         <button className="icon-button" title={t('收起侧栏', 'Hide the side panel')} onClick={() => onCollapse(true)}><ChevronsRight size={16} /></button>
       </div>
 
