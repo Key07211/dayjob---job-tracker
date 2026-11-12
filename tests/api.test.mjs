@@ -144,6 +144,75 @@ test('settings and searches are validated; the API key never comes back', async 
   } finally { await app.close(); }
 });
 
+test('several API keys can be kept; one per service is in use, and a key comes back only when asked to be shown', async () => {
+  let asked = null;
+  const createClient = options => { asked = options.apiKey; return { beta: { messages: { create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"score":70,"verdict":"good","summary":"ok","strengths":[],"gaps":[],"missing_keywords":[]}' }] }) } } }; };
+  const { app, call, boot, url } = await start();
+  const previous = [process.env.ANTHROPIC_API_KEY, process.env.OPENAI_API_KEY];
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    assert.deepEqual(boot.settings.apiKeys, []);
+    assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'gemini', key: 'k' } })).status, 400);
+    assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'anthropic', key: '  ' } })).status, 400);
+    assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'anthropic', key: 'sk-ant with space' } })).status, 400);
+    const first = await call('/api/keys', { method: 'POST', body: { service: 'anthropic', name: 'Personal', key: 'sk-ant-api03-personal-AAAA1111' } });
+    assert.equal(first.status, 201);
+    assert.deepEqual(first.body.keys.map(({ id, ...rest }) => rest), [{ service: 'anthropic', name: 'Personal', active: true, hint: 'sk-ant-…1111' }]);
+    const second = await call('/api/keys', { method: 'POST', body: { service: 'anthropic', name: 'School', key: 'sk-ant-api03-school-BBBB2222' } });
+    const other = await call('/api/keys', { method: 'POST', body: { service: 'openai', key: 'sk-proj-openai-CCCC3333' } });
+    assert.deepEqual(other.body.keys.map(item => [item.service, item.name, item.active]), [['anthropic', 'Personal', true], ['anthropic', 'School', false], ['openai', '', true]]);
+    const [personal, school, openai] = other.body.keys;
+
+    // No list carries a key: not the routes' replies, the settings or the start-up data.
+    const everything = JSON.stringify([first.body, second.body, other.body, (await call('/api/bootstrap')).body, (await call('/api/settings', { method: 'PATCH', body: { schedule: { time: '08:00' } } })).body]);
+    for (const secret of ['AAAA1111', 'BBBB2222', 'CCCC3333']) assert.ok(!everything.includes(`-${secret}`), `${secret} stays in Dayjob`);
+    assert.deepEqual((await call('/api/bootstrap')).body.settings.ai.hasApiKey, true);
+    // Shown on request, with the app's token; Claude (MCP) is refused, and so is a request without the token.
+    assert.deepEqual((await call(`/api/keys/${school.id}/reveal`, { method: 'POST' })).body, { key: 'sk-ant-api03-school-BBBB2222' });
+    assert.equal((await call(`/api/keys/${school.id}/reveal`, { method: 'POST', headers: { 'x-dayjob-client': 'mcp' } })).status, 403);
+    assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'openai', key: 'sk-x' }, headers: { 'x-dayjob-client': 'mcp' } })).status, 403);
+    assert.equal((await fetch(`${url}/api/keys/${school.id}/reveal`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 403);
+    assert.equal((await fetch(`${url}/api/keys/${school.id}/reveal`)).status, 404, 'there is nothing to GET');
+    assert.equal((await call('/api/keys/nope/reveal', { method: 'POST' })).status, 404);
+
+    // The key in use is the one the AI is called with.
+    assert.equal(app.repo.getSettings().ai.apiKey, 'sk-ant-api03-personal-AAAA1111');
+    assert.equal((await call(`/api/keys/${school.id}`, { method: 'PATCH', body: { active: false } })).status, 400, 'a key gives up "in use" only to another');
+    const switched = await call(`/api/keys/${school.id}`, { method: 'PATCH', body: { active: true } });
+    assert.deepEqual(switched.body.keys.map(item => item.active), [false, true, true], 'the OpenAI key is untouched');
+    assert.equal(app.repo.getSettings().ai.apiKey, 'sk-ant-api03-school-BBBB2222');
+    const { createApiProvider } = await import('../server/jobs/scoring/anthropic-api.mjs');
+    await createApiProvider({ getSettings: () => app.repo.getSettings(), createClient }).score({ resume: 'r', posting: { title: 'x' } });
+    assert.equal(asked, 'sk-ant-api03-school-BBBB2222');
+
+    // A new name or a new key for one entry; the others stay.
+    const renamed = await call(`/api/keys/${personal.id}`, { method: 'PATCH', body: { name: 'Mine', key: 'sk-ant-api03-personal-DDDD4444' } });
+    assert.deepEqual(renamed.body.keys.map(item => [item.name, item.hint]), [['Mine', 'sk-ant-…4444'], ['School', 'sk-ant-…2222'], ['', 'sk-proj…3333']]);
+    assert.equal((await call(`/api/keys/${personal.id}`, { method: 'PATCH', body: {} })).status, 400);
+    // Deleting the key in use hands the job to the service's next key.
+    const removed = await call(`/api/keys/${school.id}`, { method: 'DELETE' });
+    assert.deepEqual(removed.body.keys.map(item => [item.name, item.active]), [['Mine', true], ['', true]]);
+    assert.equal(app.repo.getSettings().ai.apiKey, 'sk-ant-api03-personal-DDDD4444');
+    assert.equal((await call(`/api/keys/${school.id}`, { method: 'DELETE' })).status, 404);
+    await call(`/api/keys/${openai.id}`, { method: 'DELETE' });
+    assert.deepEqual([app.repo.getSettings().ai.openaiApiKey, (await call('/api/bootstrap')).body.settings.ai.hasOpenaiApiKey], ['', false]);
+
+    // The older single-key setting still works: it sets, or with null removes, the key in use.
+    const legacy = await call('/api/settings', { method: 'PATCH', body: { ai: { openaiApiKey: 'sk-proj-openai-EEEE5555' } } });
+    assert.deepEqual(legacy.body.apiKeys.map(item => [item.service, item.active]), [['anthropic', true], ['openai', true]]);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { ai: { apiKey: null } } })).body.apiKeys.length, 1);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { apiKeys: [{ id: 'x', service: 'anthropic', key: 'sk-injected', active: true }] } })).status, 400, 'settings cannot write the list');
+
+    for (let index = app.repo.getSettings().apiKeys.length; index < 12; index += 1) assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'openai', key: `sk-proj-filler-${index}` } })).status, 201);
+    assert.equal((await call('/api/keys', { method: 'POST', body: { service: 'openai', key: 'sk-proj-one-too-many' } })).status, 409);
+  } finally {
+    if (previous[0] !== undefined) process.env.ANTHROPIC_API_KEY = previous[0];
+    if (previous[1] !== undefined) process.env.OPENAI_API_KEY = previous[1];
+    await app.close();
+  }
+});
+
 test('saving a job scores it only when the user chose to score saved jobs', async () => {
   const scored = [];
   const { app, call } = await start({ providers: { 'claude-cli': { id: 'claude-cli', status: async () => ({ available: true, detail: 'test' }),

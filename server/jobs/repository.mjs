@@ -13,6 +13,9 @@ export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
 export const MAX_RESUMES = 3;
 // auto: after each search; saved: the jobs the user saves; manual: only on request.
 export const SCORE_MODES = ['auto', 'saved', 'manual'];
+// The services an API key can be for, and how many keys Dayjob keeps.
+export const API_SERVICES = ['anthropic', 'openai'];
+export const MAX_API_KEYS = 12;
 
 export const DEFAULT_SETTINGS = {
   language: 'zh',
@@ -25,6 +28,8 @@ export const DEFAULT_SETTINGS = {
   updates: { autoCheck: true },
   desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,
+  // { id, service, name, key, active }: one key per service is the one in use.
+  apiKeys: [],
   retentionDays: 45,
 };
 
@@ -34,6 +39,21 @@ const json = (value, fallback) => {
 };
 const bool = value => (value === null || value === undefined ? null : Boolean(value));
 const int = value => (value === true ? 1 : value === false ? 0 : value ?? null);
+
+// One key per service is in use: the one marked active, or else the first.
+const inUse = (items, service) => items.find(item => item.service === service && item.active) ?? items.find(item => item.service === service) ?? null;
+function oneInUse(items) {
+  const chosen = new Map(API_SERVICES.map(service => [service, inUse(items, service)?.id]));
+  return items.map(item => ({ ...item, active: chosen.get(item.service) === item.id }));
+}
+// The older one-key-per-service setting: a key replaces the one in use (or
+// becomes the first), and '' removes the one in use.
+function withKeyInUse(items, service, key) {
+  const current = inUse(items, service);
+  if (!key) return current ? items.filter(item => item.id !== current.id) : items;
+  if (current) return items.map(item => (item.id === current.id ? { ...item, key } : item));
+  return [...items, { id: randomUUID(), service, name: '', key, active: true }];
+}
 
 function merge(base, patch) {
   const out = { ...base };
@@ -61,13 +81,54 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       if (stored.ai.codexCommand === undefined && stored.ai.provider !== 'anthropic-api') stored.ai.effort = '';
     }
     if (stored.applicant) stored.applicant = migrateApplicant(stored.applicant);
-    return merge(DEFAULT_SETTINGS, stored);
-  }
-  function saveSettings(settings) {
-    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings));
+    // Up to 0.22 there was one key per service, kept inside ai.
+    if (!Array.isArray(stored.apiKeys)) {
+      stored.apiKeys = [['anthropic', stored.ai?.apiKey], ['openai', stored.ai?.openaiApiKey]].filter(([, key]) => key)
+        .map(([service, key]) => ({ id: `first-${service}`, service, name: '', key, active: true }));
+    }
+    const settings = merge(DEFAULT_SETTINGS, stored);
+    settings.apiKeys = oneInUse(settings.apiKeys);
+    // The scoring providers read the key in use from ai, as they always have.
+    settings.ai.apiKey = inUse(settings.apiKeys, 'anthropic')?.key || '';
+    settings.ai.openaiApiKey = inUse(settings.apiKeys, 'openai')?.key || '';
     return settings;
   }
-  function updateSettings(patch) { return saveSettings(merge(getSettings(), patch)); }
+  // The keys are stored once, in apiKeys; ai.apiKey and ai.openaiApiKey are read from there.
+  function saveSettings(settings) {
+    const { apiKey, openaiApiKey, ...ai } = settings.ai || {};
+    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ...settings, ai }));
+    return getSettings();
+  }
+  function updateSettings(patch) {
+    const current = getSettings();
+    let apiKeys = patch.apiKeys ?? current.apiKeys;
+    for (const [field, service] of [['apiKey', 'anthropic'], ['openaiApiKey', 'openai']]) {
+      if (patch.ai && Object.hasOwn(patch.ai, field)) apiKeys = withKeyInUse(apiKeys, service, patch.ai[field]);
+    }
+    return saveSettings(merge(current, { ...patch, apiKeys }));
+  }
+
+  // ---------- API keys ----------
+  const getApiKey = id => getSettings().apiKeys.find(item => item.id === id) ?? null;
+  // The first key for a service is the one in use.
+  function addApiKey({ service, name = '', key }) {
+    const items = getSettings().apiKeys;
+    const entry = { id: randomUUID(), service, name, key, active: !items.some(item => item.service === service) };
+    return { entry, settings: updateSettings({ apiKeys: [...items, entry] }) };
+  }
+  // active: true moves "in use" to this key; the other keys of its service give it up.
+  function updateApiKey(id, { name, key, active }) {
+    const target = getApiKey(id);
+    if (!target) return null;
+    return updateSettings({ apiKeys: getSettings().apiKeys.map(item => {
+      if (item.id === id) return { ...item, ...(name === undefined ? {} : { name }), ...(key === undefined ? {} : { key }), ...(active ? { active: true } : {}) };
+      return active && item.service === target.service ? { ...item, active: false } : item;
+    }) });
+  }
+  // Removing the key in use hands the service's next key the job.
+  function deleteApiKey(id) {
+    return getApiKey(id) ? updateSettings({ apiKeys: getSettings().apiKeys.filter(item => item.id !== id) }) : null;
+  }
   function getMeta(key) { return json(q('SELECT value FROM settings WHERE key = ?').get(`meta:${key}`)?.value, null); }
   function setMeta(key, value) {
     q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(`meta:${key}`, JSON.stringify(value));
@@ -513,7 +574,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   return {
-    getSettings, updateSettings, saveSettings, getMeta, setMeta,
+    getSettings, updateSettings, saveSettings, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,

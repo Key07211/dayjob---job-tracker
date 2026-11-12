@@ -751,6 +751,22 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .vault-list small { font-size: 12px; }
 .vault-form { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
 .vault-secret { display: flex; gap: 6px; align-items: center; }
+.key-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
+.key-row { display: grid; grid-template-columns: 124px minmax(110px, 1fr) minmax(200px, 2fr) auto auto; align-items: center; gap: 8px 10px; padding: 10px 10px 10px 14px; }
+.key-row + .key-row { border-top: 1px solid var(--line); }
+.key-row .notice { grid-column: 1 / -1; margin: 0; }
+.key-row input { min-width: 0; }
+.key-service { font-size: 13.5px; font-weight: 600; }
+.key-in-use { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; font-size: 13px; color: var(--muted); }
+.key-in-use strong { min-height: 36px; display: flex; align-items: center; color: var(--text); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.key-in-use .link { margin-left: 0; font-size: 12.5px; }
+.key-use { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.key-use.on { color: var(--text); }
+.key-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 92px; }
+@media (max-width: 980px) {
+  .key-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .key-row .vault-secret { grid-column: 1 / -1; }
+}
 .vault-unlock > p { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
 .vault-unlock > p > svg { color: var(--step-hi); }
 .vault-unlock .vault-secret input { flex: 1; min-width: 0; max-width: 260px; }

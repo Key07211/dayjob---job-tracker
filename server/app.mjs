@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { HttpError, readJson, respond } from './http.mjs';
 import { createNotifier, nativeNotification } from './notify.mjs';
 import { openDatabase } from './jobs/db.mjs';
-import { APPLICATION_STATUSES, createRepository, MAX_RESUMES } from './jobs/repository.mjs';
+import { APPLICATION_STATUSES, createRepository, MAX_API_KEYS, MAX_RESUMES } from './jobs/repository.mjs';
 import { createHttp } from './jobs/scrapers/http-client.mjs';
 import { SITES } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
@@ -23,8 +23,8 @@ import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
-import { applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
-  postingStatus, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
+import { apiKeyInput, applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
+  postingStatus, publicApiKey, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -210,8 +210,25 @@ export async function createApp(options = {}) {
       options.onSettings?.(settings);
       return publicSettings(settings);
     }
+    // API keys: several per service, one of them in use. A key is sent back
+    // only by reveal, for the person looking at Settings; the lists never
+    // carry it, and none of this is open to Claude through MCP.
+    const keyList = settings => { options.onSettings?.(settings); return { keys: settings.apiKeys.map(publicApiKey) }; };
+    if (pathname.startsWith('/api/keys') && source === 'mcp') throw new HttpError(403, 'API keys are managed in Dayjob\'s Settings only.');
+    if (pathname === '/api/keys' && method === 'POST') {
+      const entry = apiKeyInput(input);
+      if (repo.getSettings().apiKeys.length >= MAX_API_KEYS) throw new HttpError(409, `Dayjob keeps up to ${MAX_API_KEYS} API keys. Remove one first.`);
+      return [201, keyList(repo.addApiKey(entry).settings)];
+    }
+    let match = pathname.match(/^\/api\/keys\/([^/]+)(\/reveal)?$/);
+    if (match) {
+      const entry = need(repo.getApiKey(match[1]), 'API key');
+      if (match[2] && method === 'POST') return { key: entry.key };
+      if (!match[2] && method === 'PATCH') return keyList(repo.updateApiKey(entry.id, apiKeyInput(input, { partial: true })));
+      if (!match[2] && method === 'DELETE') return keyList(repo.deleteApiKey(entry.id));
+    }
     if (pathname === '/api/searches' && method === 'POST') return [201, repo.saveSearch(searchInput(input))];
-    let match = pathname.match(/^\/api\/searches\/([^/]+)$/);
+    match = pathname.match(/^\/api\/searches\/([^/]+)$/);
     if (match) {
       const current = need(repo.getSearch(match[1]), 'Search');
       if (method === 'PATCH') return repo.saveSearch(searchInput(input, current), current.id);

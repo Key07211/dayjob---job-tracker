@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { HttpError } from './http.mjs';
 import { SITE_IDS } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
-import { APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
+import { API_SERVICES, APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
 import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
 import { APPLICANT_FIELDS, EDUCATION_FIELDS, EXPERIENCE_FIELDS, LINK_FIELDS, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from './jobs/applicant.mjs';
@@ -173,10 +173,34 @@ export function settingsPatch(input) {
 }
 
 // The API key never leaves the server; the interface only learns whether one is set.
+// A new key needs its service and the key; a change takes a name, a new key
+// or active: true (which key is in use; it is given up by choosing another).
+export function apiKeyInput(input, { partial = false } = {}) {
+  const out = {};
+  if (!partial) out.service = oneOf(input.service, API_SERVICES, 'Service');
+  if (has(input, 'name') || !partial) out.name = text(input.name, 'Name', { max: 60, optional: true });
+  if (has(input, 'key') || !partial) {
+    out.key = text(input.key, 'API key', { min: 1, max: 400 });
+    if (/\s/.test(out.key)) fail('An API key has no spaces in it.');
+  }
+  if (partial && has(input, 'active')) {
+    if (input.active !== true) fail('Choose another key to use instead.');
+    out.active = true;
+  }
+  if (!Object.keys(out).length) fail('Provide a name, a key or active.');
+  return out;
+}
+
+// Enough of a key to tell two apart, never the key.
+const keyHint = key => (key.length >= 16 ? `${key.slice(0, 7)}…${key.slice(-4)}` : '…');
+export const publicApiKey = ({ key, ...entry }) => ({ ...entry, hint: keyHint(String(key || '')) });
+
+// What the interface and MCP see: no key ever comes back in settings.
 export function publicSettings(settings) {
   const { apiKey, openaiApiKey, ...ai } = settings.ai;
-  return { ...settings, ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY),
-    hasOpenaiApiKey: Boolean(openaiApiKey), openaiKeyFromEnv: !openaiApiKey && Boolean(process.env.OPENAI_API_KEY) } };
+  return { ...settings, apiKeys: (settings.apiKeys || []).map(publicApiKey),
+    ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY),
+      hasOpenaiApiKey: Boolean(openaiApiKey), openaiKeyFromEnv: !openaiApiKey && Boolean(process.env.OPENAI_API_KEY) } };
 }
 
 export function recommendInput(input) {

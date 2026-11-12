@@ -5,7 +5,7 @@ import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { BEAT, cue } from './groove/sound.js';
-import { leaveThen, pop, scatter, shake, typeIn, unfold } from './groove/fx.js';
+import { leaveThen, pop, shake, typeIn, unfold } from './groove/fx.js';
 import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
@@ -121,11 +121,11 @@ const CLI_DEFAULT = { 'claude-cli': ['跟随 Claude Code 的设置', 'Claude Cod
 const CUSTOM = 'custom';
 const listed = (provider, model) => PROVIDERS[provider].models.some(item => item.id === model);
 
-function AiSettings({ boot, reload, status }) {
+function AiSettings({ boot, reload, status, openItem }) {
   const { t } = useI18n();
   const ai = boot.settings.ai;
   const [form, setForm] = useState({ provider: ai.provider, claudeCommand: ai.claudeCommand, codexCommand: ai.codexCommand || '', model: ai.model,
-    effort: ai.effort || '', language: ai.language, scoreMode: ai.scoreMode, maxPerRun: ai.maxPerRun, apiKey: '', openaiApiKey: '' });
+    effort: ai.effort || '', language: ai.language, scoreMode: ai.scoreMode, maxPerRun: ai.maxPerRun });
   const [custom, setCustom] = useState(Boolean(ai.model) && !listed(ai.provider, ai.model));
   const [scoring, setScoring] = useState(boot.scoring);
   const [checking, setChecking] = useState(false);
@@ -170,21 +170,13 @@ function AiSettings({ boot, reload, status }) {
     setError('');
     setMessage('');
     const body = { provider: form.provider, claudeCommand: form.claudeCommand, codexCommand: form.codexCommand, model: form.model.trim(), effort: form.effort,
-      language: form.language, scoreMode: form.scoreMode, maxPerRun: Number(form.maxPerRun),
-      ...(form.apiKey ? { apiKey: form.apiKey } : {}), ...(form.openaiApiKey ? { openaiApiKey: form.openaiApiKey } : {}) };
+      language: form.language, scoreMode: form.scoreMode, maxPerRun: Number(form.maxPerRun) };
     try {
       await api('/api/settings', { method: 'PATCH', body: { ai: body } });
-      setForm(current => ({ ...current, apiKey: '', openaiApiKey: '' }));
       await reload();
       await refresh();
       flashSaved();
     } catch (failure) { setError(failure.message); }
-  }
-  // The saved key breaks into a few dots that scatter out of the box.
-  async function clearKey(key, event) {
-    const box = event.currentTarget.closest('label')?.querySelector('input');
-    try { await api('/api/settings', { method: 'PATCH', body: { ai: { [key]: null } } }); scatter(box); await reload(); await refresh(); }
-    catch (failure) { setError(failure.message); }
   }
   async function scoreAll() {
     setMessage('');
@@ -192,9 +184,10 @@ function AiSettings({ boot, reload, status }) {
     catch (failure) { setError(failure.message); }
   }
 
-  const keyField = form.provider === 'anthropic-api'
-    ? { key: 'apiKey', saved: ai.hasApiKey, env: ai.apiKeyFromEnv && 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-…' }
-    : { key: 'openaiApiKey', saved: ai.hasOpenaiApiKey, env: ai.openaiKeyFromEnv && 'OPENAI_API_KEY', placeholder: 'sk-…' };
+  // The key itself is kept under Settings → API key; here it only says which one is in use.
+  const keyService = form.provider === 'anthropic-api' ? 'anthropic' : 'openai';
+  const keyInUse = (boot.settings.apiKeys || []).find(item => item.service === keyService && item.active);
+  const keyFromEnv = form.provider === 'anthropic-api' ? ai.apiKeyFromEnv && 'ANTHROPIC_API_KEY' : ai.openaiKeyFromEnv && 'OPENAI_API_KEY';
   const cliPath = form.provider === 'claude-cli'
     ? { key: 'claudeCommand', label: t('Claude Code 路径（可选）', 'Claude Code path (optional)'), find: 'claude', example: 'C:\\Users\\{you}\\.local\\bin\\claude.exe' }
     : { key: 'codexCommand', label: t('Codex 路径（可选）', 'Codex path (optional)'), find: 'codex', example: 'C:\\Users\\{you}\\AppData\\Roaming\\npm\\codex.cmd' };
@@ -222,12 +215,10 @@ function AiSettings({ boot, reload, status }) {
       ))}
       <div className="form-grid">
         {usesKey ? (
-          <label>{form.provider === 'anthropic-api' ? 'Anthropic API key' : 'OpenAI API key'}
-            <input type="password" value={form[keyField.key]} onChange={event => set(keyField.key, event.target.value)} autoComplete="off"
-              placeholder={keyField.saved ? t('已保存（输入新的可替换）', 'Saved (type a new one to replace it)') : keyField.env ? t(`使用环境变量 ${keyField.env}`, `Using ${keyField.env} from the environment`) : keyField.placeholder} />
-            {keyField.saved ? <button type="button" className="link" onClick={event => clearKey(keyField.key, event)}>{t('清除已保存的 key', 'Remove the saved key')}</button>
-              : <small>{t('只保存在本机数据库，不会显示回界面。', 'Stored only in the local database and never shown again.')}</small>}
-          </label>
+          <div className="key-in-use">{form.provider === 'anthropic-api' ? 'Anthropic API key' : 'OpenAI API key'}
+            <strong>{keyInUse ? `${keyInUse.name ? `${keyInUse.name} · ` : ''}${keyInUse.hint}` : keyFromEnv ? t(`使用环境变量 ${keyFromEnv}`, `Using ${keyFromEnv} from the environment`) : t('还没有 key', 'No key yet')}</strong>
+            <button type="button" className="link" onClick={() => openItem('settings', 'api-keys')}>{keyInUse ? t('在设置里更换或添加', 'Change or add one in Settings') : t('去设置里添加', 'Add one in Settings')}</button>
+          </div>
         ) : (
           <label>{cliPath.label}<input value={form[cliPath.key]} onChange={event => set(cliPath.key, event.target.value)} placeholder={t(`自动查找 ${cliPath.find}`, `Finds ${cliPath.find} automatically`)} maxLength={1024} />
             <small>{t(`找不到时填写，例如 ${cliPath.example.replace('{you}', '你')}`, `Fill in if it is not found, e.g. ${cliPath.example.replace('{you}', 'you')}`)}</small></label>
@@ -479,14 +470,14 @@ function ApplicantProfile({ boot, reload, focused }) {
   );
 }
 
-export function ResumeView({ boot, reload, status, focus }) {
+export function ResumeView({ boot, reload, status, focus, openItem }) {
   const { t } = useI18n();
   return (
     <section className="settings-page">
       <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('简历与 AI', 'Resume & AI')}</h1></div></header>
       <Resumes resumes={boot.resumes} reload={reload} />
       <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
-      <AiSettings boot={boot} reload={reload} status={status} />
+      <AiSettings boot={boot} reload={reload} status={status} openItem={openItem} />
     </section>
   );
 }

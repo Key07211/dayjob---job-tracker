@@ -381,7 +381,7 @@ function App() {
           {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
           {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
           {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
-          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} /> : null}
+          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}
           {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
         </div>
         {browserOpen ? (
