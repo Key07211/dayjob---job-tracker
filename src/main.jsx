@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Speaker as SpeakerIcon, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -13,6 +13,8 @@ import { SettingsView } from './dayjob/SettingsView.jsx';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
+import { AssistantPane } from './dayjob/assistant/AssistantPane.jsx';
+import { assistant, onAssistantEffect, useAssistant } from './dayjob/assistant/store.js';
 import { PianoNav } from './dayjob/groove/PianoNav.jsx';
 import { BeatLoader, BrandMark, Wordmark } from './dayjob/groove/BrandMark.jsx';
 import { Opening } from './dayjob/groove/Opening.jsx';
@@ -21,8 +23,8 @@ import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
-import { BEAT, cue, playApply, playBatchEnd, playHello, playLift, playNeedle, playScore } from './dayjob/groove/sound.js';
-import { installClickFx, pop, rings, wiggle } from './dayjob/groove/fx.js';
+import { BEAT, cue, playApply, playBatchEnd, playHello, playKey, playLift, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { flyTo, installClickFx, pop, rings, wiggle } from './dayjob/groove/fx.js';
 import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
 import { startThemeClock } from './dayjob/theme.js';
 import '@fontsource-variable/nunito/wght.css';
@@ -33,6 +35,7 @@ import './dayjob/groove/keys.css';
 import './dayjob/groove/fx.css';
 import './dayjob/groove/picker.css';
 import './dayjob/groove/opening.css';
+import './dayjob/assistant/assistant.css';
 
 // note: the page's key, 0–7 from the top, so its phrase stays the same with or without the browser.
 const VIEWS = [
@@ -51,6 +54,8 @@ const SIDE_MIN_WINDOW = 1000;
 const SIDEBAR = 216;
 const PANE_MIN = 420;
 const VIEW_MIN = 360;
+// The assistant keeps a fixed width at the right edge; the browser and the view share what is left.
+const ASSISTANT_WIDTH = 360;
 const paneLimits = windowWidth => [PANE_MIN, Math.max(PANE_MIN, windowWidth - SIDEBAR - VIEW_MIN)];
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
 const keep = (storage, key, value) => { try { storage.setItem(key, value); } catch { /* optional */ } };
@@ -95,6 +100,8 @@ function App() {
     setView(target);
     setBrowserWide(false);
   }, []);
+  const openItem = useCallback((target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); }, []);
+  const chat = useAssistant();
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
@@ -202,6 +209,21 @@ function App() {
     api('/api/status').then(setStatus).catch(() => {});
   });
   useEffect(() => installClickFx(), []);
+  // What the assistant does shows in the window: a note flies from the speaker to the page's key, which sounds;
+  // lists catch up with a change; and "show me" brings the page forward.
+  useEffect(() => onAssistantEffect(({ tool, changed, applied, ui }) => {
+    const key = tool?.ok ? VIEWS.find(item => item.id === tool.view) : null;
+    if (key) {
+      flyTo(document.querySelector('.assistant-pane .asst-head .speaker') || document.querySelector('.assistant-toggle'), key.id);
+      playKey(key.note, theme);
+    }
+    if (changed) {
+      setDataVersion(version => version + 1);
+      api('/api/status').then(setStatus).catch(() => {});
+    }
+    if (applied) emit('apply', {});
+    if (ui?.open) openItem(ui.open, ui.id);
+  }), [theme, openItem]);
   // A new notification rings the bell once.
   const bell = useRef(null);
   const unread = (status?.stats || boot?.stats)?.unreadNotifications || 0;
@@ -289,9 +311,10 @@ function App() {
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
-  const openItem = (target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); };
   const focusFor = target => (focus?.view === target ? focus.id : null);
-  const canSide = windowWidth >= SIDE_MIN_WINDOW;
+  const assistantOpen = chat.open;
+  const room = windowWidth - (assistantOpen ? ASSISTANT_WIDTH : 0);
+  const canSide = room >= SIDE_MIN_WINDOW;
   const wide = browserOpen && (browserWide || !canSide);
   const pianoKeys = VIEWS.map(item => ({
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
@@ -306,17 +329,18 @@ function App() {
     if (next) { playHello(); rings(event.currentTarget, { count: 2, tone: 'yellow', scale: 2.4 }); }
     pop(event.currentTarget.querySelector('svg'), next ? 1.25 : 0.8);
   }
-  const [minPane, maxPane] = paneLimits(windowWidth);
-  const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((windowWidth - SIDEBAR) * 0.58)));
+  const [minPane, maxPane] = paneLimits(room);
+  const width = Math.min(maxPane, Math.max(minPane, paneWidth || Math.round((room - SIDEBAR) * 0.58)));
   // Dragging the divider: the page (a native view) is hidden meanwhile so it
   // does not swallow the pointer.
   function startResize(event) {
     event.preventDefault();
     setResizing(true);
     let last = width;
+    const beside = assistantOpen ? ASSISTANT_WIDTH : 0;
     const move = moved => {
-      const [low, high] = paneLimits(window.innerWidth);
-      last = Math.min(high, Math.max(low, window.innerWidth - moved.clientX));
+      const [low, high] = paneLimits(window.innerWidth - beside);
+      last = Math.min(high, Math.max(low, window.innerWidth - beside - moved.clientX));
       setPaneWidth(last);
     };
     const stop = () => {
@@ -353,9 +377,15 @@ function App() {
         <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
-          <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
-            <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
-          </button>
+          <div className="foot-row">
+            <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
+              <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
+            </button>
+            <button type="button" className={`assistant-toggle${assistantOpen ? ' active' : ''}${chat.busy ? ' busy' : ''}`} aria-pressed={assistantOpen}
+              title={assistantOpen ? t('收起助手', 'Close the assistant') : t('打开助手', 'Open the assistant')} aria-label={t('助手', 'Assistant')} onClick={() => assistant.setOpen(!assistantOpen)}>
+              <SpeakerIcon size={18} />
+            </button>
+          </div>
           <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
             total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
           <Turntable busy={deckBusy} disabled={halting} progress={deckProgress} playing={Boolean(track)} onStart={scheduler.running ? stopRun : runNow}
@@ -374,7 +404,7 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} /> : null}
-      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}`}>
+      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}`}>
         <div className="main-view">
           {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
           {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
@@ -394,6 +424,7 @@ function App() {
             </div>
           </>
         ) : null}
+        {assistantOpen ? <AssistantPane onClose={() => assistant.setOpen(false)} openItem={openItem} /> : null}
       </main>
     </div>
   );

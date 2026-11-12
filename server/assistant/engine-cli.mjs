@@ -1,0 +1,238 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { spawn as nodeSpawn } from 'node:child_process';
+import { needsShell, stopProcess } from '../jobs/scoring/cli-process.mjs';
+import { detectClaude } from '../jobs/scoring/claude-cli.mjs';
+import { MCP_SERVER_NAME } from './mcp-http.mjs';
+import { AssistantError } from './prompt.mjs';
+
+const IDLE_MS = 10 * 60 * 1000;
+const QUIET_MS = 4 * 60 * 1000;
+const STALE_MS = 24 * 60 * 60 * 1000;
+const SIGNED_OUT = /not logged in|\/login|invalid api key|authentication_error/i;
+
+// What one conversation's Claude Code process is started with. Built-in tools are off (--tools ""), the only MCP
+// server is Dayjob's own (mcp.json, in the process's empty temp folder, with --strict-mcp-config), nothing is saved
+// by Claude Code (--no-session-persistence), and only Dayjob's tools may run without asking. Long text travels in
+// files, because through a .cmd shim arguments are not quoted for us.
+export function assistantArgs({ model = '', shell = false, strictMcp = true } = {}) {
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '--tools', shell ? '""' : '', '--no-session-persistence', '--mcp-config', 'mcp.json'];
+  if (strictMcp) args.push('--strict-mcp-config');
+  args.push('--allowedTools', `mcp__${MCP_SERVER_NAME}`, '--system-prompt-file', 'system.txt');
+  if (model && /^[\w.:\[\]-]+$/.test(model)) args.push('--model', model);
+  return args;
+}
+
+// This turn's token counts from a result line: per model since the last result when the CLI reports that, else the totals.
+export function resultUsage(result) {
+  const models = Object.values(result?.model_usage_since_last_result || {});
+  if (models.length) {
+    const sum = key => models.reduce((total, entry) => total + (Number(entry?.[key]) || 0), 0);
+    return { inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), cacheReadTokens: sum('cacheReadInputTokens'), cacheWriteTokens: sum('cacheCreationInputTokens') };
+  }
+  const usage = result?.usage;
+  if (!usage) return null;
+  return { inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0, cacheReadTokens: usage.cache_read_input_tokens || 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens || 0 };
+}
+
+// The assistant on the user's signed-in Claude Code, so no API key is needed. Each conversation gets its own
+// long-running `claude -p` process that takes one JSON line per message and answers with a stream of JSON lines;
+// the process holds the conversation while it runs, and Dayjob's tools reach it over MCP at mcpUrl().
+export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect = detectClaude, stop = stopProcess, idleMs = IDLE_MS, quietMs = QUIET_MS, tmpdir = os.tmpdir }) {
+  const sessions = new Map();
+  let cached = null;
+  async function info(refresh = false) {
+    const configured = getSettings().ai.claudeCommand || '';
+    if (!cached || refresh || cached.configured !== configured) cached = { configured, result: await detect(configured) };
+    return cached.result;
+  }
+
+  function end(id, session = sessions.get(id)) {
+    if (!session) return;
+    if (sessions.get(id) === session) sessions.delete(id);
+    clearTimeout(session.idle);
+    clearTimeout(session.quiet);
+    if (!session.closed) {
+      session.closed = true;
+      try { session.child.stdin.end(); } catch { /* already closed */ }
+      stop(session.child);
+    }
+    try { fs.rmSync(session.cwd, { recursive: true, force: true }); } catch { /* still in use; the OS temp folder clears it */ }
+  }
+
+  // A Dayjob that was ended by force leaves its conversations' temp folders behind. Once per run the old ones are
+  // cleared: only folders with this engine's own name, a day old or more, holding nothing but the two files written here.
+  let swept = false;
+  function sweep() {
+    swept = true;
+    try {
+      const root = tmpdir();
+      for (const name of fs.readdirSync(root)) {
+        if (!/^dayjob-assistant-[A-Za-z0-9]{6}$/.test(name)) continue;
+        const folder = path.join(root, name);
+        const stat = fs.statSync(folder, { throwIfNoEntry: false });
+        if (!stat?.isDirectory() || Date.now() - stat.mtimeMs < STALE_MS) continue;
+        if ([...sessions.values()].some(session => session.cwd === folder)) continue;
+        if (fs.readdirSync(folder).some(file => file !== 'mcp.json' && file !== 'system.txt')) continue;
+        fs.rmSync(folder, { recursive: true, force: true });
+      }
+    } catch { /* tidying up is optional */ }
+  }
+
+  function start(id, { system, model, token, found, strictMcp = true }) {
+    if (!swept) sweep();
+    const cwd = fs.mkdtempSync(path.join(tmpdir(), 'dayjob-assistant-'));
+    fs.writeFileSync(path.join(cwd, 'mcp.json'), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl(), headers: { Authorization: `Bearer ${token}` } } } }));
+    fs.writeFileSync(path.join(cwd, 'system.txt'), system);
+    const shell = needsShell(found.command);
+    const child = spawn(found.command, assistantArgs({ model, shell, strictMcp }), { cwd, windowsHide: true, shell });
+    const session = { child, cwd, token, model, strictMcp, turn: null, buffer: '', stderr: '', closed: false, idle: null, quiet: null, served: model || null };
+    sessions.set(id, session);
+    const fail = error => {
+      const turn = session.turn;
+      session.turn = null;
+      end(id, session);
+      turn?.reject(error);
+    };
+    child.stdout.on('data', chunk => {
+      session.buffer += chunk;
+      let newline;
+      while ((newline = session.buffer.indexOf('\n')) >= 0) {
+        const line = session.buffer.slice(0, newline).trim();
+        session.buffer = session.buffer.slice(newline + 1);
+        if (!line) continue;
+        let event;
+        try { event = JSON.parse(line); } catch { continue; }
+        try { handle(id, session, event); } catch (error) { fail(error); }
+      }
+    });
+    child.stderr.on('data', chunk => { session.stderr = (session.stderr + chunk).slice(-4000); });
+    child.stdin.on('error', () => {});
+    child.on('error', error => fail(new AssistantError('no-cli', `Claude Code could not be started: ${error.message}`)));
+    child.on('close', code => {
+      session.closed = true;
+      const said = session.stderr.trim().split('\n').pop() || '';
+      fail(session.strictMcp && /strict-mcp-config/i.test(session.stderr) ? Object.assign(new AssistantError('strict-mcp', said), { retryLoose: true })
+        : /unknown option|unexpected argument/i.test(session.stderr) ? new AssistantError('old-cli', 'This Claude Code is too old for the assistant. Update Claude Code and try again.')
+          : SIGNED_OUT.test(session.stderr) ? new AssistantError('signed-out', 'Claude Code is not signed in. Run claude in a terminal and type /login.')
+            : new AssistantError('cli-exit', `Claude Code stopped (${code ?? 'no code'})${said ? `: ${said}` : ''}`.slice(0, 400)));
+    });
+    return session;
+  }
+
+  // A reply that goes silent for minutes is given up on, so the pane never waits forever.
+  function watch(id, session) {
+    clearTimeout(session.quiet);
+    session.quiet = setTimeout(() => {
+      const waiting = session.turn;
+      session.turn = null;
+      end(id, session);
+      waiting?.reject(new AssistantError('quiet', 'Claude Code stopped responding.'));
+    }, quietMs);
+    session.quiet.unref?.();
+  }
+
+  // One line of the CLI's stream. Text arrives as deltas (stream_event); a whole assistant message follows each
+  // one and is only used for text that never came as deltas.
+  function handle(id, session, event) {
+    const turn = session.turn;
+    if (!turn) return;
+    watch(id, session);
+    if (event.type === 'system') {
+      if (event.subtype === 'init') {
+        if (event.model) session.served = event.model;
+        const server = (event.mcp_servers || []).find(item => item.name === MCP_SERVER_NAME);
+        if (server && server.status === 'failed') throw new AssistantError('mcp-failed', 'Claude Code could not connect to Dayjob\'s tools.');
+      } else if (event.subtype === 'status' && event.status === 'requesting') { turn.onRound(); turn.onThinking(); }
+      return;
+    }
+    if (event.type === 'stream_event') {
+      const inner = event.event || {};
+      if (inner.type === 'message_start') turn.message = inner.message?.id || null;
+      else if (inner.type === 'content_block_start' && inner.content_block?.type === 'thinking') turn.onThinking();
+      else if (inner.type === 'content_block_delta') {
+        if (inner.delta?.type === 'text_delta' && inner.delta.text) {
+          if (turn.message) turn.streamed.add(turn.message);
+          turn.onText(inner.delta.text);
+        } else if (inner.delta?.type === 'thinking_delta') turn.onThinking();
+      }
+      return;
+    }
+    if (event.type === 'assistant') {
+      const message = event.message || {};
+      if (message.model && message.model !== '<synthetic>') session.served = message.model;
+      if (turn.streamed.has(message.id)) return;
+      for (const block of message.content || []) if (block.type === 'text' && block.text) turn.onText(block.text);
+      return;
+    }
+    if (event.type === 'result') {
+      clearTimeout(session.quiet);
+      session.turn = null;
+      if (event.is_error) {
+        const said = String(event.result || event.subtype || 'error');
+        end(id, session);
+        turn.reject(SIGNED_OUT.test(said) ? new AssistantError('signed-out', 'Claude Code is not signed in. Run claude in a terminal and type /login.')
+          : new AssistantError('cli-error', `Claude Code: ${said.slice(0, 300)}`));
+        return;
+      }
+      session.idle = setTimeout(() => end(id, session), idleMs);
+      session.idle.unref?.();
+      turn.resolve({ usage: resultUsage(event), model: session.served, rounds: Number(event.num_turns) || 1 });
+    }
+  }
+
+  function ask(id, session, { text, onText, onThinking, onRound, signal }) {
+    return new Promise((resolve, reject) => {
+      const abort = () => {
+        session.turn = null;
+        end(id, session);
+        reject(signal.reason || new Error('Stopped.'));
+      };
+      const settle = work => value => { signal?.removeEventListener('abort', abort); work(value); };
+      clearTimeout(session.idle);
+      session.turn = { resolve: settle(resolve), reject: settle(reject), onText, onThinking, onRound, message: null, streamed: new Set() };
+      signal?.addEventListener('abort', abort, { once: true });
+      watch(id, session);
+      session.child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`);
+      onRound();
+      onThinking();
+    });
+  }
+
+  return {
+    id: 'claude-cli',
+    async status(refresh = false) {
+      const found = await info(refresh);
+      return found.available ? { available: true, detail: `Claude Code ${String(found.version || '').replace(/\s*\(Claude Code\)\s*$/, '')}`.trim() }
+        : { available: false, detail: 'Claude Code was not found. Install it and sign in, or set its path under Resume & AI.' };
+    },
+    live: id => sessions.has(id),
+    close: id => end(id),
+    closeAll() { for (const id of [...sessions.keys()]) end(id); },
+    // The token in a tool request names the conversation whose process sent it.
+    conversationFor(token) {
+      for (const [id, session] of sessions) if (session.token === token) return id;
+      return null;
+    },
+    async send({ id, text, system, model, onText, onThinking, onRound, signal }) {
+      if (signal?.aborted) throw signal.reason || new Error('Stopped.');
+      const found = await info();
+      if (!found.available) throw new AssistantError('no-cli', 'Claude Code was not found. Install it and sign in, or set its path under Resume & AI.');
+      let session = sessions.get(id);
+      const fresh = !session;
+      if (fresh) session = start(id, { system, model, token: randomBytes(24).toString('hex'), found });
+      try {
+        return await ask(id, session, { text, onText, onThinking, onRound, signal });
+      } catch (error) {
+        // Some company-managed setups refuse --strict-mcp-config; there the conversation runs with the user's other servers present but not allowed.
+        if (!fresh || !error.retryLoose || signal?.aborted) throw error;
+        session = start(id, { system, model, token: session.token, found, strictMcp: false });
+        return ask(id, session, { text, onText, onThinking, onRound, signal });
+      }
+    },
+  };
+}

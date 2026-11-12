@@ -463,7 +463,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       COALESCE(SUM(input_tokens + COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0)), 0) AS input,
       COALESCE(SUM(cache_read_tokens), 0) AS cached, COALESCE(SUM(output_tokens), 0) AS output
       FROM ai_usage WHERE at >= ? AND ${where}`).get(since));
-    return { score: totals("kind = 'score'"), other: totals("kind <> 'score'") };
+    return { score: totals("kind = 'score'"), assistant: totals("kind = 'assistant'"), other: totals("kind NOT IN ('score', 'assistant')") };
   }
   // Today (local day), the last 30 days, and the newest scoring call.
   function usageSummary(now = new Date()) {

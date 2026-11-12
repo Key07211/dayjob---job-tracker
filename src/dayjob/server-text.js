@@ -81,6 +81,16 @@ const EXACT = {
   'That is not the vault password.': '开箱密码不对。',
   'The vault password must be 6 to 32 letters or digits.': '开箱密码要 6–32 位，只能用字母或数字。',
   'Enter the user name or email for this password.': '请填写这个密码对应的用户名或邮箱。',
+  'Type a message first.': '先写点什么再发送。',
+  'A message can be up to 8000 characters.': '一条消息最多 8000 个字符。',
+  'The assistant is still answering.': '助手还在回答，等它说完，或者先点停止。',
+  'This can no longer be undone.': '这一步已经不能撤销了。',
+  'This was changed again afterwards, so it cannot be put back automatically.': '这一条之后又被改过，不能自动恢复了。',
+  'Conversation not found.': '找不到这段对话：它没有被保留，或者已经删除。',
+  'Application not found.': '找不到这条投递。',
+  'Search not found.': '找不到这个搜索。',
+  'Resume not found.': '找不到这份简历。',
+  'Dayjob could not do that.': 'Dayjob 没能完成这一步。',
 };
 
 const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
