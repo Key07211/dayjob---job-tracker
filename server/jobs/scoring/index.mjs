@@ -39,6 +39,13 @@ export function createScorer({ repo, providers, log = console.warn }) {
     held = [...new Set([...held, ...ids])];
     persist();
   }
+  // Every call that answered is logged with what it used, so the cost of
+  // scoring can be seen. A log that fails never fails the call.
+  function record(kind, reply, startedAt, postingId = null) {
+    try {
+      repo.logUsage({ kind, postingId, provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars, durationMs: Date.now() - startedAt });
+    } catch (error) { log(`[dayjob] usage log: ${error.message}`); }
+  }
 
   async function status(refresh = false) {
     const current = provider();
@@ -59,10 +66,12 @@ export function createScorer({ repo, providers, log = console.warn }) {
     }
     const controller = new AbortController();
     inFlight = controller;
+    const startedAt = Date.now();
     let result;
     try { result = await provider().score({ resume: resume.text, posting, signal: controller.signal }); }
     catch (error) { throw controller.signal.aborted ? pausedError() : error; }
     finally { if (inFlight === controller) inFlight = null; }
+    record('score', result, startedAt, postingId);
     const saved = repo.saveScore(postingId, resume.id, result);
     landedSeq += 1;
     landed = [...landed, { seq: landedSeq, id: postingId, score: saved.score, verdict: saved.verdict }].slice(-20);
@@ -129,11 +138,16 @@ export function createScorer({ repo, providers, log = console.warn }) {
     status,
     get pending() { return pending; },
     get paused() { return paused; },
-    // Any other single question for the same provider, outside the scoring queue.
-    async ask(request) {
-      const state = await provider().status();
+    // Any other single question for the same provider, outside the scoring
+    // queue. kind names it in the usage log.
+    async ask({ kind = 'ask', ...request }) {
+      const current = provider();
+      const state = await current.status();
       if (!state.available) throw new Error(state.detail);
-      return provider().ask(request);
+      const startedAt = Date.now();
+      const reply = await current.ask(request);
+      record(kind, reply, startedAt);
+      return reply;
     },
     // A single posting asked for while paused waits with the others.
     score: (postingId, options) => enqueue(() => scoreNow(postingId, options)).catch(error => {

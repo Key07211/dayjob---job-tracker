@@ -188,6 +188,27 @@ const migrations = [
   );
   CREATE INDEX goal_logs_goal ON goal_logs (goal_id, at);
   `,
+  // One row per AI call that answered. Token counts are null when the
+  // provider does not report them. posting_id is not a foreign key, so the
+  // log outlives the posting.
+  `
+  CREATE TABLE ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    posting_id TEXT,
+    provider TEXT NOT NULL,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    turns INTEGER,
+    chars INTEGER,
+    duration_ms INTEGER
+  );
+  CREATE INDEX ai_usage_at ON ai_usage (at);
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

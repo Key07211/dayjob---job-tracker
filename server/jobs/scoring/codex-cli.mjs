@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
 import { detectCommand, runInTempFolder, runOnce, stopProcess } from './cli-process.mjs';
 import { effortFor } from './models.mjs';
-import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText } from './prompt.mjs';
+import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText, withSchema } from './prompt.mjs';
 
 const TIMEOUT_MS = 6 * 60 * 1000;
 const MODEL_ID = /^[\w.:[\]-]+$/;
@@ -81,10 +81,12 @@ export function createCodexCliProvider({ getSettings, spawn = nodeSpawn, detect 
       if (!found.available) throw new Error(NOT_FOUND);
       const { ai } = getSettings();
       const effort = effortFor('codex-cli', ai.model, ai.effort);
-      const input = `${system}\n\n${NO_TOOLS}\n\n${prompt}`;
+      // --output-schema carries the schema; without that flag it goes in the text.
+      let input = `${system}\n\n${NO_TOOLS}\n\n${prompt}`;
       let result = await execute(found.command, codexArgs({ model: ai.model, effort }), { input, schema, signal });
       // Older Codex releases lack some of these flags; retry with the basics.
       if (result.code !== 0 && /unexpected argument|unknown option|unrecognized/i.test(result.stderr)) {
+        input = `${system}\n\n${NO_TOOLS}\n\n${withSchema(prompt, schema)}`;
         result = await execute(found.command, codexArgs({ model: ai.model, effort, basic: true }), { input, schema, signal });
       }
       const reply = result.output.trim() || (result.code === 0 ? result.stdout.trim() : '');
@@ -94,12 +96,13 @@ export function createCodexCliProvider({ getSettings, spawn = nodeSpawn, detect 
         throw new Error(`Codex exited with ${result.code}: ${last}`.slice(0, 400));
       }
       signedOut = 0;
-      return { value: parseJsonText(reply), provider: 'codex-cli', model: ai.model || null };
+      // Codex does not report what a call used.
+      return { value: parseJsonText(reply), provider: 'codex-cli', model: ai.model || null, usage: null, turns: null, chars: input.length };
     },
     async score({ resume, posting, signal }) {
       const { ai } = getSettings();
       const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

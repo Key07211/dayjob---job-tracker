@@ -386,6 +386,37 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       ORDER BY p.first_seen_at DESC LIMIT ?`).all(limit).map(row => row.id);
   }
 
+  // ---------- AI usage ----------
+  const whole = value => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.max(0, Math.round(Number(value))));
+  function logUsage({ kind, postingId = null, provider, model = null, usage = null, turns = null, chars = null, durationMs = null }) {
+    q(`INSERT INTO ai_usage (at, kind, posting_id, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, chars, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(iso(), String(kind || 'ask'), postingId, String(provider || 'unknown'), model || null,
+      usage ? whole(usage.inputTokens) : null, usage ? whole(usage.outputTokens) : null, usage ? whole(usage.cacheReadTokens) : null,
+      usage ? whole(usage.cacheWriteTokens) : null, whole(turns), whole(chars), whole(durationMs));
+  }
+  // calls: every call; measured: the ones that reported tokens. inputTokens is
+  // the whole input, cachedTokens the part of it read from a cache.
+  const usageTotals = row => ({ calls: row?.calls || 0, measured: row?.measured || 0, inputTokens: row?.input || 0, cachedTokens: row?.cached || 0, outputTokens: row?.output || 0 });
+  function usageSince(since) {
+    const totals = where => usageTotals(q(`SELECT COUNT(*) AS calls, COUNT(input_tokens) AS measured,
+      COALESCE(SUM(input_tokens + COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0)), 0) AS input,
+      COALESCE(SUM(cache_read_tokens), 0) AS cached, COALESCE(SUM(output_tokens), 0) AS output
+      FROM ai_usage WHERE at >= ? AND ${where}`).get(since));
+    return { score: totals("kind = 'score'"), other: totals("kind <> 'score'") };
+  }
+  // Today (local day), the last 30 days, and the newest scoring call.
+  function usageSummary(now = new Date()) {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const last = q("SELECT * FROM ai_usage WHERE kind = 'score' ORDER BY id DESC LIMIT 1").get();
+    return {
+      today: usageSince(today.toISOString()),
+      month: usageSince(new Date(now.getTime() - 30 * 864e5).toISOString()),
+      last: last ? { at: last.at, provider: last.provider, model: last.model, measured: last.input_tokens !== null,
+        inputTokens: (last.input_tokens || 0) + (last.cache_read_tokens || 0) + (last.cache_write_tokens || 0), cachedTokens: last.cache_read_tokens || 0,
+        outputTokens: last.output_tokens || 0, turns: last.turns, chars: last.chars, durationMs: last.duration_ms } : null,
+    };
+  }
+
   // ---------- applications ----------
   const applicationRow = row => row && ({ id: row.id, postingId: row.posting_id, company: row.company, title: row.title, jobUrl: row.job_url,
     status: row.status, appliedAt: row.applied_at, statusChangedAt: row.status_changed_at, nextFollowUpAt: row.next_follow_up_at,
@@ -519,7 +550,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
-    saveScore, getScore, unscoredPostingIds,
+    saveScore, getScore, unscoredPostingIds, logUsage, usageSummary,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,
   };
