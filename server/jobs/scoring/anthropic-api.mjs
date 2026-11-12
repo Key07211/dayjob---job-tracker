@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { effortFor, modelFor, modelInfo } from './models.mjs';
 import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore } from './prompt.mjs';
+import { anthropicUsage } from './usage.mjs';
 
 // The request for one question. Server-side fallback is only sent to models
 // that have one; at the top efforts the reply gets more room to think.
@@ -48,12 +49,13 @@ export function createApiProvider({ getSettings, createClient = options => new A
       if (response.stop_reason === 'refusal') throw new Error('Claude declined this request.');
       if (response.stop_reason === 'max_tokens') throw new Error('The Claude reply was cut off.');
       const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('');
-      return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || request.model };
+      return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || request.model, usage: anthropicUsage(response.usage), turns: 1,
+        chars: system.length + prompt.length };
     },
     async score({ resume, posting, signal }) {
       const { ai } = getSettings();
       const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

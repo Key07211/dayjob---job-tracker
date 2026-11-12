@@ -81,7 +81,7 @@ npm run package:win       # Windows installer and portable build in release/
 | `npm start` | `data/dayjob.sqlite` in the project (git-ignored) |
 | Custom | set `DAYJOB_DATA_DIR`; the port is `DAYJOB_PORT` |
 
-Only the text extracted from your resume is stored, never the file. A Claude API key is stored in plain text in the local database and is never sent back to the interface or the API; you can use the `ANTHROPIC_API_KEY` environment variable instead.
+Only the text extracted from your resume is stored, never the file. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
 
 ## First steps
 
@@ -95,7 +95,7 @@ Only the text extracted from your resume is stored, never the file. A Claude API
 
 | Option | Notes |
 | --- | --- |
-| Claude Code on this computer (default) | Runs `claude -p` on your Claude plan; no API key. If `claude` is not found, enter its full path under Resume & AI. |
+| Claude Code on this computer (default) | Runs `claude -p` on your Claude plan; no API key. If `claude` is not found, enter its full path under Resume & AI. A score runs with no tools and starts none of the MCP servers set up in Claude Code. |
 | Claude API | Your own Anthropic API key, default model `claude-opus-5-5`, billed by usage. Server-side fallback is on for models that have it, such as Opus, Fable and Sonnet 5.5: if the chosen model declines a request, Anthropic retries it once with a fallback model. |
 | Codex on this computer (ChatGPT) | Runs `codex exec` on the Codex allowance of your ChatGPT plan; no API key. Install Codex, run `codex` in a terminal and choose Sign in with ChatGPT. Codex runs in a read-only sandbox from an empty folder, without your Codex config or MCP servers. |
 | OpenAI API | Your own OpenAI API key (Responses API), default model `gpt-6.1-sol`, billed by usage; requests are not stored by OpenAI. |
@@ -122,6 +122,8 @@ Each scored job is one AI call and uses your Claude Code or Codex allowance (or 
 | Only when I ask | Click **Score with AI** on a job, or tick a few in Today and click **Score N picked jobs** at the top right. |
 
 If you had turned off "Score after each search" in 0.2.0 or earlier, you get "Only when I ask" after updating.
+
+**Usage** under Resume & AI lists how many jobs were scored today and in the last 30 days, the input and output tokens they used, and the numbers for the latest score. The counts are what the AI reports (Claude Code, the Claude API, the OpenAI API; Codex reports none, so only its calls are counted) and are recorded from 0.22.0 on.
 
 While scoring runs, the bottom left shows "AI is scoring 3/12" and a **Pause scoring** button. Pausing stops the job being scored at once (the Claude Code or Codex process ends too, so it uses no more allowance) and keeps the rest waiting; new jobs from searches and scores you ask for wait as well. **Resume scoring** carries on, skipping jobs you have since marked not interested or applied to. Dayjob stays paused after a restart.
 

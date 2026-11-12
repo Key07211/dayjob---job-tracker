@@ -13,6 +13,9 @@ export const AUTO_FLAGS = ['ghost-suspected', 'follow-up-due'];
 export const MAX_RESUMES = 3;
 // auto: after each search; saved: the jobs the user saves; manual: only on request.
 export const SCORE_MODES = ['auto', 'saved', 'manual'];
+// The services an API key can be for, and how many keys Dayjob keeps.
+export const API_SERVICES = ['anthropic', 'openai'];
+export const MAX_API_KEYS = 12;
 
 export const DEFAULT_SETTINGS = {
   language: 'zh',
@@ -25,6 +28,8 @@ export const DEFAULT_SETTINGS = {
   updates: { autoCheck: true },
   desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,
+  // { id, service, name, key, active }: one key per service is the one in use.
+  apiKeys: [],
   retentionDays: 45,
 };
 
@@ -34,6 +39,21 @@ const json = (value, fallback) => {
 };
 const bool = value => (value === null || value === undefined ? null : Boolean(value));
 const int = value => (value === true ? 1 : value === false ? 0 : value ?? null);
+
+// One key per service is in use: the one marked active, or else the first.
+const inUse = (items, service) => items.find(item => item.service === service && item.active) ?? items.find(item => item.service === service) ?? null;
+function oneInUse(items) {
+  const chosen = new Map(API_SERVICES.map(service => [service, inUse(items, service)?.id]));
+  return items.map(item => ({ ...item, active: chosen.get(item.service) === item.id }));
+}
+// The older one-key-per-service setting: a key replaces the one in use (or
+// becomes the first), and '' removes the one in use.
+function withKeyInUse(items, service, key) {
+  const current = inUse(items, service);
+  if (!key) return current ? items.filter(item => item.id !== current.id) : items;
+  if (current) return items.map(item => (item.id === current.id ? { ...item, key } : item));
+  return [...items, { id: randomUUID(), service, name: '', key, active: true }];
+}
 
 function merge(base, patch) {
   const out = { ...base };
@@ -61,13 +81,54 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       if (stored.ai.codexCommand === undefined && stored.ai.provider !== 'anthropic-api') stored.ai.effort = '';
     }
     if (stored.applicant) stored.applicant = migrateApplicant(stored.applicant);
-    return merge(DEFAULT_SETTINGS, stored);
-  }
-  function saveSettings(settings) {
-    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings));
+    // Up to 0.22 there was one key per service, kept inside ai.
+    if (!Array.isArray(stored.apiKeys)) {
+      stored.apiKeys = [['anthropic', stored.ai?.apiKey], ['openai', stored.ai?.openaiApiKey]].filter(([, key]) => key)
+        .map(([service, key]) => ({ id: `first-${service}`, service, name: '', key, active: true }));
+    }
+    const settings = merge(DEFAULT_SETTINGS, stored);
+    settings.apiKeys = oneInUse(settings.apiKeys);
+    // The scoring providers read the key in use from ai, as they always have.
+    settings.ai.apiKey = inUse(settings.apiKeys, 'anthropic')?.key || '';
+    settings.ai.openaiApiKey = inUse(settings.apiKeys, 'openai')?.key || '';
     return settings;
   }
-  function updateSettings(patch) { return saveSettings(merge(getSettings(), patch)); }
+  // The keys are stored once, in apiKeys; ai.apiKey and ai.openaiApiKey are read from there.
+  function saveSettings(settings) {
+    const { apiKey, openaiApiKey, ...ai } = settings.ai || {};
+    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ...settings, ai }));
+    return getSettings();
+  }
+  function updateSettings(patch) {
+    const current = getSettings();
+    let apiKeys = patch.apiKeys ?? current.apiKeys;
+    for (const [field, service] of [['apiKey', 'anthropic'], ['openaiApiKey', 'openai']]) {
+      if (patch.ai && Object.hasOwn(patch.ai, field)) apiKeys = withKeyInUse(apiKeys, service, patch.ai[field]);
+    }
+    return saveSettings(merge(current, { ...patch, apiKeys }));
+  }
+
+  // ---------- API keys ----------
+  const getApiKey = id => getSettings().apiKeys.find(item => item.id === id) ?? null;
+  // The first key for a service is the one in use.
+  function addApiKey({ service, name = '', key }) {
+    const items = getSettings().apiKeys;
+    const entry = { id: randomUUID(), service, name, key, active: !items.some(item => item.service === service) };
+    return { entry, settings: updateSettings({ apiKeys: [...items, entry] }) };
+  }
+  // active: true moves "in use" to this key; the other keys of its service give it up.
+  function updateApiKey(id, { name, key, active }) {
+    const target = getApiKey(id);
+    if (!target) return null;
+    return updateSettings({ apiKeys: getSettings().apiKeys.map(item => {
+      if (item.id === id) return { ...item, ...(name === undefined ? {} : { name }), ...(key === undefined ? {} : { key }), ...(active ? { active: true } : {}) };
+      return active && item.service === target.service ? { ...item, active: false } : item;
+    }) });
+  }
+  // Removing the key in use hands the service's next key the job.
+  function deleteApiKey(id) {
+    return getApiKey(id) ? updateSettings({ apiKeys: getSettings().apiKeys.filter(item => item.id !== id) }) : null;
+  }
   function getMeta(key) { return json(q('SELECT value FROM settings WHERE key = ?').get(`meta:${key}`)?.value, null); }
   function setMeta(key, value) {
     q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(`meta:${key}`, JSON.stringify(value));
@@ -386,6 +447,37 @@ export function createRepository(db, { now = () => new Date() } = {}) {
       ORDER BY p.first_seen_at DESC LIMIT ?`).all(limit).map(row => row.id);
   }
 
+  // ---------- AI usage ----------
+  const whole = value => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.max(0, Math.round(Number(value))));
+  function logUsage({ kind, postingId = null, provider, model = null, usage = null, turns = null, chars = null, durationMs = null }) {
+    q(`INSERT INTO ai_usage (at, kind, posting_id, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, chars, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(iso(), String(kind || 'ask'), postingId, String(provider || 'unknown'), model || null,
+      usage ? whole(usage.inputTokens) : null, usage ? whole(usage.outputTokens) : null, usage ? whole(usage.cacheReadTokens) : null,
+      usage ? whole(usage.cacheWriteTokens) : null, whole(turns), whole(chars), whole(durationMs));
+  }
+  // calls: every call; measured: the ones that reported tokens. inputTokens is
+  // the whole input, cachedTokens the part of it read from a cache.
+  const usageTotals = row => ({ calls: row?.calls || 0, measured: row?.measured || 0, inputTokens: row?.input || 0, cachedTokens: row?.cached || 0, outputTokens: row?.output || 0 });
+  function usageSince(since) {
+    const totals = where => usageTotals(q(`SELECT COUNT(*) AS calls, COUNT(input_tokens) AS measured,
+      COALESCE(SUM(input_tokens + COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0)), 0) AS input,
+      COALESCE(SUM(cache_read_tokens), 0) AS cached, COALESCE(SUM(output_tokens), 0) AS output
+      FROM ai_usage WHERE at >= ? AND ${where}`).get(since));
+    return { score: totals("kind = 'score'"), other: totals("kind <> 'score'") };
+  }
+  // Today (local day), the last 30 days, and the newest scoring call.
+  function usageSummary(now = new Date()) {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const last = q("SELECT * FROM ai_usage WHERE kind = 'score' ORDER BY id DESC LIMIT 1").get();
+    return {
+      today: usageSince(today.toISOString()),
+      month: usageSince(new Date(now.getTime() - 30 * 864e5).toISOString()),
+      last: last ? { at: last.at, provider: last.provider, model: last.model, measured: last.input_tokens !== null,
+        inputTokens: (last.input_tokens || 0) + (last.cache_read_tokens || 0) + (last.cache_write_tokens || 0), cachedTokens: last.cache_read_tokens || 0,
+        outputTokens: last.output_tokens || 0, turns: last.turns, chars: last.chars, durationMs: last.duration_ms } : null,
+    };
+  }
+
   // ---------- applications ----------
   const applicationRow = row => row && ({ id: row.id, postingId: row.posting_id, company: row.company, title: row.title, jobUrl: row.job_url,
     status: row.status, appliedAt: row.applied_at, statusChangedAt: row.status_changed_at, nextFollowUpAt: row.next_follow_up_at,
@@ -513,13 +605,13 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   return {
-    getSettings, updateSettings, saveSettings, getMeta, setMeta,
+    getSettings, updateSettings, saveSettings, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
-    saveScore, getScore, unscoredPostingIds,
+    saveScore, getScore, unscoredPostingIds, logUsage, usageSummary,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,
   };

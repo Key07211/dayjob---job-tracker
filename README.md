@@ -85,7 +85,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 | `npm start` | 项目里的 `data/dayjob.sqlite`（已加入 `.gitignore`） |
 | 自定义 | 设环境变量 `DAYJOB_DATA_DIR`；端口用 `DAYJOB_PORT` |
 
-简历只保存提取出的文字，不保存原文件。Claude API key 以明文保存在本机数据库里，界面和 API 都不会把它返回出来；也可以不保存，改用环境变量 `ANTHROPIC_API_KEY`。
+简历只保存提取出的文字，不保存原文件。API key 在 **设置 → API key** 里填写，可以存多个：点加号添加，每种服务（Claude API、OpenAI API）用标着“使用中”的那一个。key 以明文保存在本机数据库里，平时不显示，也不会出现在设置数据里或经 MCP 交给 Claude；只有你在设置里点眼睛时才显示。也可以不保存，改用环境变量 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 ## 第一次使用
 
@@ -99,7 +99,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 | 方式 | 说明 |
 | --- | --- |
-| 本机 Claude Code（默认） | 调用 `claude -p`，用你的 Claude 订阅额度，不需要 API key。找不到 `claude` 时可以在“简历与 AI”里填完整路径。 |
+| 本机 Claude Code（默认） | 调用 `claude -p`，用你的 Claude 订阅额度，不需要 API key。找不到 `claude` 时可以在“简历与 AI”里填完整路径。打分时不带工具，也不启动你在 Claude Code 里配置的 MCP 服务。 |
 | Claude API | 用你自己的 Anthropic API key，默认模型 `claude-opus-5-5`，按用量计费。Opus、Fable、Sonnet 5.5 等模型开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。 |
 | 本机 Codex（ChatGPT） | 调用 `codex exec`，用你 ChatGPT 方案里的 Codex 额度，不需要 API key。先安装 Codex，在终端运行 `codex` 并选择用 ChatGPT 登录。Codex 在只读沙盒和空文件夹里运行，不加载你的 Codex 配置和 MCP。 |
 | OpenAI API | 用你自己的 OpenAI API key（Responses API），默认模型 `gpt-6.1-sol`，按用量计费，请求不在 OpenAI 那边保存。 |
@@ -126,6 +126,8 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 | 只在我点的时候打分 | 在岗位详情点 **AI 打分**，或在今日岗位里勾选几个，点右上角 **给选中的 N 个岗位打分**。 |
 
 0.2.0 及以前关掉了“抓取后自动打分”的，升级后是“只在我点的时候打分”。
+
+“简历与 AI”里的 **用量** 列出今天和近 30 天打了多少次分、输入和输出各用了多少 token，以及最近一次打分的数字。数字来自 AI 自己的报告（Claude Code、Claude API、OpenAI API；Codex 不报告，只记次数），从 0.22.0 开始记录。
 
 打分进行时，左下角会显示“AI 正在打分 3/12”和 **暂停打分** 按钮。点暂停后，正在打的那个岗位立刻停下（Claude Code 或 Codex 进程会一起结束，不再消耗额度），剩下的岗位留着；暂停期间新抓到的岗位、手动点的打分也都先排着。点 **继续打分** 接着打，这期间被标为不感兴趣或已投递的岗位会跳过。关掉 Dayjob 再打开，仍然是暂停状态。
 

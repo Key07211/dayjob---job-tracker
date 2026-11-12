@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
+import { CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, KeySquare, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
   ShieldAlert, Sun, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
@@ -15,7 +15,7 @@ import { releaseThemeHold, setThemeChoice, setThemeHours, useThemeSettings } fro
 import { ViewDate } from './ViewDate.jsx';
 import { updateProblem } from './UpdateButton.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
-import { TimeField } from './groove/Picker.jsx';
+import { Select, TimeField } from './groove/Picker.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
@@ -66,6 +66,122 @@ function ClaudeConnection() {
       </div>
       <p className="hint">{t('会写入 Claude Code 的 ~/.claude.json 和 Claude Desktop 的配置文件（改之前自动备份）。Claude Desktop 需要重启后才会看到新工具。',
         'Writes Claude Code\'s ~/.claude.json and Claude Desktop\'s config file, backing each up first. Restart Claude Desktop to see the new tools.')}</p>
+    </section>
+  );
+}
+
+// API key: several can be kept, and each service uses the one marked 使用中.
+// A saved key stays hidden behind a few of its characters until the eye is clicked.
+const KEY_SERVICES = { anthropic: ['Claude API', 'sk-ant-…'], openai: ['OpenAI API', 'sk-…'] };
+const MAX_API_KEYS = 12;
+
+function ApiKeyRow({ entry, onDone, onCancel }) {
+  const { t } = useI18n();
+  const row = useRef(null);
+  const [service, setService] = useState(entry?.service || 'anthropic');
+  const [name, setName] = useState(entry?.name || '');
+  // typed: null until the field is edited. shown: the saved key, held only while it is on screen.
+  const [typed, setTyped] = useState(null);
+  const [shown, setShown] = useState(null);
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, flashSaved] = useSaved();
+  useEffect(() => { if (!entry) unfold(row.current); }, [entry]);
+  const key = (typed ?? '').trim();
+  const dirty = Boolean(key) || (entry ? name.trim() !== entry.name : false);
+
+  async function toggleShow() {
+    setError('');
+    if (show) { setShow(false); setShown(null); return; }
+    if (entry && typed === null) {
+      try { setShown((await api(`/api/keys/${entry.id}/reveal`, { method: 'POST' })).key); }
+      catch (failure) { setError(failure.message); return; }
+    }
+    setShow(true);
+  }
+  async function save(event) {
+    event.preventDefault();
+    if (!dirty) return;
+    setBusy(true);
+    setError('');
+    try {
+      if (entry) await api(`/api/keys/${entry.id}`, { method: 'PATCH', body: { ...(name.trim() !== entry.name ? { name } : {}), ...(key ? { key } : {}) } });
+      else await api('/api/keys', { method: 'POST', body: { service, name, key } });
+      if (entry) {
+        if (key && show) setShown(key);
+        setTyped(null);
+        flashSaved();
+      }
+      await onDone();
+    } catch (failure) {
+      setError(failure.message);
+      shake(row.current);
+    } finally { setBusy(false); }
+  }
+  async function use() {
+    setError('');
+    try { await api(`/api/keys/${entry.id}`, { method: 'PATCH', body: { active: true } }); await onDone(); }
+    catch (failure) { setError(failure.message); }
+  }
+  function remove() {
+    setError('');
+    leaveThen(row.current, 'fold', async () => {
+      try { await api(`/api/keys/${entry.id}`, { method: 'DELETE' }); await onDone(); return true; }
+      catch (failure) { setError(failure.message); return false; }
+    });
+  }
+  const label = KEY_SERVICES[entry?.service || service];
+  return (
+    <form className="key-row" ref={row} onSubmit={save} autoComplete="off">
+      {entry ? <span className="key-service">{label[0]}</span> : (
+        <Select value={service} onChange={event => setService(event.target.value)} aria-label={t('服务', 'Service')}>
+          {Object.entries(KEY_SERVICES).map(([id, [title]]) => <option key={id} value={id}>{title}</option>)}
+        </Select>
+      )}
+      <input value={name} onChange={event => setName(event.target.value)} placeholder={t('备注名（可选）', 'Name (optional)')} maxLength={60} aria-label={t('备注名', 'Name')} />
+      <span className="vault-secret">
+        <input type={show ? 'text' : 'password'} value={typed ?? (show ? shown ?? '' : '')} onChange={event => setTyped(event.target.value)} maxLength={400} required={!entry}
+          placeholder={entry ? entry.hint : label[1]} autoComplete="new-password" spellCheck={false} aria-label="API key" />
+        <button type="button" className="icon-button" title={show ? t('隐藏', 'Hide') : t('显示', 'Show')} aria-pressed={show} onClick={toggleShow}>{show ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+      </span>
+      {entry ? (
+        <label className={`key-use${entry.active ? ' on' : ''}`}><input type="radio" name={`key-in-use-${entry.service}`} checked={entry.active} onChange={use} />{entry.active ? t('使用中', 'In use') : t('用这个', 'Use this')}</label>
+      ) : <span />}
+      <span className="key-actions">
+        {dirty || saved || !entry ? <button type="submit" className="button small primary" disabled={busy || !dirty}><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button> : null}
+        {entry ? <button type="button" className="icon-button" title={t('删除这个 key', 'Delete this key')} onClick={remove}><Trash2 size={14} /></button>
+          : <button type="button" className="icon-button" title={t('取消', 'Cancel')} onClick={onCancel}><X size={14} /></button>}
+      </span>
+      {error ? <p className="notice error">{error}</p> : null}
+    </form>
+  );
+}
+
+function ApiKeys({ boot, reload }) {
+  const { t } = useI18n();
+  const keys = boot.settings.apiKeys || [];
+  const [drafts, setDrafts] = useState([]);
+  const count = useRef(0);
+  const { ai } = boot.settings;
+  const fromEnv = [ai.apiKeyFromEnv && 'ANTHROPIC_API_KEY', ai.openaiKeyFromEnv && 'OPENAI_API_KEY'].filter(Boolean);
+  const drop = id => setDrafts(list => list.filter(item => item !== id));
+  return (
+    <section className="card-section" id="api-keys">
+      <h2><KeySquare size={18} />API key</h2>
+      <p className="hint">{t('给 Claude API 和 OpenAI API 用的 key，可以存多个，点加号添加；每种服务用标着“使用中”的那一个。key 平时不显示，点眼睛才显示。只保存在这台电脑的 Dayjob 数据库里。',
+        'Keys for the Claude API and the OpenAI API. Keep several and add one with the plus button; each service uses the one marked "In use". A key stays hidden until you click the eye. They are stored only in the Dayjob database on this computer.')}</p>
+      {keys.length || drafts.length ? (
+        <div className="key-list">
+          {keys.map(entry => <ApiKeyRow key={entry.id} entry={entry} onDone={reload} />)}
+          {drafts.map(id => <ApiKeyRow key={`draft-${id}`} onDone={async () => { await reload(); drop(id); }} onCancel={() => drop(id)} />)}
+        </div>
+      ) : <p className="hint">{t('还没有 key。', 'No keys yet.')}</p>}
+      {fromEnv.length ? <p className="hint">{t(`没有填的服务正在使用环境变量 ${fromEnv.join('、')}。`, `With no key filled in, ${fromEnv.join(' and ')} from the environment ${fromEnv.length > 1 ? 'are' : 'is'} used.`)}</p> : null}
+      <div className="form-actions vault-actions">
+        <button type="button" className="button" onClick={() => setDrafts(list => [...list, (count.current += 1)])} disabled={keys.length + drafts.length >= MAX_API_KEYS}
+          title={keys.length + drafts.length >= MAX_API_KEYS ? t(`最多保存 ${MAX_API_KEYS} 个`, `Up to ${MAX_API_KEYS} keys`) : undefined}><Plus size={15} />{t('添加 key', 'Add a key')}</button>
+      </div>
     </section>
   );
 }
@@ -585,6 +701,7 @@ export function SettingsView({ boot, reload, update, focus }) {
         {message ? <p className="notice">{message}</p> : null}
         <div className="form-actions"><button className="button primary" type="submit"><SavedLabel saved={saved}>{t('保存设置', 'Save settings')}</SavedLabel></button></div>
       </form>
+      <ApiKeys boot={boot} reload={reload} />
       <ClaudeConnection />
       <BrowserData />
       <AssistantSettings />

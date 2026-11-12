@@ -197,6 +197,27 @@ test('settings merge with defaults and runs record results', () => {
   assert.equal(finished.newCount, 2);
 });
 
+test('a single saved API key from before 0.23 becomes the first key in the list', () => {
+  const { db, repo } = memoryRepo();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('app', ?)").run(JSON.stringify({ ai: { provider: 'anthropic-api', apiKey: 'sk-ant-api03-old-AAAA1111', openaiApiKey: '', codexCommand: '' } }));
+  const first = repo.getSettings();
+  assert.deepEqual(first.apiKeys, [{ id: 'first-anthropic', service: 'anthropic', name: '', key: 'sk-ant-api03-old-AAAA1111', active: true }]);
+  assert.deepEqual([first.ai.apiKey, first.ai.openaiApiKey, first.ai.provider], ['sk-ant-api03-old-AAAA1111', '', 'anthropic-api']);
+  assert.deepEqual(repo.getSettings().apiKeys, first.apiKeys, 'the same entry each time until it is saved');
+  // The first save stores the key once, in the list.
+  repo.updateSettings({ schedule: { time: '09:00' } });
+  const stored = JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'app'").get().value);
+  assert.deepEqual([stored.ai.apiKey, stored.ai.openaiApiKey, stored.apiKeys.length], [undefined, undefined, 1]);
+  assert.equal(repo.getSettings().ai.apiKey, 'sk-ant-api03-old-AAAA1111');
+  // The first key of a service is the one in use; a second waits.
+  const { entry } = repo.addApiKey({ service: 'anthropic', name: 'Second', key: 'sk-ant-api03-new-BBBB2222' });
+  assert.equal(entry.active, false);
+  assert.equal(repo.addApiKey({ service: 'openai', key: 'sk-proj-CCCC3333' }).entry.active, true);
+  assert.deepEqual([repo.getSettings().ai.apiKey, repo.getSettings().ai.openaiApiKey], ['sk-ant-api03-old-AAAA1111', 'sk-proj-CCCC3333']);
+  assert.equal(repo.updateApiKey('missing', { active: true }), null);
+  assert.equal(repo.deleteApiKey('missing'), null);
+});
+
 test('runs page back from the oldest one shown', () => {
   const now = clock('2026-10-01T08:30:00Z');
   const { repo } = memoryRepo(now);
