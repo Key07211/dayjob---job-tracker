@@ -121,6 +121,48 @@ const CLI_DEFAULT = { 'claude-cli': ['跟随 Claude Code 的设置', 'Claude Cod
 const CUSTOM = 'custom';
 const listed = (provider, model) => PROVIDERS[provider].models.some(item => item.id === model);
 
+// What scoring has used, as the AI reported it. Read when the page opens and
+// again as each score lands.
+function Usage({ landed, provider }) {
+  const { t, locale } = useI18n();
+  const [usage, setUsage] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api('/api/scoring/usage').then(next => { if (live) setUsage(next); }).catch(() => {});
+    return () => { live = false; };
+  }, [landed]);
+  if (!usage) return null;
+  const n = value => Math.round(Number(value) || 0).toLocaleString(locale);
+  const tokens = item => t(`输入 ${n(item.inputTokens)} · 输出 ${n(item.outputTokens)}`, `${n(item.inputTokens)} in · ${n(item.outputTokens)} out`);
+  const scored = item => {
+    if (!item.calls) return t('还没有打分', 'Nothing scored yet');
+    const times = t(`打分 ${n(item.calls)} 次`, `${n(item.calls)} scored`);
+    if (!item.measured) return times;
+    return `${times} · ${tokens(item)} · ${t(`平均每次输入 ${n(item.inputTokens / item.measured)}、输出 ${n(item.outputTokens / item.measured)}`,
+      `${n(item.inputTokens / item.measured)} in and ${n(item.outputTokens / item.measured)} out per score`)}`;
+  };
+  const { today, month, last } = usage;
+  const lastLine = last?.measured ? [
+    t(`输入 ${n(last.inputTokens)}${last.cachedTokens ? `（其中 ${n(last.cachedTokens)} 来自缓存）` : ''} · 输出 ${n(last.outputTokens)}`,
+      `${n(last.inputTokens)} in${last.cachedTokens ? ` (${n(last.cachedTokens)} from cache)` : ''} · ${n(last.outputTokens)} out`),
+    last.durationMs ? t(`${n(last.durationMs / 1000)} 秒`, `${n(last.durationMs / 1000)} s`) : '', last.model || '',
+  ].filter(Boolean).join(' · ') : '';
+  return (
+    <>
+      <h3 className="choice-title">{t('用量', 'Usage')}</h3>
+      <dl className="usage-list">
+        <dt>{t('今天', 'Today')}</dt><dd>{scored(today.score)}</dd>
+        <dt>{t('近 30 天', 'Last 30 days')}</dt><dd>{scored(month.score)}</dd>
+        {lastLine ? <><dt>{t('最近一次', 'Latest score')}</dt><dd>{lastLine}</dd></> : null}
+        {month.other.calls ? <><dt>{t('其他', 'Other')}</dt><dd>{t(`近 30 天搜索建议和读取申请资料 ${n(month.other.calls)} 次`, `Search suggestions and profile reads in 30 days: ${n(month.other.calls)} ${month.other.calls === 1 ? 'call' : 'calls'}`)}{month.other.measured ? ` · ${tokens(month.other)}` : ''}</dd></> : null}
+      </dl>
+      <p className="hint">{t('数字是 AI 自己报告的 token 数，加入这项记录之前的打分不在内。输入包括简历、岗位描述，以及 AI 工具自己附带的内容。',
+        'These are token counts as the AI reports them; scores made before this was added are not counted. Input covers the resume, the posting, and whatever the AI tool adds itself.')}
+        {provider === 'codex-cli' ? t(' Codex 不报告 token 数，所以只记次数。', ' Codex does not report tokens, so only the calls are counted.') : ''}</p>
+    </>
+  );
+}
+
 function AiSettings({ boot, reload, status, openItem }) {
   const { t } = useI18n();
   const ai = boot.settings.ai;
@@ -257,6 +299,7 @@ function AiSettings({ boot, reload, status, openItem }) {
       </div>
       <p className="hint">{t('每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
         'Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
+      <Usage landed={scoring.landed?.at(-1)?.seq ?? 0} provider={ai.provider} />
       {form.provider === 'codex-cli' ? <p className="hint">{t('ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna；Plus、Pro、Business、Enterprise、Edu 可以用列表里的全部模型。没登录时，在终端运行 codex 并选择用 ChatGPT 登录。',
         'On ChatGPT Free and Go, Codex offers GPT-6 Luna only; Plus, Pro, Business, Enterprise and Edu get every model listed. To sign in, run codex in a terminal and choose Sign in with ChatGPT.')}</p> : null}
       {form.provider === 'anthropic-api' && model?.fallback ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',

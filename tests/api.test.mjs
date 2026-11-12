@@ -424,3 +424,22 @@ test('removing low matches moves only new jobs under the line, and can be undone
     await app.close();
   }
 });
+
+test('GET /api/scoring/usage reports what scoring has used', async () => {
+  const { app, call } = await start({ providers: { 'claude-cli': { id: 'claude-cli', status: async () => ({ available: true, detail: 'test' }),
+    score: async () => ({ score: 70, verdict: 'good', summary: 'ok', strengths: [], gaps: [], missingKeywords: [], provider: 'claude-cli', model: 'claude-opus-5-5',
+      usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40 }, turns: 2, chars: 900 }) } } });
+  try {
+    const empty = (await call('/api/scoring/usage')).body;
+    assert.deepEqual([empty.today.score.calls, empty.month.other.calls, empty.last], [0, 0, null]);
+    await call('/api/resumes', { method: 'POST', body: { name: 'cv.txt', mime: 'text/plain', data: Buffer.from(RESUME).toString('base64') } });
+    const added = await call('/api/postings', { method: 'POST', body: { title: 'Data Analyst', company: 'Acme', jobUrl: 'https://acme.example/jobs/1' } });
+    assert.equal((await call(`/api/postings/${added.body.id}/score`, { method: 'POST', body: {} })).status, 200);
+    const usage = (await call('/api/scoring/usage')).body;
+    assert.deepEqual(usage.today.score, { calls: 1, measured: 1, inputTokens: 80, cachedTokens: 30, outputTokens: 20 });
+    assert.deepEqual([usage.last.model, usage.last.inputTokens, usage.last.turns, usage.last.chars], ['claude-opus-5-5', 80, 2, 900]);
+    // A score that is already there is reused, so it is not a second call.
+    await call(`/api/postings/${added.body.id}/score`, { method: 'POST', body: {} });
+    assert.equal((await call('/api/scoring/usage')).body.today.score.calls, 1);
+  } finally { await app.close(); }
+});

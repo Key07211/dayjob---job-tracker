@@ -4,7 +4,8 @@ import path from 'node:path';
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
 import { detectCommand, needsShell, runInTempFolder, stopProcess } from './cli-process.mjs';
 import { effortFor } from './models.mjs';
-import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText } from './prompt.mjs';
+import { SCORE_SCHEMA, SYSTEM_PROMPT, buildUserPrompt, normalizeScore, parseJsonText, withSchema } from './prompt.mjs';
+import { claudeCodeUsage } from './usage.mjs';
 
 export { stopProcess };
 
@@ -31,10 +32,14 @@ export function detectClaude(configured, { run = execFile, exists = fs.existsSyn
 
 // Through cmd.exe (a .cmd shim) arguments are not quoted for us, so long text
 // such as the system prompt goes over stdin and only plain flags stay here.
-export function cliArgs({ model, effort = '', shell = false, basic = false, system = SYSTEM_PROMPT, schema = SCORE_SCHEMA }) {
+// --strict-mcp-config with no --mcp-config starts none of the user's MCP
+// servers: a score needs no tools, and without it every call would start them
+// all (Dayjob's own among them) and carry their tool lists.
+export function cliArgs({ model, effort = '', shell = false, basic = false, strictMcp = true, system = SYSTEM_PROMPT, schema = SCORE_SCHEMA }) {
   const args = ['-p', '--output-format', 'json'];
   if (!basic) {
     args.push('--tools', shell ? '""' : '', '--no-session-persistence');
+    if (strictMcp) args.push('--strict-mcp-config');
     if (!shell) args.push('--system-prompt', system, '--json-schema', JSON.stringify(schema));
     if (effort) args.push('--effort', effort);
   }
@@ -44,15 +49,17 @@ export function cliArgs({ model, effort = '', shell = false, basic = false, syst
 
 // Reads the --output-format json envelope. structured_output is present when
 // the CLI supports --json-schema; otherwise the reply text holds the JSON.
+// usage is what the call cost in tokens, when the envelope says.
 export function parseCliOutput(stdout) {
   const text = String(stdout || '').trim();
   let envelope;
-  try { envelope = JSON.parse(text); } catch { return { value: parseJsonText(text), model: null }; }
+  try { envelope = JSON.parse(text); } catch { return { value: parseJsonText(text), model: null, usage: null, turns: null }; }
   if (Array.isArray(envelope)) envelope = envelope.findLast(item => item?.type === 'result') || {};
   if (envelope.is_error) throw new Error(`Claude Code: ${String(envelope.result || envelope.subtype || 'error').slice(0, 300)}`);
   const model = Object.keys(envelope.modelUsage || {})[0] || null;
-  if (envelope.structured_output && typeof envelope.structured_output === 'object') return { value: envelope.structured_output, model };
-  return { value: parseJsonText(envelope.result), model };
+  const spent = { model, usage: claudeCodeUsage(envelope), turns: Number.isInteger(envelope.num_turns) ? envelope.num_turns : null };
+  if (envelope.structured_output && typeof envelope.structured_output === 'object') return { value: envelope.structured_output, ...spent };
+  return { value: parseJsonText(envelope.result), ...spent };
 }
 
 // Scores through the user's signed-in Claude Code, so no API key is needed.
@@ -84,12 +91,19 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
       if (!found.available) throw new Error('Claude Code was not found. Install it and sign in, or set its path in Settings.');
       const { ai } = getSettings();
       const shell = needsShell(found.command);
-      const withSystem = `${system}\n\n${prompt}`;
+      // Where no flag carries the system prompt and the schema, both go in the text.
+      const allInText = `${system}\n\n${withSchema(prompt, schema)}`;
       const effort = effortFor('claude-cli', ai.model, ai.effort);
-      let result = await execute(found.command, cliArgs({ model: ai.model, effort, shell, system, schema }), shell ? withSystem : prompt, signal);
+      let input = shell ? allInText : prompt;
+      let result = await execute(found.command, cliArgs({ model: ai.model, effort, shell, system, schema }), input, signal);
+      // A computer whose MCP servers are set by an organization refuses --strict-mcp-config; score without it.
+      if (result.code !== 0 && /strict-mcp-config/i.test(result.stderr) && !/unknown option|unexpected argument/i.test(result.stderr)) {
+        result = await execute(found.command, cliArgs({ model: ai.model, effort, shell, strictMcp: false, system, schema }), input, signal);
+      }
       // Older Claude Code releases lack --json-schema, --tools or --effort; retry with the basics.
       if (result.code !== 0 && /unknown option|unexpected argument/i.test(result.stderr)) {
-        result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), withSystem, signal);
+        input = allInText;
+        result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), input, signal);
       }
       if (result.code !== 0 && !result.stdout.trim()) {
         if (SIGNED_OUT_REPLY.test(result.stderr)) { signedOut = Date.now(); throw new Error(SIGNED_OUT); }
@@ -101,12 +115,13 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
         throw error;
       }
       signedOut = 0;
-      return { value: parsed.value, provider: 'claude-cli', model: parsed.model || ai.model || null };
+      return { value: parsed.value, provider: 'claude-cli', model: parsed.model || ai.model || null, usage: parsed.usage, turns: parsed.turns,
+        chars: input === prompt ? system.length + prompt.length : input.length };
     },
     async score({ resume, posting, signal }) {
       const { ai } = getSettings();
       const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model };
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

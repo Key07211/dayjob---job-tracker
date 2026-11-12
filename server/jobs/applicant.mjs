@@ -150,7 +150,7 @@ export const PROFILE_SYSTEM_PROMPT = `You read a job seeker's resumes and fill i
 
 export function buildProfilePrompt(resumes) {
   const parts = resumes.map(resume => `<resume name="${String(resume.name || '').replace(/["<>]/g, '')}">\n${String(resume.text || '').slice(0, MAX_RESUME)}\n</resume>`);
-  return `${parts.join('\n\n')}\n\nFill in the application profile. Reply with JSON only, matching this schema:\n${JSON.stringify(PROFILE_SCHEMA)}`;
+  return `${parts.join('\n\n')}\n\nFill in the application profile.`;
 }
 
 const clean = (value, max, lines = false) => {
@@ -189,7 +189,7 @@ export async function extractProfile({ resumes, scorer, log = () => {} }) {
   const contact = {};
   for (const resume of resumes) for (const [key, item] of Object.entries(contactFromResume(resume.text))) contact[key] ??= item;
   try {
-    const reply = await scorer.ask({ system: PROFILE_SYSTEM_PROMPT, prompt: buildProfilePrompt(resumes), schema: PROFILE_SCHEMA });
+    const reply = await scorer.ask({ kind: 'profile', system: PROFILE_SYSTEM_PROMPT, prompt: buildProfilePrompt(resumes), schema: PROFILE_SCHEMA });
     const profile = normalizeProfile(reply.value);
     for (const [key, item] of Object.entries(contact)) profile[key] ??= item;
     return { profile, ai: true, provider: reply.provider, model: reply.model || null };

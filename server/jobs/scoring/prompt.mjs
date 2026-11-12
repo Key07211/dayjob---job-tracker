@@ -47,8 +47,13 @@ function postingText(posting) {
 
 export function buildUserPrompt({ resume, posting, language = 'zh' }) {
   const write = language === 'en' ? 'Write summary, strengths and gaps in English.' : 'Write summary, strengths and gaps in Simplified Chinese; keep skill names and job terms in their original English.';
-  return `<resume>\n${resume.slice(0, MAX_RESUME)}\n</resume>\n\n<job_posting>\n${postingText(posting)}\n</job_posting>\n\nRate how well this resume fits this job. ${write} Reply with JSON only, matching this schema:\n${JSON.stringify(SCORE_SCHEMA)}`;
+  return `<resume>\n${resume.slice(0, MAX_RESUME)}\n</resume>\n\n<job_posting>\n${postingText(posting)}\n</job_posting>\n\nRate how well this resume fits this job. ${write}`;
 }
+
+// A provider that enforces the reply shape itself (structured outputs,
+// --json-schema, --output-schema) is sent the prompt alone. The schema goes
+// into the text only where nothing else carries it, so it is never sent twice.
+export const withSchema = (prompt, schema) => `${prompt}\n\nReply with JSON only, matching this schema:\n${JSON.stringify(schema)}`;
 
 function strings(value, limit) {
   return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim().slice(0, 300)).slice(0, limit) : [];

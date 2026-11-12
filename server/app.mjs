@@ -155,6 +155,7 @@ export async function createApp(options = {}) {
     if (pathname === '/api/status') return status();
     if (pathname === '/api/sites') return sites(flag(params.get('refresh')));
     if (pathname === '/api/scoring/status') return scorer.status(flag(params.get('refresh')));
+    if (pathname === '/api/scoring/usage') return repo.usageSummary(now());
     if (pathname === '/api/postings') {
       return repo.listPostings({ status: params.get('status') || 'active', site: params.get('site') || undefined, q: params.get('q') || undefined,
         minScore: number(params.get('minScore')), searchId: params.get('searchId') || undefined, sort: params.get('sort') || 'posted',
