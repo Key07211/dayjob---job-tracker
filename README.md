@@ -84,7 +84,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 | `npm start` | 项目里的 `data/dayjob.sqlite`（已加入 `.gitignore`） |
 | 自定义 | 设环境变量 `DAYJOB_DATA_DIR`；端口用 `DAYJOB_PORT` |
 
-简历只保存提取出的文字，不保存原文件。Claude API key 以明文保存在本机数据库里，界面和 API 都不会把它返回出来；也可以不保存，改用环境变量 `ANTHROPIC_API_KEY`。
+简历只保存提取出的文字，不保存原文件。API key 在 **设置 → API key** 里填写，可以存多个：点加号添加，每种服务（Claude API、OpenAI API）用标着“使用中”的那一个。key 以明文保存在本机数据库里，平时不显示，也不会出现在设置数据里或经 MCP 交给 Claude；只有你在设置里点眼睛时才显示。也可以不保存，改用环境变量 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 ## 第一次使用
 

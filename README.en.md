@@ -80,7 +80,7 @@ npm run package:win       # Windows installer and portable build in release/
 | `npm start` | `data/dayjob.sqlite` in the project (git-ignored) |
 | Custom | set `DAYJOB_DATA_DIR`; the port is `DAYJOB_PORT` |
 
-Only the text extracted from your resume is stored, never the file. A Claude API key is stored in plain text in the local database and is never sent back to the interface or the API; you can use the `ANTHROPIC_API_KEY` environment variable instead.
+Only the text extracted from your resume is stored, never the file. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
 
 ## First steps
 
