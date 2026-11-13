@@ -10,9 +10,10 @@ const UP_TO_HIGH = ['low', 'medium', 'high'];
 // tag: recommended | top | fast | older, shown next to the name.
 export const CLAUDE_MODELS = [
   { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', efforts: UP_TO_MAX, fallback: true, tag: 'recommended' },
-  { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', efforts: UP_TO_MAX, fallback: true, tag: 'top' },
+  { id: 'claude-fable-5-2', name: 'Claude Fable 5.2', efforts: UP_TO_MAX, fallback: true, tag: 'top' },
   { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', efforts: UP_TO_MAX, fallback: true },
   { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', efforts: UP_TO_MAX, tag: 'fast' },
+  { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', efforts: UP_TO_MAX, fallback: true, tag: 'older' },
   { id: 'claude-fable-5', name: 'Claude Fable 5', efforts: UP_TO_MAX, fallback: true, tag: 'older' },
   { id: 'claude-opus-5', name: 'Claude Opus 5', efforts: UP_TO_MAX, fallback: true, tag: 'older' },
   { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', efforts: UP_TO_MAX, tag: 'older' },

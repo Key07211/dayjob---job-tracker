@@ -107,7 +107,7 @@ Once you pick a provider under **AI scoring** in Resume & AI, the **Model** list
 
 | Provider | Models |
 | --- | --- |
-| Claude Code / Claude API | Claude Opus 5.5 (recommended), Fable 5.1 (most capable), Sonnet 5.5, Haiku 5.5 (fast, cheap), and older Fable 5, Opus 5, Sonnet 5, Opus 4.8 / 4.7 / 4.6, Sonnet 4.6 and Haiku 4.5. Claude Code also offers "Claude Code's own setting" (the default). |
+| Claude Code / Claude API | Claude Opus 5.5 (recommended), Fable 5.2 (most capable), Sonnet 5.5, Haiku 5.5 (fast, cheap), and older Fable 5.1, Fable 5, Opus 5, Sonnet 5, Opus 4.8 / 4.7 / 4.6, Sonnet 4.6 and Haiku 4.5. Claude Code also offers "Claude Code's own setting" (the default). |
 | Codex | GPT-6.1 Sol (recommended), GPT-6 Astra (most capable), GPT-6 Sol, GPT-6 Luna (fast, cheap), or "Codex's own setting". On ChatGPT Free and Go, Codex offers GPT-6 Luna only. |
 | OpenAI API | The four GPT-6 models above, plus GPT-5.6 Sol / Terra / Luna, GPT-5.5 and GPT-5 mini. |
 

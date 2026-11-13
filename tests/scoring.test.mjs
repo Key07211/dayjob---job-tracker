@@ -148,6 +148,18 @@ test('the model list knows which efforts each model takes', () => {
   assert.equal(modelInfo('codex-cli', 'gpt-6-luna').name, 'GPT-6 Luna');
 });
 
+test('the Claude list leads with the current models: one recommended, one most capable', () => {
+  const claude = PROVIDERS['anthropic-api'].models;
+  assert.deepEqual(claude.filter(item => item.tag !== 'older').map(item => item.id), ['claude-opus-5-5', 'claude-fable-5-2', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.deepEqual(claude.filter(item => item.tag === 'top').map(item => item.name), ['Claude Fable 5.2']);
+  assert.deepEqual(claude.filter(item => item.tag === 'recommended').map(item => item.id), [PROVIDERS['anthropic-api'].defaultModel]);
+  assert.equal(modelInfo('claude-cli', 'claude-fable-5-1').tag, 'older', 'the Fable before it is still offered');
+  assert.equal(effortFor('claude-cli', 'claude-fable-5-2', 'xhigh'), 'xhigh');
+  // Current models come first, so the older ones sit together at the end of the list.
+  const firstOlder = claude.findIndex(item => item.tag === 'older');
+  assert.ok(claude.slice(firstOlder).every(item => item.tag === 'older'));
+});
+
 test('Claude Code gets the chosen model and effort', async () => {
   assert.deepEqual(cliArgs({ model: 'claude-sonnet-5-5', effort: 'high' }).slice(-4), ['--effort', 'high', '--model', 'claude-sonnet-5-5']);
   assert.ok(!cliArgs({ basic: true, effort: 'high' }).includes('--effort'), 'older releases get no --effort');
@@ -165,8 +177,10 @@ test('Claude API requests follow the chosen model', () => {
   assert.equal(opus.model, 'claude-opus-5-5');
   assert.equal(opus.output_config.effort, undefined, 'no effort sent means the model default');
   assert.equal(opus.fallbacks, 'default');
-  const deep = apiRequest({ ai: { model: 'claude-fable-5-1', effort: 'max' }, ...base });
-  assert.deepEqual([deep.output_config.effort, deep.max_tokens], ['max', 32000]);
+  const deep = apiRequest({ ai: { model: 'claude-fable-5-2', effort: 'max' }, ...base });
+  assert.deepEqual([deep.model, deep.output_config.effort, deep.max_tokens], ['claude-fable-5-2', 'max', 32000]);
+  assert.deepEqual([deep.fallbacks, deep.betas], ['default', ['server-side-fallback-2026-07-01']], 'Fable 5.2 has a server-side fallback');
+  assert.equal(apiRequest({ ai: { model: 'claude-fable-5-1', effort: 'xhigh' }, ...base }).output_config.effort, 'xhigh', 'Fable 5.1 still works');
   const haiku = apiRequest({ ai: { model: 'claude-haiku-5-5', effort: 'low' }, ...base });
   assert.equal(haiku.fallbacks, undefined, 'Haiku 5.5 has no server-side fallback');
   assert.equal(haiku.betas, undefined);

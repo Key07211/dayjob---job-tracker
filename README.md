@@ -111,7 +111,7 @@ npm run package:win       # 打包 Windows 安装版和便携版到 release/
 
 | 方式 | 模型 |
 | --- | --- |
-| Claude Code / Claude API | Claude Opus 5.5（推荐）、Fable 5.1（最强）、Sonnet 5.5、Haiku 5.5（快、省），以及 Fable 5、Opus 5、Sonnet 5、Opus 4.8 / 4.7 / 4.6、Sonnet 4.6、Haiku 4.5 等旧版。Claude Code 还可以选“跟随 Claude Code 的设置”（默认）。 |
+| Claude Code / Claude API | Claude Opus 5.5（推荐）、Fable 5.2（最强）、Sonnet 5.5、Haiku 5.5（快、省），以及 Fable 5.1、Fable 5、Opus 5、Sonnet 5、Opus 4.8 / 4.7 / 4.6、Sonnet 4.6、Haiku 4.5 等旧版。Claude Code 还可以选“跟随 Claude Code 的设置”（默认）。 |
 | Codex | GPT-6.1 Sol（推荐）、GPT-6 Astra（最强）、GPT-6 Sol、GPT-6 Luna（快、省），或“跟随 Codex 的设置”。ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna。 |
 | OpenAI API | 上面四个 GPT-6 模型，以及 GPT-5.6 Sol / Terra / Luna、GPT-5.5、GPT-5 mini。 |
 
