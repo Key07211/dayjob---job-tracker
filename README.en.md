@@ -101,6 +101,8 @@ A resume is stored as two things: its extracted text (for scoring and matching) 
 | OpenAI API | Your own OpenAI API key (Responses API), default model `gpt-6.1-sol`, billed by usage; requests are not stored by OpenAI. |
 | Claude through MCP | Ask Claude Code or Claude Desktop to "analyse this job against my resume"; Claude reads both and saves the result with `dayjob_save_analysis`. |
 
+Anthropic keys come in two kinds. A key made for one workspace works as soon as it is entered under **Settings → API key**. A personal or service account key that works in every workspace must send a workspace ID with each request: when you save such a key, Dayjob asks the Claude API about it (at no cost), fills in the workspace when there is only one and lets you choose when there are several; if it cannot find them, enter the `wrkspc_…` ID from the ID column of the Workspaces page in the Console under the key. Every Claude key has a **Check** button that asks again whether the key can be used.
+
 ### Model and reasoning effort
 
 Once you pick a provider under **AI scoring** in Resume & AI, the **Model** list shows that provider's models, and **Reasoning effort** lists only the levels the chosen model accepts:
@@ -188,7 +190,7 @@ The arrows show the previous month or let you set next month's goals early. A ne
 
 ## Assistant
 
-The assistant has a place of its own in the sidebar, above Notifications: beside the gramophone it says what it is doing just now (thinking, working, which step of an application it is on, waiting for you), and the two buttons below are the two ways to open it.
+The assistant has a place of its own in the sidebar, above Notifications: beside the gramophone is its name, replaced while it is busy by what it is doing just now (thinking, working, which step of an application it is on, waiting for you), and the two buttons below are the two ways to open it.
 
 - **Side chat** opens at the right of the window, beside Home, Applications or the browser.
 - **Full page** gives it the whole page, with the kept conversations in a column at the left. While the browser is open the two stand side by side; when the browser fills the window, or the window is narrow, the assistant folds into the side chat by itself.

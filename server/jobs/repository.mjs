@@ -29,7 +29,8 @@ export const DEFAULT_SETTINGS = {
   updates: { autoCheck: true },
   desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,
-  // { id, service, name, key, active, allowance? }: one key per service is the one in use.
+  // { id, service, name, key, active, allowance?, workspace? }: one key per service is the one in use.
+  // workspace: the workspace ID a Claude key that works in every workspace sends with each request.
   // allowance { kind: 'balance' | 'monthly', amount, at }: what the user says the key may spend, in US dollars.
   apiKeys: [],
   retentionDays: 45,
@@ -92,12 +93,13 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     settings.apiKeys = oneInUse(settings.apiKeys);
     // The scoring providers read the key in use from ai, as they always have.
     settings.ai.apiKey = inUse(settings.apiKeys, 'anthropic')?.key || '';
+    settings.ai.workspace = inUse(settings.apiKeys, 'anthropic')?.workspace || '';
     settings.ai.openaiApiKey = inUse(settings.apiKeys, 'openai')?.key || '';
     return settings;
   }
-  // The keys are stored once, in apiKeys; ai.apiKey and ai.openaiApiKey are read from there.
+  // The keys are stored once, in apiKeys; ai.apiKey, ai.workspace and ai.openaiApiKey are read from there.
   function saveSettings(settings) {
-    const { apiKey, openaiApiKey, ...ai } = settings.ai || {};
+    const { apiKey, openaiApiKey, workspace, ...ai } = settings.ai || {};
     q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ...settings, ai }));
     return getSettings();
   }
@@ -113,19 +115,22 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   // ---------- API keys ----------
   const getApiKey = id => getSettings().apiKeys.find(item => item.id === id) ?? null;
   // The first key for a service is the one in use.
-  function addApiKey({ service, name = '', key }) {
+  function addApiKey({ service, name = '', key, workspace = '' }) {
     const items = getSettings().apiKeys;
-    const entry = { id: randomUUID(), service, name, key, active: !items.some(item => item.service === service) };
+    const entry = { id: randomUUID(), service, name, key, active: !items.some(item => item.service === service), ...(workspace && service === 'anthropic' ? { workspace } : {}) };
     return { entry, settings: updateSettings({ apiKeys: [...items, entry] }) };
   }
   // active: true moves "in use" to this key; the other keys of its service give it up.
   // allowance: an amount starts the count again from now; null stops counting.
-  function updateApiKey(id, { name, key, active, allowance }) {
+  // workspace: the ID a key that works in every workspace runs in; '' takes it off.
+  function updateApiKey(id, { name, key, active, allowance, workspace }) {
     const target = getApiKey(id);
     if (!target) return null;
     return updateSettings({ apiKeys: getSettings().apiKeys.map(item => {
       if (item.id !== id) return active && item.service === target.service ? { ...item, active: false } : item;
       const next = { ...item, ...(name === undefined ? {} : { name }), ...(key === undefined ? {} : { key }), ...(active ? { active: true } : {}) };
+      if (workspace) next.workspace = workspace;
+      else if (workspace === '') delete next.workspace;
       if (allowance === null) delete next.allowance;
       else if (allowance) next.allowance = { kind: allowance.kind, amount: allowance.amount, at: iso() };
       return next;

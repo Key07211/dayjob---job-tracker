@@ -24,6 +24,7 @@ import { extractResumeText, MAX_RESUME_BYTES, resumeFileType, sameResume } from 
 import { message } from './messages.mjs';
 import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
+import { checkKey } from './jobs/scoring/anthropic-key.mjs';
 import { apiKeyInput, applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
   postingStatus, publicApiKey, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
 
@@ -239,13 +240,35 @@ export async function createApp(options = {}) {
     if (pathname === '/api/keys' && method === 'POST') {
       const entry = apiKeyInput(input);
       if (repo.getSettings().apiKeys.length >= MAX_API_KEYS) throw new HttpError(409, `Dayjob keeps up to ${MAX_API_KEYS} API keys. Remove one first.`);
-      return [201, keyList(repo.addApiKey(entry).settings)];
+      const added = repo.addApiKey(entry);
+      return [201, { ...keyList(added.settings), id: added.entry.id }];
     }
-    let match = pathname.match(/^\/api\/keys\/([^/]+)(\/reveal)?$/);
+    let match = pathname.match(/^\/api\/keys\/([^/]+)(\/reveal|\/check)?$/);
     if (match) {
       const entry = need(repo.getApiKey(match[1]), 'API key');
-      if (match[2] && method === 'POST') return { key: entry.key };
-      if (!match[2] && method === 'PATCH') return keyList(repo.updateApiKey(entry.id, apiKeyInput(input, { partial: true })));
+      if (match[2] === '/reveal' && method === 'POST') return { key: entry.key };
+      // Whether the key can be used as it is. A Claude key that works in every workspace
+      // is given its workspace here when there is only one to give it.
+      if (match[2] === '/check' && method === 'POST') {
+        if (entry.service !== 'anthropic') throw new HttpError(400, 'Only a Claude API key can be checked.');
+        const ask = options.checkKey || checkKey;
+        let result = await ask({ apiKey: entry.key, workspace: entry.workspace || '' });
+        let settings = repo.getSettings();
+        if (result.state === 'needs-workspace' && result.workspaces?.length === 1) {
+          const [only] = result.workspaces;
+          const again = await ask({ apiKey: entry.key, workspace: only.id });
+          if (again.state === 'ok') {
+            settings = repo.updateApiKey(entry.id, { workspace: only.id });
+            result = { state: 'ok', filled: only };
+          }
+        }
+        return { ...keyList(settings), check: result };
+      }
+      if (!match[2] && method === 'PATCH') {
+        const patch = apiKeyInput(input, { partial: true });
+        if (patch.workspace && entry.service !== 'anthropic') throw new HttpError(400, 'Only a Claude API key has a workspace.');
+        return keyList(repo.updateApiKey(entry.id, patch));
+      }
       if (!match[2] && method === 'DELETE') return keyList(repo.deleteApiKey(entry.id));
     }
     if (pathname === '/api/searches' && method === 'POST') return [201, repo.saveSearch(searchInput(input))];

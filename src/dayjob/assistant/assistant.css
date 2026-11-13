@@ -33,23 +33,26 @@
 .assistant-card.asking { border-color: var(--step-hi); }
 .assistant-card-face { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; border-radius: 8px; }
 .assistant-card-face:focus-visible { outline: 2px solid var(--side-text); outline-offset: 2px; }
-.assistant-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
-.assistant-card-text em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--side-muted); }
-.assistant-card-text strong { font-size: 13.5px; color: var(--side-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.assistant-card-text small { font-size: 11.5px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+.assistant-card-text strong { font-size: 14px; color: var(--side-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What it is doing just now; nothing at rest. */
+.assistant-card-text small { font-size: 12px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-card-text small:empty { display: none; }
 .assistant-card-forms { display: flex; gap: 6px; }
 .assistant-card-forms button { flex: 1; min-width: 0; height: 26px; border-radius: 999px; border: 1.5px solid var(--side-hover); font-size: 12.5px; font-weight: 600; color: var(--side-text);
   transition: background 156ms, border-color 156ms, color 156ms; }
 .assistant-card-forms button:hover { border-color: var(--side-text); }
 .assistant-card-forms button.active { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-/* Not a tall window: one block, the gramophone at the left, what it is doing and the two buttons beside it. */
+/* Not a tall window: one block, the gramophone at the left; beside it one line (its name, or what it is doing
+   while it is doing something) and the two buttons under that line. */
 @media (max-height: 990px) {
-  .assistant-card { position: relative; gap: 0; padding: 5px 8px 5px 5px; }
-  .assistant-card-face { align-items: flex-start; }
-  .assistant-card-text em, .assistant-card-text small { display: none; }
-  .assistant-card-text strong { font-size: 12.5px; line-height: 16px; }
-  .assistant-card-forms { position: absolute; left: 55px; right: 8px; bottom: 5px; gap: 4px; }
-  .assistant-card-forms button { height: 21px; font-size: 11.5px; }
+  .assistant-card { position: relative; gap: 0; padding: 5px 8px 5px 6px; }
+  .assistant-card-face { align-items: flex-start; min-height: 46px; }
+  .assistant-card-face .gramophone { margin-top: 3px; }
+  .assistant-card-text strong, .assistant-card-text small { font-size: 13px; font-weight: 700; line-height: 17px; color: var(--side-text); }
+  .assistant-card.stated .assistant-card-text strong { display: none; }
+  .assistant-card-forms { position: absolute; left: 54px; right: 8px; bottom: 5px; gap: 5px; }
+  .assistant-card-forms button { height: 24px; font-size: 12px; }
 }
 
 /* ---------- the gramophone ---------- */
@@ -67,8 +70,8 @@
 .asst-head { position: relative; flex: none; display: flex; align-items: flex-end; gap: 6px; height: var(--gram-h, 80px); padding: 0 10px 9px calc(var(--gram-w, 84px) + 6px); }
 .asst-title { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
 .asst-title strong { font-size: 15px; }
-.asst-title small, .asst-engine { font-size: 12px; color: var(--muted); }
-.asst-engine:hover { color: var(--green); text-decoration: underline; }
+.asst-title small { font-size: 12px; color: var(--muted); }
+.asst-title small:empty { display: none; }
 .asst-head .icon-button { position: relative; }
 .asst-head .icon-button em { position: absolute; top: 0; right: -1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: var(--green); color: var(--on-green);
   font-style: normal; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
@@ -130,7 +133,6 @@
 
 /* ---------- nothing said yet ---------- */
 .asst-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 8px 20px; text-align: center; }
-.asst-empty h2 { margin-top: 8px; font-size: 18px; }
 .asst-empty p { font-size: 13.5px; line-height: 1.6; color: var(--muted); }
 .asst-starters { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 6px; }
 .asst-starters .button { justify-content: flex-start; height: auto; padding: 7px 12px; line-height: 1.4; text-align: left; white-space: normal; }

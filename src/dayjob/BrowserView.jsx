@@ -572,6 +572,9 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
   );
 }
 
+// Under this width of page and helper together, the open helper would leave the page less than about 300 px.
+const TIGHT_BODY = 540;
+
 export function BrowserView({ state, covered, boot, dataVersion, openItem, wide, canSide, onWide, onClose }) {
   const { t } = useI18n();
   const frame = useRef(null);
@@ -579,6 +582,24 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
   const [typed, setTyped] = useState(null);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(() => read('dayjob-browser-assist', 'open') === 'collapsed');
+  // With little room (a small window, or the chat open beside the browser) the helper folds by itself, so the
+  // page keeps most of the width; opening it by hand holds until there is room again.
+  const body = useRef(null);
+  const [tight, setTight] = useState(false);
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const node = body.current;
+    if (!node) return undefined;
+    const measure = () => {
+      const next = node.getBoundingClientRect().width < TIGHT_BODY;
+      setTight(next);
+      if (!next) setHeld(false);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [Boolean(state)]);
   // The browser slides in from the right and out to the right; the page itself is a native view, so it waits until the slide is done.
   const [arriving, setArriving] = useState(() => !reducedMotion());
   const [closing, setClosing] = useState(false);
@@ -651,6 +672,8 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     leave(page, 'right', onClose);
   };
   function collapse(value) {
+    // While it is folded for want of room, opening it is for now only: the saved choice stays.
+    if (tight) { setHeld(!value); return; }
     setCollapsed(value);
     keep('dayjob-browser-assist', value ? 'collapsed' : 'open');
   }
@@ -692,7 +715,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
         : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p>
         : <LoginStrip login={state.login} autoLogin={state.autoLogin} />}
       {error ? <p className="notice error browser-notice" onClick={() => setError('')}>{error}</p> : null}
-      <div className="browser-body">
+      <div className="browser-body" ref={body}>
         <div className="browser-frame" ref={frame}>
           {!active ? (
             <div className="browser-start">
@@ -706,7 +729,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
             </div>
           ) : null}
         </div>
-        <Assistant state={state} active={active} boot={boot} dataVersion={dataVersion} openItem={openItem} collapsed={collapsed} onCollapse={collapse} />
+        <Assistant state={state} active={active} boot={boot} dataVersion={dataVersion} openItem={openItem} collapsed={tight ? !held : collapsed} onCollapse={collapse} />
       </div>
     </section>
   );
