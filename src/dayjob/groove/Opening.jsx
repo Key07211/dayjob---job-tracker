@@ -227,6 +227,9 @@ export function Opening({ ready, failed, newJobs = 0 }) {
     if (!on) return undefined;
     const seen = () => setVisible(document.visibilityState === 'visible');
     document.addEventListener('visibilitychange', seen);
+    // The desktop window is shown just as the page first renders: it can turn visible after the first render read
+    // "hidden" and before this listener is on, and then no event ever comes. So look once more now.
+    seen();
     // A key skips it too (it covers the page, so nothing under it is waiting for the key).
     const key = event => { if (!event.repeat) close(); };
     window.addEventListener('keydown', key, true);
