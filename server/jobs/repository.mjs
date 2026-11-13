@@ -377,8 +377,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   // ---------- resumes ----------
+  // hasFile: the file it was read from is kept too (resumes from before 0.28 have only their text). The file's
+  // bytes are read only when they are asked for (getResumeFile), never with a list.
+  const RESUME_COLUMNS = 'id, name, mime, size, text, uploaded_at, file IS NOT NULL AS has_file';
   const resumeRow = (row, withText = false) => row && ({ id: row.id, name: row.name, mime: row.mime, size: row.size, uploadedAt: row.uploaded_at,
-    characters: row.text.length, ...(withText ? { text: row.text } : { preview: row.text.slice(0, 600) }) });
+    hasFile: Boolean(row.has_file), characters: row.text.length, ...(withText ? { text: row.text } : { preview: row.text.slice(0, 600) }) });
   let resumeIndex = null;
   const resumes = () => (resumeIndex ??= q('SELECT id, name, uploaded_at, text FROM resumes').all()
     .map(row => ({ id: row.id, name: row.name, uploadedAt: row.uploaded_at, terms: resumeTerms(row.text) })));
@@ -410,15 +413,49 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     return { resumeId: row.resume_id, ranking: rankResumes(row, index).map(entry => ({ id: entry.id, name: index.find(resume => resume.id === entry.id).name,
       overlap: entry.overlap, matched: entry.matched })) };
   }
-  function addResume({ name, mime, size, text }) {
+  function addResume({ name, mime, size, text, file = null }) {
     const id = randomUUID();
-    q('INSERT INTO resumes (id, name, mime, size, text, uploaded_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, mime, size, text, iso());
+    q('INSERT INTO resumes (id, name, mime, size, text, uploaded_at, file) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, name, mime, file ? file.length : size, text, iso(), file);
     resumeIndex = null;
     rematchPostings();
     return getResume(id);
   }
-  function listResumes() { return q('SELECT * FROM resumes ORDER BY uploaded_at DESC, rowid DESC').all().map(row => resumeRow(row)); }
-  function getResume(id, withText = false) { return resumeRow(q('SELECT * FROM resumes WHERE id = ?').get(id), withText) ?? null; }
+  function listResumes() { return q(`SELECT ${RESUME_COLUMNS} FROM resumes ORDER BY uploaded_at DESC, rowid DESC`).all().map(row => resumeRow(row)); }
+  function getResume(id, withText = false) { return resumeRow(q(`SELECT ${RESUME_COLUMNS} FROM resumes WHERE id = ?`).get(id), withText) ?? null; }
+  function getResumeFile(id) {
+    const row = q('SELECT id, name, mime, file FROM resumes WHERE id = ?').get(id);
+    return row?.file ? { id: row.id, name: row.name, mime: row.mime, size: row.file.length, data: Buffer.from(row.file) } : null;
+  }
+  // Puts a file beside a resume that has only its text (or replaces its file). The text, and so every match and
+  // score, stays as it is.
+  function setResumeFile(id, { name, mime, file }) {
+    if (!q('UPDATE resumes SET name = ?, mime = ?, size = ?, file = ? WHERE id = ?').run(name, mime, file.length, file, id).changes) return null;
+    resumeIndex = null;
+    return getResume(id);
+  }
+  // Which resume file goes with a job: the one asked for (resumeId); else, for a page of a posting Dayjob has, the
+  // best match among the resumes whose file is kept; else the same for the page's own title and text; else the
+  // newest. `better` names a resume that fits more but has no file to attach.
+  function pickResumeFile({ url = '', title = '', description = '', resumeId = null } = {}) {
+    const all = listResumes();
+    const brief = resume => resume && ({ id: resume.id, name: resume.name, mime: resume.mime, size: resume.size });
+    if (resumeId) {
+      const chosen = all.find(resume => resume.id === resumeId);
+      if (!chosen) return { resume: null, reason: 'unknown' };
+      return chosen.hasFile ? { resume: brief(chosen), reason: 'chosen' } : { resume: null, reason: 'no-file', better: brief(chosen) };
+    }
+    const kept = all.filter(resume => resume.hasFile);
+    if (!kept.length) return { resume: null, reason: all.length ? 'no-file' : 'no-resume' };
+    const posting = url ? findPostingByUrl(url) : null;
+    const job = posting ? { title: posting.title, description: posting.description } : { title, description };
+    if (!String(job.title || '').trim() && !String(job.description || '').trim()) return { resume: brief(kept[0]), reason: 'newest' };
+    const ranking = rankResumes(job, resumes()).map(entry => all.find(resume => resume.id === entry.id)).filter(Boolean);
+    // A posting keeps the match it was scored against.
+    const best = (posting?.resumeId ? all.find(resume => resume.id === posting.resumeId) : null) ?? ranking[0] ?? kept[0];
+    const pick = best.hasFile ? best : ranking.find(resume => resume.hasFile) ?? kept[0];
+    return { resume: brief(pick), reason: posting ? 'posting' : 'page', ...(posting ? { posting: { id: posting.id, title: posting.title, company: posting.company } } : {}),
+      ...(best.id !== pick.id ? { better: brief(best) } : {}) };
+  }
   function countResumes() { return q('SELECT COUNT(*) AS n FROM resumes').get().n; }
   function deleteResume(id) {
     if (!q('DELETE FROM resumes WHERE id = ?').run(id).changes) return false;
@@ -610,7 +647,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
-    addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
+    addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds, logUsage, usageSummary,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,

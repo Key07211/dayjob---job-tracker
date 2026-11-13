@@ -209,6 +209,11 @@ const migrations = [
   );
   CREATE INDEX ai_usage_at ON ai_usage (at);
   `,
+  // The file a resume was read from (PDF, Word or text), kept so it can be attached to an application. Resumes
+  // saved before this have only their text.
+  `
+  ALTER TABLE resumes ADD COLUMN file BLOB;
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

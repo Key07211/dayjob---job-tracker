@@ -9,6 +9,7 @@
 function installAutofill(name) {
   if (globalThis[name]) return globalThis[name];
   let registry = [];
+  let uploads = [];
   const clean = (value, max = 200) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
   const textOf = node => clean(node?.innerText || node?.textContent || '', 300);
   const SUBMIT = /\b(submit|send)\b.*\b(application|applications)?\b|\bapply( now)?\b|提交|投递/i;
@@ -217,7 +218,64 @@ function installAutofill(name) {
     return /thank(s| you)[^.]{0,60}(appl|submi|interest)|application (has been |was )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|申请已(提交|收到)|投递成功|感谢您的申请/i.test(text);
   }
 
-  return (globalThis[name] = { scan, fill, submit, confirmation });
+  // Every place a file can be attached, hidden ones too: most application forms hide the real field behind a
+  // button of their own ("Attach", "Upload resume").
+  const LABEL_LIKE = 'label, legend, h1, h2, h3, h4, h5, h6, [role="heading"], [class*="label" i]';
+  // The question over such a field: a label, or a line that reads like one, before the field or before the box
+  // that holds only it and its button.
+  function uploadLabel(element) {
+    const own = ownLabel(element);
+    if (own) return own;
+    for (let node = element, depth = 0; node && depth < 4; depth += 1) {
+      for (let sibling = node.previousElementSibling, step = 0; sibling && step < 4; sibling = sibling.previousElementSibling, step += 1) {
+        if (sibling.matches('input:not([type="hidden"]), select, textarea') || sibling.querySelector('input:not([type="hidden"]), select, textarea')) break;
+        const text = textOf(sibling);
+        if (!text || text.length > 80 || sibling.matches('button, [role="button"]')) continue;
+        if (sibling.tagName === 'LABEL' && sibling.control && sibling.control !== element) break;
+        if (sibling.matches(LABEL_LIKE) || /[*:：]\s*$/.test(text)) return text;
+      }
+      const parent = node.parentElement;
+      if (!parent || [...parent.querySelectorAll('input, select, textarea')].some(field => field !== element && field.type !== 'hidden')) break;
+      node = parent;
+    }
+    return '';
+  }
+  function files() {
+    uploads = [];
+    const found = [];
+    for (const root of roots()) {
+      for (const element of root.querySelectorAll('input[type="file"]')) {
+        if (element.disabled || element.closest('[inert]')) continue;
+        const index = uploads.push(element) - 1;
+        const over = uploadLabel(element);
+        const said = describe(element);
+        found.push({ index, ...said, label: clean(over).replace(/\s*\*$/, '') || said.label, required: said.required || /\*\s*$/.test(over),
+          accept: clean(element.getAttribute('accept') || ''), multiple: element.multiple, filled: element.files?.length > 0,
+          shown: Boolean(element.checkVisibility?.({ visibilityProperty: true })) });
+      }
+    }
+    return found;
+  }
+  // Puts a file into a file field, as choosing it in the file dialog would. data is the file in base64.
+  function attach({ index, name: fileName, mime, data }) {
+    const element = uploads[index];
+    if (!element?.isConnected) return { error: 'missing' };
+    try {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let at = 0; at < binary.length; at += 1) bytes[at] = binary.charCodeAt(at);
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], fileName, { type: mime, lastModified: Date.now() }));
+      element.files = transfer.files;
+      const attached = element.files?.length === 1 && element.files[0].size === bytes.length;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      if (element.checkVisibility?.({ visibilityProperty: true })) glow(element);
+      return { attached };
+    } catch (error) { return { error: String(error?.message || error).slice(0, 200) }; }
+  }
+
+  return (globalThis[name] = { scan, fill, submit, confirmation, files, attach });
 }
 
 // ---------- matching, outside the page ----------
@@ -516,9 +574,50 @@ function planFill(fields, profile) {
   return { fills, used };
 }
 
+// ---------- files ----------
+
+// What a file field is for, by the words a person reads on it (its label, or the text beside a hidden field) and
+// by its name in the form.
+const FILE_WORDS = {
+  resume: /r[eé]sum[eé]|\bcv\b|curriculum|vitae|简历|履历/i,
+  coverLetter: /cover\s*letter|motivation|求职信|自荐信/i,
+};
+const OTHER_FILE = /transcript|成绩|portfolio|作品|photo|picture|headshot|avatar|头像|照片|certificat|证书|reference|推荐信|writing sample|passport|licen[cs]e|additional|other (file|document)|其他|附加/i;
+const imagesOnly = accept => Boolean(accept) && accept.split(',').every(item => /^\s*(image\/|\.(png|jpe?g|gif|webp|bmp|svg|heic)\b)/i.test(item));
+
+// The field (from the page's files()) a file of this kind goes into, or null. A field that says it is for
+// something else is never taken; a form's only upload, when nothing says what it is for, is taken to be the resume.
+function pickFileField(fields, want = 'resume') {
+  const wanted = FILE_WORDS[want];
+  const others = Object.entries(FILE_WORDS).filter(([key]) => key !== want).map(([, words]) => words);
+  let best = null;
+  const plain = [];
+  for (const field of fields) {
+    if (imagesOnly(field.accept)) continue;
+    const own = `${field.label || ''} ${field.name || ''} ${field.id || ''}`.replace(/[_\-[\]]+/g, ' ');
+    let score = 0;
+    if (wanted.test(own)) score = 5;
+    else if (others.some(words => words.test(own)) || OTHER_FILE.test(own)) score = -5;
+    else if (wanted.test(field.section || '')) score = 2;
+    if (score === 0) plain.push(field);
+    if (score > 0 && score > (best?.score ?? 0)) best = { field, score };
+  }
+  if (best) return best.field;
+  return want === 'resume' && fields.length === 1 && plain.length === 1 ? plain[0] : null;
+}
+
+// Whether a field's accept list (".pdf,.docx,application/pdf", "image/*", or nothing) takes this file.
+function acceptsFile(accept, { name = '', mime = '' }) {
+  const items = String(accept || '').split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
+  if (!items.length) return true;
+  const extension = (/\.[a-z0-9]+$/i.exec(name)?.[0] || '').toLowerCase();
+  const type = mime.split(';')[0].trim().toLowerCase();
+  return items.some(item => (item.startsWith('.') ? item === extension : item.endsWith('/*') ? type.startsWith(item.slice(0, -1)) : item === type));
+}
+
 // The code that runs one step in a frame.
 function autofillScript(name, method, args) {
   return `(${installAutofill.toString()})(${JSON.stringify(name)}).${method}(${args === undefined ? '' : JSON.stringify(args)})`;
 }
 
-module.exports = { autofillScript, planFill, keyFor, optionFor };
+module.exports = { autofillScript, planFill, keyFor, optionFor, pickFileField, acceptsFile };

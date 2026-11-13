@@ -17,6 +17,8 @@ const EXACT = {
   'Send the resume file as base64 data.': '简历文件没有读取成功，请重新选择。',
   'Upload a PDF, Word (.docx) or text resume.': '请上传 PDF、Word（.docx）或纯文本简历。',
   'The resume file is empty.': '简历文件是空的。',
+  'Resume file not found.': '这份简历没有保存原件。',
+  'This file reads as a different resume from the saved text. Add it as a new resume, or confirm to keep it with this one.': '这个文件读出来的内容和保存的文字差别很大，像是另一份简历。可以把它作为新简历上传。',
   'The resume file is larger than 8 MB.': '简历文件超过 8 MB。',
   'Almost no text was found in this resume. If it is a scanned image, export it as a text-based PDF or upload a .docx.': '简历里几乎读不到文字。如果是扫描图片，请导出为可以复制文字的 PDF，或上传 .docx。',
   'Posting not found.': '找不到这个岗位。',

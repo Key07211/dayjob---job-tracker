@@ -20,7 +20,7 @@ import { recommend } from './jobs/recommend.mjs';
 import { createGoals } from './jobs/goals.mjs';
 import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
-import { extractResumeText, MAX_RESUME_BYTES } from './jobs/resume.mjs';
+import { extractResumeText, MAX_RESUME_BYTES, resumeFileType, sameResume } from './jobs/resume.mjs';
 import { message } from './messages.mjs';
 import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -212,7 +212,7 @@ export async function createApp(options = {}) {
   }
 
   async function mutate(request, pathname, method, source) {
-    const input = await readJson(request, pathname === '/api/resumes' ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
+    const input = await readJson(request, /^\/api\/resumes(\/[^/]+\/file)?$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
     if (pathname === '/api/settings' && method === 'PATCH') {
       const settings = repo.updateSettings(settingsPatch(input));
       options.onSettings?.(settings);
@@ -365,9 +365,22 @@ export async function createApp(options = {}) {
     if (pathname === '/api/resumes' && method === 'POST') {
       if (repo.countResumes() >= MAX_RESUMES) throw new HttpError(409, `You can keep up to ${MAX_RESUMES} resumes. Delete one before adding another.`);
       if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the resume file as base64 data.');
-      const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '',
-        data: Buffer.from(input.data, 'base64') });
-      return [201, repo.addResume(parsed)];
+      const data = Buffer.from(input.data, 'base64');
+      const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '', data });
+      return [201, repo.addResume({ ...parsed, file: data })];
+    }
+    // The file for a resume that has only its text (saved before files were kept), or a newer file for it. The
+    // text stays, so matches and scores stay; a file that reads as a different resume is refused unless forced.
+    match = pathname.match(/^\/api\/resumes\/([^/]+)\/file$/);
+    if (match && method === 'POST') {
+      const resume = need(repo.getResume(match[1], true), 'Resume');
+      if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the resume file as base64 data.');
+      const data = Buffer.from(input.data, 'base64');
+      const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '', data });
+      if (input.force !== true && !sameResume(parsed.text, resume.text)) {
+        throw new HttpError(409, 'This file reads as a different resume from the saved text. Add it as a new resume, or confirm to keep it with this one.');
+      }
+      return repo.setResumeFile(resume.id, { name: parsed.name, mime: parsed.mime, file: data });
     }
     match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
     if (match && method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
@@ -446,6 +459,15 @@ export async function createApp(options = {}) {
       if (!pathname.startsWith('/api/')) return serveStatic(request, response, pathname);
       // The in-app assistant answers for itself: its replies are streamed, and Claude Code reaches its tools here.
       if (pathname.startsWith('/api/assistant')) return await assistant.http({ request, response, pathname, method, authorize: () => requireToken(request) });
+      // A resume's own file, to look at or save. Always a download, under the type Dayjob read it as (never the
+      // type the upload claimed), so it cannot open as a page of Dayjob.
+      const resumeFile = method === 'GET' && pathname.match(/^\/api\/resumes\/([^/]+)\/file$/);
+      if (resumeFile) {
+        const file = need(repo.getResumeFile(resumeFile[1]), 'Resume file');
+        response.writeHead(200, { 'Content-Type': resumeFileType(file.name, file.mime)?.mime || 'application/octet-stream', 'Content-Length': file.data.length,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+        return response.end(file.data);
+      }
       if (method === 'GET') return respond(response, 200, await get(pathname, url));
       if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
       requireToken(request);

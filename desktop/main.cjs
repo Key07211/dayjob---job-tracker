@@ -133,7 +133,9 @@ function setupIpc() {
   handle('dayjob:browser-answer', (id, allowed) => browser.answer(String(id), allowed === true));
   handle('dayjob:browser-agent-control', value => browser.setAgentControl(value === true));
   handle('dayjob:browser-auto-submit', value => browser.setAutoSubmit(value === true));
-  handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true }));
+  handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true, resume: options?.resume }));
+  handle('dayjob:browser-resume-for', choice => browser.resumeFor(choice));
+  handle('dayjob:browser-upload-resume', choice => browser.uploadResume(choice));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
   handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
@@ -263,6 +265,7 @@ async function createWindow() {
   vault = createVault({ file: path.join(profileDir, 'vault.json'), safeStorage });
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
+    resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -301,6 +304,19 @@ const APPLY_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta char
 const EMBED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head>
 <body><label>Phone <input name="phone" type="tel"></label> <label>LinkedIn profile <input name="linkedin" required></label> <label>Desired salary <input name="salary"></label></body></html>`;
 
+// An application form that takes files: a cover letter on the page, and the resume inside the form embedded from
+// another site, in a field hidden behind a button (as most application forms have it). The embedded page writes
+// down what it was handed.
+const UPLOAD_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Upload · Smoke Co</title></head>
+<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get"><label>First name <input name="first"></label>
+<div><label for="cover">Cover letter</label> <input id="cover" name="cover_letter" type="file"></div></form>
+<iframe src="http://127.0.0.1:${embedPort}/embed-upload" width="500" height="200"></iframe></body></html>`;
+const EMBED_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded upload</title></head>
+<body><div><div>Resume/CV *</div><button type="button" onclick="document.getElementById('file').click()">Attach</button>
+<input id="file" name="resume" type="file" accept=".pdf,.docx,.txt" style="display:none"><p id="got"></p></div>
+<script>document.getElementById('file').addEventListener('change', async event => { const file = event.target.files[0];
+document.getElementById('got').textContent = file ? file.name + '|' + file.size + '|' + (await file.text()).slice(0, 24) : 'none'; });</script></body></html>`;
+
 // A login form and a sign-up form, for the password vault. Signing in posts,
 // so the password never shows in an address.
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
@@ -327,9 +343,9 @@ async function until(check, ms) {
 
 async function smokeBrowser(token) {
   const escape = value => String(value ?? '').replace(/[<>&"]/g, character => `&#${character.charCodeAt(0)};`);
-  const embed = http.createServer((_request, response) => {
+  const embed = http.createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(EMBED_PAGE);
+    response.end(request.url.startsWith('/embed-upload') ? EMBED_UPLOAD_PAGE : EMBED_PAGE);
   });
   await new Promise(resolve => embed.listen(0, '127.0.0.1', resolve));
   const site = http.createServer((request, response) => {
@@ -349,6 +365,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
+    if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
       ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
@@ -406,6 +423,23 @@ async function smokeBrowser(token) {
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
     const clicked = await call('click', { ref: job.elements.find(item => item.name === 'Submit application').ref });
     steps.autoAllowed = /Auto-submit is on/.test(clicked.note || '') && clicked.page.url.startsWith(`${base}/submitted?name=Auto+Submit`);
+
+    // 上传简历: Dayjob keeps a resume's own file and puts it into the form's resume field, here a hidden one in a
+    // form embedded from another site; the cover letter field is left alone, and a field that has a file is not
+    // given another.
+    const resumeText = `Smoke Tester\nData analyst: SQL, Python, dashboards and experiments.\n${'Built weekly reporting for the growth team and kept it running. '.repeat(4)}`;
+    const send = (route, method, body) => fetch(`${origin}${route}`, { method, body: JSON.stringify(body || {}), headers: { 'Content-Type': 'application/json', 'X-Dayjob-Token': token } });
+    const kept = await (await send('/api/resumes', 'POST', { name: 'Smoke Resume.txt', mime: 'text/plain', data: Buffer.from(resumeText).toString('base64') })).json();
+    await call('open', { url: `${base}/upload` });
+    const uploaded = await call('upload');
+    const uploadPage = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/upload`)).webContents;
+    const embedded = uploadPage.mainFrame.framesInSubtree.find(frame => frame.url.includes('/embed-upload'));
+    const expected = `Smoke Resume.txt|${Buffer.byteLength(resumeText)}|${resumeText.slice(0, 24)}`;
+    steps.resumeUploaded = kept.hasFile === true && uploaded.uploaded.resume === 'Smoke Resume.txt' && uploaded.uploaded.field.includes('Resume/CV')
+      && await until(async () => (await embedded.executeJavaScript("document.getElementById('got').textContent")) === expected, 5000)
+      && (await uploadPage.executeJavaScript("document.getElementById('cover').files.length")) === 0;
+    steps.resumeOnce = (await post('upload')).status === 409;
+    await send(`/api/resumes/${kept.id}`, 'DELETE');
 
     // 密码保管: a saved sign-in is filled into its site's login form, where
     // Claude's read only sees that the password box is filled; it is kept
@@ -493,7 +527,7 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared'].every(step => steps[step] === true);
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce'].every(step => steps[step] === true);
   return steps;
 }
 

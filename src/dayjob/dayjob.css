@@ -360,6 +360,11 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .resume-list li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .resume-list li span { font-size: 12.5px; color: var(--muted); }
 .resume-list .resume-preview { margin-top: 4px; }
+/* Whether the resume's own file is kept (and so can be attached to an application). */
+.resume-list .resume-file { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.resume-list .resume-file > svg { color: var(--green); flex-shrink: 0; }
+.resume-list .resume-file.missing { color: var(--orange); }
+.resume-list .resume-file .link { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
 .dropzone { border: 1.5px dashed var(--line-strong); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); }
 .dropzone.dragging { border-color: var(--green); background: var(--green-soft); }
 .resume-preview summary { cursor: pointer; font-size: 13px; color: var(--muted); }
@@ -518,6 +523,19 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .assist-result .warn { color: var(--orange); }
 .assist-result .ok { color: var(--green); }
 .assist-switch { color: var(--text); font-weight: 500; }
+/* 简历 in the side panel: which one goes into the form, and how attaching it went. */
+.assist-resume { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.45; }
+.assist-resume label { display: flex; align-items: center; gap: 8px; }
+.assist-resume label > span { flex-shrink: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.assist-resume label > :last-child { flex: 1; min-width: 0; }
+.assist-resume small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.assist-resume small .link, .assist-resume p .link, .assist-result p.resume-line .link { margin-left: 4px; font-size: 12px; }
+.assist-resume .button { align-self: flex-start; }
+.assist-resume p, .assist-result p.resume-line { display: flex; align-items: flex-start; gap: 6px; flex-wrap: nowrap; overflow-wrap: anywhere; }
+.assist-resume p > svg, .assist-result p.resume-line > svg { flex-shrink: 0; margin-top: 2px; }
+.assist-resume p > span, .assist-result p.resume-line > span { flex: 1; min-width: 0; }
+.assist-resume p.ok { color: var(--green); }
+.assist-resume p.warn { color: var(--orange); }
 .assist-confirm { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); font-size: 12.5px; line-height: 1.5; }
 .assist-confirm .form-actions { justify-content: flex-end; }
 .assist-external { margin-top: auto; align-self: flex-start; }

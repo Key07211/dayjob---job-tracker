@@ -9,6 +9,7 @@ import { emit } from './groove/bus.js';
 import { cue, reducedMotion } from './groove/sound.js';
 import { Q, flyTo, holdToConfirm, leave, shake } from './groove/fx.js';
 import { BeatLoader } from './groove/BrandMark.jsx';
+import { Select } from './groove/Picker.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
 const vaultBridge = typeof window !== 'undefined' ? window.dayjobDesktop?.vault : undefined;
@@ -293,6 +294,14 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
   const [fill, setFill] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
+  // 简历: which one goes into the form ('auto' = the one that fits the job, a resume's id, or 'none'), what that
+  // comes to for the open page, and how the last attaching went.
+  const [resumeChoice, setResumeChoice] = useState('auto');
+  const [resumePick, setResumePick] = useState(null);
+  const [attaching, setAttaching] = useState(false);
+  const [attached, setAttached] = useState(null);
+  const resumeFiles = (boot.resumes || []).filter(resume => resume.hasFile);
+  const resumeKey = (boot.resumes || []).map(resume => `${resume.id}:${resume.hasFile ? 1 : 0}`).join(',');
   // With auto-submit on, the button must be held for 0.6 s; letting go early cancels.
   const hold = useRef(() => {});
   const profile = boot.settings.applicant || {};
@@ -313,6 +322,18 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
     return () => { live = false; clearTimeout(timer); };
   }, [url, lookupKey, dataVersion]);
   const posting = lookup?.url === url ? lookup.posting : undefined;
+  // A resume that was chosen and then deleted (or lost its file) goes back to the automatic choice.
+  const choice = resumeChoice === 'auto' || resumeChoice === 'none' || resumeFiles.some(resume => resume.id === resumeChoice) ? resumeChoice : 'auto';
+  useEffect(() => { setAttached(null); }, [active?.id, url]);
+  useEffect(() => {
+    if (!url || choice !== 'auto' || !resumeKey) { setResumePick(null); return undefined; }
+    let live = true;
+    const timer = setTimeout(() => {
+      desktop.resumeFor('auto').then(value => { if (live) setResumePick({ url, ...value }); }).catch(() => {});
+    }, 600);
+    return () => { live = false; clearTimeout(timer); };
+  }, [url, choice, resumeKey, dataVersion]);
+  const autoPick = resumePick?.url === url ? resumePick : null;
 
   async function startSave(apply) {
     setError('');
@@ -349,9 +370,10 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
     try {
       const from = { posting, draft: null };
       if (state.autoSubmit && !posting) from.draft = await desktop.extract().catch(() => null);
-      const result = await desktop.autofill({ submit: state.autoSubmit });
+      const result = await desktop.autofill({ submit: state.autoSubmit, resume: choice });
+      setAttached(null);
       setFill({ ...result, from, urls: [url, result.page?.url] });
-      if (result.filled.length) cue('type');
+      if (result.filled.length || result.resume?.attached) cue('type');
     }
     catch (failure) {
       const message = bridgeMessage(failure);
@@ -360,6 +382,33 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           : t('没能填写这个页面，等它加载完再试一次。', 'Could not fill in this page. Try again once it has loaded.'));
     } finally { setFilling(false); }
   }
+  // 附上简历 on its own, for a form that is already filled in.
+  async function attachResume() {
+    setError('');
+    setAttaching(true);
+    try {
+      const result = await desktop.uploadResume(choice);
+      setAttached(result);
+      if (result.attached) cue('done');
+    } catch { setError(t('没能在这个页面附上简历，等它加载完再试一次。', 'Could not attach the resume on this page. Try again once it has loaded.')); }
+    finally { setAttaching(false); }
+  }
+  // How attaching the resume went, in a line (null when there was nothing to say).
+  const resumeLine = outcome => {
+    if (!outcome) return null;
+    const field = outcome.field ? `“${outcome.field}”` : '';
+    if (outcome.attached) return { ok: true, text: t(`已附上简历 ${outcome.resume.name}（${field}）`, `Attached ${outcome.resume.name} to ${field}`) };
+    const text = {
+      'no-field': t('这个页面上没有可以上传文件的地方。先打开申请表。', 'There is nowhere to attach a file on this page. Open the application form first.'),
+      'other-field': t('页面上的上传栏都不是给简历用的，没有附上。', 'None of the upload fields on this page is for a resume, so nothing was attached.'),
+      already: t(`${field} 里已经有文件了，没有再附。`, `${field} already has a file, so nothing was attached.`),
+      'no-resume': t('还没有上传简历，所以没有附上。', 'No resume has been uploaded yet, so none was attached.'),
+      'no-file': t('Dayjob 里只有简历的文字，没有原件，所以没有附上。', 'Dayjob has only the text of your resume, not its file, so none was attached.'),
+      type: t(`${field} 只收 ${outcome.accept}，${outcome.resume?.name || ''} 不是这种格式，没有附上。`, `${field} takes ${outcome.accept} only, and ${outcome.resume?.name || 'the resume'} is not one, so it was not attached.`),
+      failed: t(`页面没有收下文件。请在 ${field} 里自己选一次。`, `The page did not take the file. Choose it yourself in ${field}.`),
+    }[outcome.reason];
+    return text ? { ok: false, text, fix: outcome.reason === 'no-file' || outcome.reason === 'no-resume' } : null;
+  };
   function setAutoSubmit(value) {
     setConfirming(false);
     desktop.setAutoSubmit(value).catch(() => {});
@@ -430,10 +479,44 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           {state.autoSubmit ? t('按住：自动填写并提交', 'Hold: autofill and submit') : t('自动填写', 'Autofill')}
         </button>
         {profileEmpty ? <p className="hint">{t('先填好申请资料（姓名、邮箱、电话等），自动填写才知道填什么。', 'Fill in your application profile (name, email, phone…) so autofill knows what to put in.')}</p> : null}
+        <div className="assist-resume">
+          <label>
+            <span>{t('简历', 'Resume')}</span>
+            <Select value={choice} onChange={event => { setResumeChoice(event.target.value); setAttached(null); }} disabled={!resumeFiles.length}>
+              <option value="auto">{t('按岗位自动选', 'The one that fits the job')}</option>
+              {resumeFiles.map(resume => <option key={resume.id} value={resume.id}>{resume.name}</option>)}
+              <option value="none">{t('不附简历', 'Do not attach one')}</option>
+            </Select>
+          </label>
+          {!resumeFiles.length ? (
+            <small>{(boot.resumes || []).length ? t('Dayjob 里只有简历的文字，没有原件，所以还不能附到申请表里。', 'Dayjob has only the text of your resumes, not their files, so none can be attached yet.')
+              : t('还没有上传简历。', 'No resume has been uploaded yet.')}
+              <button className="link" onClick={() => openItem('resume')}>{(boot.resumes || []).length ? t('去补上原件', 'Add the file') : t('去上传', 'Upload one')}</button></small>
+          ) : choice === 'auto' && autoPick?.resume ? (
+            <small>{autoPick.reason === 'newest' ? t(`会附上 ${autoPick.resume.name}（最新的一份）。`, `${autoPick.resume.name} will be attached (your newest).`)
+              : t(`会附上 ${autoPick.resume.name}（和这个岗位最匹配）。`, `${autoPick.resume.name} will be attached (the best match for this job).`)}
+              {autoPick.better ? t(` 更匹配的 ${autoPick.better.name} 没有原件。`, ` ${autoPick.better.name} fits better, but its file is not kept.`) : ''}</small>
+          ) : null}
+          {resumeFiles.length && choice !== 'none' ? (
+            <button className="button small" onClick={attachResume} disabled={!url || attaching || filling}>
+              {attaching ? <LoaderCircle size={14} className="spin" /> : <FileUp size={14} />}{t('只附上简历', 'Attach the resume only')}
+            </button>
+          ) : null}
+          {(() => {
+            const line = resumeLine(attached);
+            return line ? <p className={line.ok ? 'ok' : 'warn'}>{line.ok ? <CircleCheck size={14} /> : null}<span>{line.text}
+              {line.fix ? <button className="link" onClick={() => openItem('resume')}>{t('去“简历与 AI”', 'Open Resume & AI')}</button> : null}</span></p> : null;
+          })()}
+        </div>
         {fill ? (
           <div className="assist-result">
             <p><CircleCheck size={14} />{fill.filled.length ? t(`已填写 ${fill.filled.length} 项`, `Filled ${fill.filled.length} ${fill.filled.length === 1 ? 'field' : 'fields'}`) : t('没有能自动填的空格了', 'Nothing left that autofill can fill')}</p>
             {fill.filled.length ? <details><summary>{t('看看填了哪些', 'Show which')}</summary><ul>{fill.filled.map((item, index) => <li key={index} style={{ '--i': Math.min(index, 12) }}>{item.label}</li>)}</ul></details> : null}
+            {(() => {
+              const line = fill.resume?.reason === 'other-field' ? null : resumeLine(fill.resume);
+              return line ? <p className={`resume-line${line.ok ? '' : ' warn'}`}>{line.ok ? <FileUp size={14} /> : null}<span>{line.text}
+                {line.fix ? <button className="link" onClick={() => openItem('resume')}>{t('去“简历与 AI”', 'Open Resume & AI')}</button> : null}</span></p> : null;
+            })()}
             {fill.left.length ? (
               <>
                 <p className="warn">{t('还需要你来填：', 'Still yours to fill in:')}</p>
@@ -480,7 +563,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           <input type="checkbox" checked={state.agentControl} onChange={event => desktop.setAgentControl(event.target.checked)} />
           {t('允许 Claude 使用', 'Let Claude use it')}
         </label>
-        <small>{t('Claude 可以打开网页、读取内容、帮你填写；密码和文件上传始终由你来。', 'Claude can open and read pages and help fill them in; passwords and file uploads are always yours.')}</small>
+        <small>{t('Claude 可以打开网页、读取内容、帮你填写；密码始终由你来。简历由 Dayjob 附到申请表里，Claude 只知道文件名，拿不到文件。', 'Claude can open and read pages and help fill them in; passwords are always yours. The resume is attached by Dayjob: Claude learns its file name, never the file.')}</small>
       </section>
 
       {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
@@ -617,8 +700,8 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
               <h2>{t('Dayjob 浏览器', 'Dayjob browser')}</h2>
               <p className="hint">{t('在这里登录 LinkedIn、Indeed 或公司招聘网站，登录状态只保存在这台电脑上。看到合适的岗位，在右边点“加入 Dayjob”就能收藏、打分和追踪；打开申请表后点“自动填写”。',
                 'Sign in to LinkedIn, Indeed or company career sites here; the sign-ins stay on this computer. When you find a good job, click “Add to Dayjob” on the right to save, score and track it; on an application form, click “Autofill”.')}</p>
-              <p className="hint">{t('连接 Claude 后，Claude 也能在这里打开和阅读网页、帮你填写申请表。需要提交或发送时，会先在这里请你确认；密码和文件上传始终由你自己来。',
-                'With Claude connected, Claude can open and read pages here and help fill in applications. Before anything is submitted or sent, it asks you here first; passwords and file uploads are always left to you.')}</p>
+              <p className="hint">{t('连接 Claude 后，Claude 也能在这里打开和阅读网页、帮你填写申请表。需要提交或发送时，会先在这里请你确认；密码始终由你自己来，简历由 Dayjob 附上，Claude 拿不到文件。',
+                'With Claude connected, Claude can open and read pages here and help fill in applications. Before anything is submitted or sent, it asks you here first; passwords are always left to you, and the resume is attached by Dayjob, so Claude never gets the file.')}</p>
               <div className="browser-links">{START.map(link => <button key={link.url} className="button" data-fx="open" onClick={() => desktop.open(link.url)}>{link.name}</button>)}</div>
             </div>
           ) : null}

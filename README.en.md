@@ -81,7 +81,7 @@ npm run package:win       # Windows installer and portable build in release/
 | `npm start` | `data/dayjob.sqlite` in the project (git-ignored) |
 | Custom | set `DAYJOB_DATA_DIR`; the port is `DAYJOB_PORT` |
 
-Only the text extracted from your resume is stored, never the file. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
+A resume is stored as two things: its extracted text (for scoring and matching) and the file itself (to attach to application forms), both in the local database only. The file is never sent to Claude or any AI; it only goes into the application form you are filling in. Resumes uploaded before 0.28 have only their text: click **Add the file** under Resume & AI to add it, and their scores stay as they are. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
 
 ## First steps
 
@@ -244,7 +244,8 @@ Dayjob needs to be running. Then try:
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
 | `dayjob_browser_scroll` / `dayjob_browser_navigate` / `dayjob_browser_tabs` | Scroll, go back, forward or reload, switch and close tabs |
-| `dayjob_browser_autofill` | Fill the open application form from the application profile (same as Autofill in the assistant panel) and tell Claude what was filled and which required fields are left; it never submits |
+| `dayjob_browser_autofill` | Fill the open application form from the application profile (same as Autofill in the assistant panel), attach the resume that fits the job when the form has a resume field, and tell Claude what was filled, which resume was attached and which required fields are still empty; never submits |
+| `dayjob_browser_upload_resume` | Attach a resume's file to the resume field of the open application form (the one that fits the job by default, or a given one); Claude gets the file's name, never the file; never submits |
 
 Changes made through MCP show as "Claude" on the timeline.
 
@@ -263,7 +264,8 @@ The **Browser assistant** panel (not the gramophone [Assistant](#assistant) at t
 | Part | What it does |
 | --- | --- |
 | This page | When the page is already in Dayjob, it shows the title, company and status, with **View in Dayjob** and **Mark applied**. Otherwise click **Add to Dayjob**: it reads the page's standard job data (schema.org JobPosting, which most job sites publish) or its text, and after you check it, saves the job, or **Save and mark applied** in one go. |
-| Autofill | Reads each question on the form and fills the empty boxes from your **Application profile**: name, email, phone, address, LinkedIn / GitHub / website, school and work, work authorization, sponsorship, relocation, desired salary, earliest start date, where you heard about the job and more, including dropdowns and radio buttons. Boxes that already have an answer are left alone. Afterwards it lists what it filled and the required fields still yours to fill in (such as the resume upload). Forms embedded from another site, like a Greenhouse form on a company's own page, work too. |
+| Autofill | Reads each question on the form and fills the empty boxes from your **Application profile**: name, email, phone, address, LinkedIn / GitHub / website, school and work, work authorization, sponsorship, relocation, desired salary, earliest start date, where you heard about the job and more, including dropdowns and radio buttons. Boxes that already have an answer are left alone. Afterwards it lists what it filled and the required fields still yours to fill in. Forms embedded from another site, like a Greenhouse form on a company's own page, work too. |
+| Resume | When the form has a resume field (also one hidden behind an "Attach" button), Autofill attaches your resume's file as well. By default it is **The one that fits the job**: for a page of a job that is in Dayjob, the resume that job is matched to; otherwise the one that shares the most keywords with the job text on the page. You can pick one resume in the dropdown instead, or **Do not attach one**. **Attach the resume only** does just this step. Upload fields for a cover letter, a transcript and the like are left alone, and a resume field that already has a file is not given another. |
 | Auto-submit | Off by default; while it is off, nothing is submitted unless you click it or allow it. Turning it on asks once more. While it is on, Autofill clicks Submit as soon as every required field is filled and checks that the page says the application was received, and Claude's clicks on Submit no longer ask first. It turns off again every time Dayjob starts. After a submit, click **Mark applied** and the job moves to Applications. |
 | Claude | Untick **Let Claude use it** and Claude can no longer open or use the browser. |
 
@@ -277,7 +279,7 @@ What Claude can and cannot do there:
 
 - It can open pages, read them, take screenshots, click, type, pick dropdown options and switch tabs, and fill in your profile first with `dayjob_browser_autofill`. You see it happen in the Dayjob window ("Claude is working").
 - Clicking a button such as Submit, Send, Confirm or Delete, or pressing Enter in a multi-field form, first asks you in Dayjob. Nothing happens until you click **Allow**, and the request is dropped after 2 minutes. Only while you have **Auto-submit** on does it go ahead straight away, and Claude is told so.
-- It never types passwords, card numbers or one-time codes, and it does not upload files; you choose the resume yourself. Text on web pages is treated as data, never as instructions.
+- It never types passwords, card numbers or one-time codes. The resume is attached by Dayjob (`dayjob_browser_autofill` does it along the way, or `dayjob_browser_upload_resume` on its own): Dayjob picks the resume and puts its file into the form, and Claude learns only the file's name and the field it went into, never the file. Any other file is still yours to choose. Text on web pages is treated as data, never as instructions.
 
 Some sites do not allow signing in with Google inside an app's browser. Sign in with email and password there, or click **Open in your browser**.
 

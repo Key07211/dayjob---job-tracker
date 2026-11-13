@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     setAgentControl: value => ipcRenderer.invoke('dayjob:browser-agent-control', value),
     setAutoSubmit: value => ipcRenderer.invoke('dayjob:browser-auto-submit', value),
     autofill: options => ipcRenderer.invoke('dayjob:browser-autofill', options),
+    // The resume that goes with the open page ('auto', or a resume's id), and attaching its file to the form.
+    resumeFor: choice => ipcRenderer.invoke('dayjob:browser-resume-for', choice),
+    uploadResume: choice => ipcRenderer.invoke('dayjob:browser-upload-resume', choice),
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
     fillLogin: id => ipcRenderer.invoke('dayjob:browser-login-fill', id),
