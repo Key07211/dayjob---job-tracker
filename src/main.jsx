@@ -209,12 +209,12 @@ function App() {
     api('/api/status').then(setStatus).catch(() => {});
   });
   useEffect(() => installClickFx(), []);
-  // What the assistant does shows in the window: a note flies from the speaker to the page's key, which sounds;
+  // What the assistant does shows in the window: a note flies from the gramophone's horn to the page's key, which sounds;
   // lists catch up with a change; and "show me" brings the page forward.
   useEffect(() => onAssistantEffect(({ tool, changed, applied, ui }) => {
     const key = tool?.ok ? VIEWS.find(item => item.id === tool.view) : null;
     if (key) {
-      flyTo(document.querySelector('.assistant-pane .asst-head .speaker') || document.querySelector('.assistant-toggle'), key.id);
+      flyTo(document.querySelector('.assistant-pane .asst-head .gram-mouth') || document.querySelector('.assistant-toggle'), key.id);
       playKey(key.note, theme);
     }
     if (changed) {

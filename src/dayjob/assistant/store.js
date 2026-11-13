@@ -1,13 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { api, apiLines } from '../../api.js';
 
-// The assistant's state for the window: the open conversation, what the speaker is doing, and the list of kept
+// The assistant's state for the window: the open conversation, what the gramophone is doing, and the list of kept
 // conversations. It lives outside the pane so a reply carries on while the pane is closed.
 //
-// phase: idle | thinking | speaking | tool (the speaker's four looks).
+// phase: idle | thinking | speaking | tool (the gramophone's four looks).
 let state = { open: read() === 'open', info: null, conversation: null, busy: false, phase: 'idle', failure: '' };
 const listeners = new Set();
 const effects = new Set();
+const hearers = new Set();
 let flight = null;
 
 function read() { try { return sessionStorage.getItem('dayjob-assistant'); } catch { return null; } }
@@ -20,6 +21,8 @@ export const useAssistant = () => useSyncExternalStore(subscribe, () => state, (
 // What a finished tool call should set off in the window (a note to a key, a refresh, a page change).
 export function onAssistantEffect(listener) { effects.add(listener); return () => effects.delete(listener); }
 const effect = detail => effects.forEach(listener => listener(detail));
+// Each piece of a reply as it arrives, for the gramophone, which sends out notes as fast as the words come.
+export function onAssistantWords(listener) { hearers.add(listener); return () => hearers.delete(listener); }
 
 const lastTurn = conversation => conversation.turns[conversation.turns.length - 1];
 // The reply being written is the last turn; every change makes a new conversation object for React.
@@ -34,7 +37,11 @@ function writing(change) {
 function handle(event) {
   if (event.type === 'start') set({ conversation: { ...state.conversation, ...event.conversation }, phase: 'thinking' });
   else if (event.type === 'thinking') { if (state.phase !== 'thinking') set({ phase: 'thinking' }); }
-  else if (event.type === 'text') { writing(turn => ({ ...turn, text: turn.text + event.delta })); if (state.phase !== 'speaking') set({ phase: 'speaking' }); }
+  else if (event.type === 'text') {
+    writing(turn => ({ ...turn, text: turn.text + event.delta }));
+    if (state.phase !== 'speaking') set({ phase: 'speaking' });
+    hearers.forEach(listener => listener(event.delta));
+  }
   else if (event.type === 'rewind') writing(turn => ({ ...turn, text: event.text }));
   else if (event.type === 'tool' && event.phase === 'start') {
     writing(turn => ({ ...turn, tools: [...turn.tools, { id: event.id, name: event.name, tier: event.tier, running: true, offset: turn.text.length }] }));

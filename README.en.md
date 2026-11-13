@@ -35,7 +35,7 @@ Day and night each have their own colours: pale blue and warm yellow by day, bro
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
 | Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
 | Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
-| Assistant | A small speaker at the right of the window (the button beside Notifications). Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change it makes can be undone in one click. Conversations are not saved unless you keep or archive one, and any of them can be deleted. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
+| Assistant | A pixel gramophone at the right of the window (the speaker button beside Notifications). Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change it makes can be undone in one click. Conversations are not saved unless you keep or archive one, and any of them can be deleted. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | Day / night | Follows the clock by default (day at 07:00, night at 19:00; change the hours under Settings → Appearance). When the theme changes, the new colours sweep down the page at nightfall and up at daybreak. Next to the time at the top of every page is a day / night switch: click it and the sun rolls over into a moon, the clouds sink and the stars come out one by one. In clock mode a theme picked this way holds until the next change on the clock, then the clock takes over again. Dropdowns, calendars and time pickers follow the theme too. |
 | Opening | When Dayjob opens it plays a short opening of just over a second, one for day and one for night. Day: the icon drops in, today's new jobs (up to 8 cards) fly in from the right and turn into beat bars, hop once and glide into the header's spectrum, and the icon flies to the top left as the logo. Night: a desk lamp comes on, the needle drops, the cards fall along the light as warm bars, and the record player goes back to the bottom left. Click or press any key to skip; it does not play when the window comes back from the tray. Turn it off under Settings → Appearance; it never plays when Windows asks for reduced motion. |
@@ -177,7 +177,7 @@ The arrows show the previous month or let you set next month's goals early. A ne
 
 ## Assistant
 
-The speaker button beside Notifications opens the assistant at the right of the window. It is a small loudspeaker: still when nothing is happening, its cone trembles while it thinks, and it pumps on the beat and sends out rings of sound while it answers. Say what you need in a sentence:
+The speaker button beside Notifications opens the assistant at the right of the window. It is a pixel gramophone: still when nothing is happening; its record turns while it thinks; the crank at its side is wound while it looks something up or makes a change; and while it answers, the horn pulls in and pushes out notes, more of them the faster the words come, each drifting off and fading a few pixels at a time. Say what you need in a sentence:
 
 | Day | Night |
 | --- | --- |
@@ -188,11 +188,11 @@ The speaker button beside Notifications opens the assistant at the right of the 
 - **Look things up**: today's best-scoring new jobs, the fit analysis of one job, which applications need a follow-up, how far you are from this week's goal, what your resume says.
 - **Make changes**: save a job or mark it not interested, record an application (only when you say you applied), update an application's status and notes, create or change a search, start a search, or bring a page or a single job in front of you.
 
-Each thing it does leaves a small line in the reply saying what it was. A line for a change carries **Undo**, which puts things back in one click. If you have changed the same item yourself since, the undo is refused so your own edit is never overwritten. A note also flies from the speaker to that page's key in the sidebar.
+Each thing it does leaves a small line in the reply saying what it was. A line for a change carries **Undo**, which puts things back in one click. If you have changed the same item yourself since, the undo is refused so your own edit is never overwritten. A note also flies from the gramophone's horn to that page's key in the sidebar.
 
 A few things it cannot do, on purpose: it cannot see or use the password vault; it does not fill in or submit application forms or sign in to websites; it cannot delete jobs, applications or searches, change settings, or change a resume (it can read one and suggest wording).
 
-**Conversations are not saved by default**: one is gone when you start a new one or quit Dayjob. To keep one, click **Keep** above it. It is then stored in the local database, and you can continue it from the clock button beside the speaker.
+**Conversations are not saved by default**: one is gone when you start a new one or quit Dayjob. To keep one, click **Keep** above it. It is then stored in the local database, and you can continue it from the clock button in the assistant's header.
 
 Every conversation can be archived or deleted. The buttons are at the right of the strip above the conversation, and on each row of the clock button's list:
 
@@ -258,7 +258,7 @@ Changes made through MCP show as "Claude" on the timeline.
 - Sign in to LinkedIn, Indeed, Handshake or company career sites there. Sign-ins and cookies stay in Dayjob's data on this computer (**Settings → Dayjob browser** clears them).
 - "Open on LinkedIn" and "Company apply page" in a job's details open there; **Open in your browser** at the bottom of the assistant panel opens the page in Chrome or Edge.
 
-The **Browser assistant** panel (not the speaker [Assistant](#assistant) at the right of the window) sits to the right of the page (`»` folds it into a thin strip):
+The **Browser assistant** panel (not the gramophone [Assistant](#assistant) at the right of the window) sits to the right of the page (`»` folds it into a thin strip):
 
 | Part | What it does |
 | --- | --- |

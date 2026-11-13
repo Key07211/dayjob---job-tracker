@@ -23,8 +23,8 @@ export function AssistantSettings({ hasKey }) {
   return (
     <section className="card-section" id="assistant">
       <h2><SpeakerIcon size={18} />{t('助手', 'Assistant')}</h2>
-      <p className="hint">{t('窗口右边那只喇叭。它能查岗位和投递、收藏、记投递、改搜索、开始抓取，改动都可以一键撤销；它碰不到密码保管，也不会替你提交申请。对话默认不保存。',
-        'The speaker at the right of the window. It can look up jobs and applications, save jobs, record applications, change searches and start one, and every change can be undone in one click. It cannot reach the password vault and never submits an application for you. Conversations are not saved unless you keep them.')}</p>
+      <p className="hint">{t('窗口右边那台留声机。它能查岗位和投递、收藏、记投递、改搜索、开始抓取，改动都可以一键撤销；它碰不到密码保管，也不会替你提交申请。对话默认不保存。',
+        'The gramophone at the right of the window. It can look up jobs and applications, save jobs, record applications, change searches and start one, and every change can be undone in one click. It cannot reach the password vault and never submits an application for you. Conversations are not saved unless you keep them.')}</p>
       <div className="option-row">
         <span>{t('引擎', 'Engine')}</span>
         <div className="segmented" role="group" aria-label={t('助手引擎', 'Assistant engine')}>
