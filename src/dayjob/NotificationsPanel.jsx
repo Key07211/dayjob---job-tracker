@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BellRing, CalendarX, Ghost, Sparkles, TriangleAlert, X } from 'lucide-react';
+import { Bell, BellRing, CalendarX, CircleDollarSign, Ghost, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -7,10 +7,10 @@ import { reducedMotion } from './groove/sound.js';
 import { Q, leave } from './groove/fx.js';
 import { BeatLoader } from './groove/BrandMark.jsx';
 
-const ICONS = { daily: Sparkles, scored: Sparkles, 'follow-up': BellRing, ghost: Ghost, 'posting-closed': CalendarX, error: TriangleAlert };
+const ICONS = { daily: Sparkles, scored: Sparkles, 'follow-up': BellRing, ghost: Ghost, 'posting-closed': CalendarX, error: TriangleAlert, spend: CircleDollarSign };
 const TARGET = { daily: 'feed', scored: 'feed', 'follow-up': 'applications', ghost: 'applications', 'posting-closed': 'applications' };
 
-export function NotificationsPanel({ onClose, onChanged, setView }) {
+export function NotificationsPanel({ onClose, onChanged, setView, openItem }) {
   const { t } = useI18n();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -41,7 +41,9 @@ export function NotificationsPanel({ onClose, onChanged, setView }) {
       void onChanged();
     }
     setTimeout(() => {
-      if (TARGET[item.kind]) setView(TARGET[item.kind]);
+      // A notice about an API key's allowance opens Settings at the spending card.
+      if (item.kind === 'spend') openItem('settings', 'api-spend');
+      else if (TARGET[item.kind]) setView(TARGET[item.kind]);
       onClose();
     }, reducedMotion() || item.read ? 0 : Q);
   }
