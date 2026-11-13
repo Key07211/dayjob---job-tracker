@@ -734,8 +734,8 @@ export function SettingsView({ boot, reload, update, focus }) {
         <div className="option-row">
           <span>{t('打开动画', 'Opening')}</span>
           <label className="check-line opening-line"><input type="checkbox" checked={groove.opening} onChange={event => prefs.set({ opening: event.target.checked })} />{t('打开 Dayjob 时放一小段', 'Play a short opening when Dayjob opens')}</label>
-          <small>{t('今天有几个新岗位，就飞进来几张卡片，变成节拍收进页眉；白天、黑夜各一版。点一下或按任意键跳过；系统开了“减少动画”时不放。',
-            'One card flies in for each new job and becomes a beat that settles into the header, in a day and a night version. Click or press any key to skip it; it does not play when Windows asks for less motion.')}</small>
+          <small>{t('三款像素开场：大喇叭播放、文件汇成音浪、文件装进公文包，每次随机放一款。点一下或按任意键跳过；系统开了“减少动画”时不放。',
+            'Three pixel openings (the gramophone plays, sheets become a wave, sheets go into the briefcase), one at random each time. Click or press any key to skip it; it does not play when Windows asks for less motion.')}</small>
         </div>
         <p className="hint">{t('数据库：', 'Database: ')}{boot.dataFile} · Dayjob {boot.version}</p>
         {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
