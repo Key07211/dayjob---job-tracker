@@ -1,4 +1,4 @@
-/* ---------- the assistant: a speaker you talk with, docked at the right edge of the window ---------- */
+/* ---------- the assistant: a gramophone you talk with, docked at the right edge of the window ---------- */
 
 /* The view scrolls on its own beside the pane, the same way it does beside the browser. */
 .main.with-assistant { padding: 0; height: 100vh; display: flex; overflow: hidden; }
@@ -17,35 +17,20 @@
   border: 2px solid var(--side); animation: asst-busy 625ms ease-in-out infinite alternate; }
 @keyframes asst-busy { from { transform: scale(.7); } to { transform: scale(1); } }
 
-/* ---------- the speaker ---------- */
-/* Still unless something is happening: thinking trembles the cone, speaking pumps it on the beat and sends rings out, a tool call is one thump. */
-.speaker { display: inline-block; flex: none; line-height: 0; }
-.speaker svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.sp-foot { fill: var(--line-strong); }
-.sp-cabinet { fill: var(--green-soft); stroke: var(--line-strong); stroke-width: 2.5; }
-.sp-surround { fill: var(--line-strong); }
-.sp-paper { fill: var(--card); }
-.sp-groove { fill: none; stroke: var(--line); stroke-width: 1.5; }
-.sp-cap { fill: var(--good); }
-.sp-lamp { fill: var(--line-strong); transition: fill 156ms; }
-.sp-ring { fill: none; stroke: var(--green); stroke-width: 2; opacity: 0; }
-.sp-cone, .sp-tweeter, .sp-ring { transform-box: fill-box; transform-origin: center; }
-.speaker:not(.idle) .sp-lamp { fill: var(--good); }
-.speaker.thinking .sp-cone { animation: sp-tremble 156ms linear infinite; }
-.speaker.speaking .sp-cone { animation: sp-pump 625ms cubic-bezier(.3, 0, .2, 1) infinite; }
-.speaker.speaking .sp-tweeter { animation: sp-pump 625ms cubic-bezier(.3, 0, .2, 1) -312ms infinite; }
-.speaker.speaking .sp-ring { animation: sp-ring 1250ms cubic-bezier(.2, .6, .3, 1) infinite; }
-.speaker.speaking .sp-ring.r2 { animation-delay: 625ms; }
-.speaker.tool .sp-cone { animation: sp-thump 312ms cubic-bezier(.2, .9, .3, 1.4); }
-@keyframes sp-tremble { 0%, 100% { transform: scale(1); } 25% { transform: scale(1.025) translate(.4px, 0); } 75% { transform: scale(.985) translate(-.4px, 0); } }
-@keyframes sp-pump { 0%, 100% { transform: scale(1); } 18% { transform: scale(1.1); } 55% { transform: scale(.98); } }
-@keyframes sp-thump { 0% { transform: scale(1); } 35% { transform: scale(1.16); } 100% { transform: scale(1); } }
-@keyframes sp-ring { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(2.05); opacity: 0; } }
+/* ---------- the gramophone ---------- */
+/* A pixel drawing on a canvas (Gramophone.jsx). Still unless something is happening: thinking turns the record, a tool
+   call winds the crank, and while it answers the horn pushes notes out as fast as the words come. */
+.gramophone { display: inline-block; flex: none; line-height: 0; --gram-note-a: #34719F; --gram-note-b: #B5760A; }
+:root[data-theme="night"] .gramophone { --gram-note-a: #F2C46D; --gram-note-b: #8FB6D4; }
+.gramophone canvas { display: block; image-rendering: pixelated; }
+/* In the header the canvas lies behind the title, the full width, so the notes can drift along the top edge. */
+.gramophone.strip { position: absolute; left: 0; top: 0; pointer-events: none; }
+.gram-mouth { position: absolute; left: var(--gram-mouth-x, 48px); top: var(--gram-mouth-y, 27px); width: 1px; height: 1px; }
 
 /* ---------- header ---------- */
-.asst-head { display: flex; align-items: center; gap: 6px; padding: 12px 10px 10px 14px; }
-.asst-head .speaker { margin-right: 4px; }
-.asst-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
+/* The gramophone gives its size (--gram-w, --gram-h): the title and the buttons sit beside it, along the bottom. */
+.asst-head { position: relative; flex: none; display: flex; align-items: flex-end; gap: 6px; height: var(--gram-h, 80px); padding: 0 10px 9px calc(var(--gram-w, 84px) + 6px); }
+.asst-title { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
 .asst-title strong { font-size: 15px; }
 .asst-title small, .asst-engine { font-size: 12px; color: var(--muted); }
 .asst-engine:hover { color: var(--green); text-decoration: underline; }
@@ -131,6 +116,6 @@
 .asst-send.stop, .asst-send.stop:hover { background: var(--text); color: var(--card); }
 
 @media (prefers-reduced-motion: reduce) {
-  .speaker .sp-cone, .speaker .sp-tweeter, .speaker .sp-ring, .asst-dots b, .assistant-toggle.busy::after { animation: none !important; }
-  .assistant-toggle, .asst-compose, .asst-send, .sp-lamp, .asst-history-fold svg { transition: none; }
+  .asst-dots b, .assistant-toggle.busy::after { animation: none !important; }
+  .assistant-toggle, .asst-compose, .asst-send, .asst-history-fold svg { transition: none; }
 }

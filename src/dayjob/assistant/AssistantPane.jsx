@@ -4,7 +4,7 @@ import { useI18n } from '../../i18n.jsx';
 import { relativeDay } from '../format.js';
 import { Markdown } from '../Markdown.jsx';
 import { serverText } from '../server-text.js';
-import { Speaker } from './Speaker.jsx';
+import { Gramophone } from './Gramophone.jsx';
 import { assistant, useAssistant } from './store.js';
 
 const ENGINE_NAMES = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API' };
@@ -138,7 +138,7 @@ function HistoryList({ kept, currentId, onPick }) {
   );
 }
 
-// The assistant, docked at the right edge of the window: a speaker you talk with.
+// The assistant, docked at the right edge of the window: a gramophone you talk with.
 export function AssistantPane({ onClose, openItem }) {
   const { t } = useI18n();
   const { info, conversation, busy, phase, failure } = useAssistant();
@@ -187,7 +187,7 @@ export function AssistantPane({ onClose, openItem }) {
   return (
     <aside className="assistant-pane" aria-label={t('助手', 'Assistant')}>
       <header className="asst-head">
-        <Speaker phase={phase} size={44} label={t('助手喇叭', 'Assistant speaker')} />
+        <Gramophone phase={phase} strip label={t('助手留声机', 'Assistant gramophone')} />
         <div className="asst-title">
           <strong>{t('助手', 'Assistant')}</strong>
           {phase === 'idle' && engine
@@ -225,7 +225,7 @@ export function AssistantPane({ onClose, openItem }) {
           ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
           : <Reply key={index} turn={turn} busy={busy} />)) : (
           <div className="asst-empty">
-            <Speaker phase={phase} size={92} label={t('助手喇叭', 'Assistant speaker')} />
+            <Gramophone scale={3} label={t('助手留声机', 'Assistant gramophone')} />
             <h2>{t('有事直接说', 'Just say it')}</h2>
             <p>{t('查岗位、记一笔投递、改搜索条件、开始抓取，都可以用一句话交给我。我改动的每一处都能一键撤销。', 'Look up jobs, record an application, change a search or start one: say it in a sentence. Every change I make can be undone in one click.')}</p>
             <div className="asst-starters">
