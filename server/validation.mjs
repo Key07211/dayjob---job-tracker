@@ -4,6 +4,7 @@ import { HttpError } from './http.mjs';
 import { SITE_IDS } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
 import { API_SERVICES, APPLICATION_STATUSES, POSTING_STATUSES, SCORE_MODES } from './jobs/repository.mjs';
+import { WORKSPACE_ID } from './jobs/scoring/anthropic-key.mjs';
 import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
 import { APPLICANT_FIELDS, EDUCATION_FIELDS, EXPERIENCE_FIELDS, LINK_FIELDS, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from './jobs/applicant.mjs';
@@ -175,6 +176,7 @@ export function settingsPatch(input) {
 // The API key never leaves the server; the interface only learns whether one is set.
 // A new key needs its service and the key; a change takes a name, a new key
 // or active: true (which key is in use; it is given up by choosing another).
+// workspace: only a Claude key that works in every workspace has one; '' takes it off.
 export function apiKeyInput(input, { partial = false } = {}) {
   const out = {};
   if (!partial) out.service = oneOf(input.service, API_SERVICES, 'Service');
@@ -182,6 +184,10 @@ export function apiKeyInput(input, { partial = false } = {}) {
   if (has(input, 'key') || !partial) {
     out.key = text(input.key, 'API key', { min: 1, max: 400 });
     if (/\s/.test(out.key)) fail('An API key has no spaces in it.');
+  }
+  if (has(input, 'workspace') && (partial || out.service === 'anthropic')) {
+    out.workspace = text(input.workspace, 'Workspace ID', { max: 90, optional: true });
+    if (out.workspace && !WORKSPACE_ID.test(out.workspace)) fail('A workspace ID starts with wrkspc_. Copy it from the ID column of the Workspaces page in the Claude Console.');
   }
   if (partial && has(input, 'active')) {
     if (input.active !== true) fail('Choose another key to use instead.');
@@ -196,7 +202,7 @@ export function apiKeyInput(input, { partial = false } = {}) {
       out.allowance = { kind: oneOf(input.allowance.kind ?? 'balance', ['balance', 'monthly'], 'Allowance'), amount: Math.round(amount * 100) / 100 };
     }
   }
-  if (!Object.keys(out).length) fail('Provide a name, a key, active or an allowance.');
+  if (!Object.keys(out).length) fail('Provide a name, a key, a workspace, active or an allowance.');
   return out;
 }
 
@@ -206,7 +212,7 @@ export const publicApiKey = ({ key, ...entry }) => ({ ...entry, hint: keyHint(St
 
 // What the interface and MCP see: no key ever comes back in settings.
 export function publicSettings(settings) {
-  const { apiKey, openaiApiKey, ...ai } = settings.ai;
+  const { apiKey, openaiApiKey, workspace, ...ai } = settings.ai;
   return { ...settings, apiKeys: (settings.apiKeys || []).map(publicApiKey),
     ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY),
       hasOpenaiApiKey: Boolean(openaiApiKey), openaiKeyFromEnv: !openaiApiKey && Boolean(process.env.OPENAI_API_KEY) } };

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Archive, ArchiveRestore, ArrowUp, Check, ChevronRight, Globe, History, Maximize2, PanelRight, Pin, PinOff, Search, ShieldCheck, Square, SquarePen, Trash2, TriangleAlert, Undo2, X, Zap } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { relativeDay } from '../format.js';
@@ -11,8 +11,11 @@ import { Gramophone } from './Gramophone.jsx';
 import { assistant, useAssistant } from './store.js';
 
 const desktopBrowser = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
+// In a short window the gramophones are drawn one size smaller, so the conversation keeps the room.
+const SHORT_WINDOW = '(max-height: 760px)';
+const watchShort = notify => { const query = window.matchMedia(SHORT_WINDOW); query.addEventListener('change', notify); return () => query.removeEventListener('change', notify); };
+const useShortWindow = () => useSyncExternalStore(watchShort, () => window.matchMedia(SHORT_WINDOW).matches, () => false);
 
-const ENGINE_NAMES = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API' };
 const STARTERS = [
   ['今天有哪些高分的新岗位？', 'Which new jobs score highest today?'],
   ['哪些投递该跟进了？', 'Which applications need a follow-up?'],
@@ -22,7 +25,9 @@ const APPLY_STARTER = ['帮我投今天分数最高的那个岗位', 'Apply to t
 // What went wrong, in the user's language; anything not listed shows the server's own words.
 const ERRORS = {
   'no-key': ['还没有可用的 Anthropic API key。到“设置”的 API key 里添加一个，或者把助手换成用 Claude Code。', 'There is no Anthropic API key yet. Add one under API key in Settings, or switch the assistant to Claude Code.'],
-  'bad-key': ['这个 Anthropic API key 被拒绝了，请到“设置”的 API key 里检查。', 'The Anthropic API key was rejected. Check it under API key in Settings.'],
+  'bad-key': ['这个 Anthropic API key 被拒绝了：可能填错了，或者已经停用、删除或过期。请到“设置”的 API key 里检查。', 'The Anthropic API key was rejected: it may be mistyped, disabled, deleted or expired. Check it under API key in Settings.'],
+  'needs-workspace': ['这把 Anthropic API key 可在各个工作区使用，需要一个工作区 ID。到“设置”的 API key 里，点这把 key 旁边的“检查”。', 'This Anthropic API key works in every workspace, so it needs a workspace ID. Press Check beside the key under API key in Settings.'],
+  'bad-workspace': ['和 Anthropic API key 一起保存的工作区 ID 没有被接受。请到“设置”的 API key 里检查。', 'The workspace ID saved with the Anthropic API key was not accepted. Check it under API key in Settings.'],
   'rate-limit': ['Claude API 现在限流，稍等一会儿再试。', 'The Claude API is rate limiting requests. Try again in a moment.'],
   offline: ['连不上 Claude API，请检查网络。', 'Could not reach the Claude API. Check the network connection.'],
   refusal: ['Claude 没有接这个请求。', 'Claude declined this request.'],
@@ -248,6 +253,7 @@ function HistoryList({ kept, currentId, onPick }) {
 export function AssistantPane({ form = 'side', onForm, onClose, openItem, browser = null }) {
   const { t } = useI18n();
   const { info, conversation, busy, phase, failure, draft } = useAssistant();
+  const short = useShortWindow();
   const [showHistory, setShowHistory] = useState(false);
   const scroller = useRef(null);
   const field = useRef(null);
@@ -293,8 +299,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
   }
   const pick = id => { setShowHistory(false); pinned.current = true; void assistant.openKept(id); };
   const fresh = () => { setShowHistory(false); void assistant.reset(); };
-  const status = approval ? t('等你确认', 'Waiting for you') : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…')
-    : engine ? ENGINE_NAMES[engine] : '';
+  const status = approval ? t('等你确认', 'Waiting for you') : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : '';
   const starters = info?.browser ? [...STARTERS, APPLY_STARTER] : STARTERS;
 
   return (
@@ -308,12 +313,10 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
       ) : null}
       <div className="asst-main">
         <header className="asst-head">
-          <Gramophone key={full ? 'full' : 'side'} phase={phase} scale={full ? 3 : 2} strip label={t('助手留声机', 'Assistant gramophone')} />
+          <Gramophone key={full && !short ? 'full' : 'side'} phase={phase} scale={full && !short ? 3 : 2} strip label={t('助手留声机', 'Assistant gramophone')} />
           <div className="asst-title">
             <strong>{t('助手', 'Assistant')}</strong>
-            {phase === 'idle' && engine && !approval
-              ? <button type="button" className="asst-engine" title={t('在设置里换引擎', 'Change the engine in Settings')} onClick={() => openItem('settings', 'assistant')}>{status}</button>
-              : <small aria-live="polite">{status}</small>}
+            <small aria-live="polite">{status}</small>
           </div>
           <button type="button" className="icon-button asst-new" title={t('新对话', 'New conversation')} aria-label={t('新对话', 'New conversation')} disabled={!turns.length} onClick={fresh}><SquarePen size={17} /></button>
           <button type="button" className={`icon-button asst-history-toggle${showHistory ? ' on' : ''}`} title={t('保留的对话', 'Kept conversations')} aria-label={t('保留的对话', 'Kept conversations')} aria-expanded={showHistory}
@@ -349,8 +352,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
             ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
             : <Reply key={index} turn={turn} busy={busy} />)) : (
             <div className="asst-empty">
-              <Gramophone scale={3} label={t('助手留声机', 'Assistant gramophone')} />
-              <h2>{t('有事直接说', 'Just say it')}</h2>
+              <Gramophone key={short ? 'short' : 'tall'} scale={short ? 2 : 3} label={t('助手留声机', 'Assistant gramophone')} />
               <p>{info?.browser
                 ? t('查岗位、记一笔投递、改搜索条件，或者让我替你投一个岗位：我在 Dayjob 的浏览器里打开投递页、填表、附上合适的简历、写求职信。提交之前先问你，除非你把下面的开关拨到“全权接管”。',
                   'Look up jobs, record an application, change a search, or have me apply to a job for you: I open the application page in the Dayjob browser, fill in the form, attach the resume that fits and write the cover letter. I ask before anything is sent, unless you set the switch below to full takeover.')

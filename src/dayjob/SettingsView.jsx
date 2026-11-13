@@ -75,12 +75,23 @@ function ClaudeConnection() {
 // A saved key stays hidden behind a few of its characters until the eye is clicked.
 const KEY_SERVICES = { anthropic: ['Claude API', 'sk-ant-…'], openai: ['OpenAI API', 'sk-…'] };
 const MAX_API_KEYS = 12;
+const WORKSPACES_PAGE = 'https://platform.claude.com/settings/workspaces';
+// What asking the Claude API about a key came back with. A key made for one workspace just works;
+// one that works in every workspace has to be told which one to run in.
+const KEY_CHECKS = {
+  'bad-key': ['这把 key 被拒绝了：可能填错了，或者已经停用、删除或过期。', 'This key was rejected: it may be mistyped, disabled, deleted or expired.'],
+  'needs-workspace': ['这把 key 可在各个工作区使用，要告诉 Dayjob 用哪一个工作区。', 'This key works in every workspace, so Dayjob needs to know which workspace to use.'],
+  'bad-workspace': ['这把 key 用不了下面这个工作区，换一个。', 'This key cannot use the workspace below. Choose another.'],
+  offline: ['连不上 Claude API，没能检查。', 'Could not reach the Claude API to check.'],
+};
 
-function ApiKeyRow({ entry, onDone, onCancel }) {
+function ApiKeyRow({ entry, check, onCheck, onDone, onCancel }) {
   const { t } = useI18n();
   const row = useRef(null);
   const [service, setService] = useState(entry?.service || 'anthropic');
   const [name, setName] = useState(entry?.name || '');
+  const [workspace, setWorkspace] = useState(entry?.workspace || '');
+  useEffect(() => { setWorkspace(entry?.workspace || ''); }, [entry?.workspace]);
   // typed: null until the field is edited. shown: the saved key, held only while it is on screen.
   const [typed, setTyped] = useState(null);
   const [shown, setShown] = useState(null);
@@ -90,7 +101,11 @@ function ApiKeyRow({ entry, onDone, onCancel }) {
   const [saved, flashSaved] = useSaved();
   useEffect(() => { if (!entry) unfold(row.current); }, [entry]);
   const key = (typed ?? '').trim();
-  const dirty = Boolean(key) || (entry ? name.trim() !== entry.name : false);
+  const newWorkspace = entry && workspace.trim() !== (entry.workspace || '');
+  const dirty = Boolean(key) || (entry ? name.trim() !== entry.name || newWorkspace : false);
+  const claude = entry?.service === 'anthropic';
+  const found = check?.workspaces || [];
+  const wantsWorkspace = check?.state === 'needs-workspace' || check?.state === 'bad-workspace';
 
   async function toggleShow() {
     setError('');
@@ -107,14 +122,16 @@ function ApiKeyRow({ entry, onDone, onCancel }) {
     setBusy(true);
     setError('');
     try {
-      if (entry) await api(`/api/keys/${entry.id}`, { method: 'PATCH', body: { ...(name.trim() !== entry.name ? { name } : {}), ...(key ? { key } : {}) } });
-      else await api('/api/keys', { method: 'POST', body: { service, name, key } });
+      let added = null;
+      if (entry) await api(`/api/keys/${entry.id}`, { method: 'PATCH', body: { ...(name.trim() !== entry.name ? { name } : {}), ...(key ? { key } : {}), ...(newWorkspace ? { workspace: workspace.trim() } : {}) } });
+      else added = await api('/api/keys', { method: 'POST', body: { service, name, key } });
       if (entry) {
         if (key && show) setShown(key);
         setTyped(null);
         flashSaved();
       }
-      await onDone();
+      // A new Claude key, a changed one, or one given another workspace is asked about straight away.
+      await onDone(added ? { id: added.id, check: service === 'anthropic' } : { id: entry.id, check: claude && (Boolean(key) || newWorkspace) });
     } catch (failure) {
       setError(failure.message);
       shake(row.current);
@@ -150,10 +167,35 @@ function ApiKeyRow({ entry, onDone, onCancel }) {
         <label className={`key-use${entry.active ? ' on' : ''}`}><input type="radio" name={`key-in-use-${entry.service}`} checked={entry.active} onChange={use} />{entry.active ? t('使用中', 'In use') : t('用这个', 'Use this')}</label>
       ) : <span />}
       <span className="key-actions">
-        {dirty || saved || !entry ? <button type="submit" className="button small primary" disabled={busy || !dirty}><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button> : null}
+        {dirty || saved || !entry ? <button type="submit" className="button small primary" disabled={busy || !dirty}><SavedLabel saved={saved}>{t('保存', 'Save')}</SavedLabel></button>
+          : claude ? <button type="button" className="button small" disabled={check?.state === 'busy'} onClick={() => onCheck(entry.id)}
+            title={t('问一下 Claude API 这把 key 能不能用。不花钱。', 'Ask the Claude API whether this key can be used. It costs nothing.')}>{check?.state === 'busy' ? t('检查中…', 'Checking…') : t('检查', 'Check')}</button> : null}
         {entry ? <button type="button" className="icon-button" title={t('删除这个 key', 'Delete this key')} onClick={remove}><Trash2 size={14} /></button>
           : <button type="button" className="icon-button" title={t('取消', 'Cancel')} onClick={onCancel}><X size={14} /></button>}
       </span>
+      {claude && (entry.workspace || wantsWorkspace || newWorkspace) ? (
+        <div className="key-extra">
+          {wantsWorkspace ? <p className="key-check warn">{t(...KEY_CHECKS[check.state])}</p> : null}
+          <label>{t('工作区', 'Workspace')}
+            {found.length > 1 ? (
+              <Select value={found.some(item => item.id === workspace) ? workspace : ''} onChange={event => setWorkspace(event.target.value)} aria-label={t('工作区', 'Workspace')}>
+                <option value="">{t('选一个…', 'Choose one…')}</option>
+                {found.map(item => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
+              </Select>
+            ) : null}
+            <input value={workspace} onChange={event => setWorkspace(event.target.value)} placeholder="wrkspc_…" maxLength={90} spellCheck={false} aria-label={t('工作区 ID', 'Workspace ID')} />
+          </label>
+          <span className="hint">{t('工作区 ID 在 Claude Console 的 Workspaces 页，ID 那一栏。只限一个工作区的 key 不用填。', 'The workspace ID is in the ID column of the Workspaces page in the Claude Console. A key made for one workspace needs none.')}
+            <a className="link" href={WORKSPACES_PAGE} target="_blank" rel="noreferrer">{t('打开 Workspaces 页', 'Open the Workspaces page')}</a></span>
+        </div>
+      ) : null}
+      {claude && check && !wantsWorkspace && check.state !== 'busy' ? (
+        <p className={`key-check${check.state === 'ok' ? ' ok' : check.state === 'bad-key' ? ' bad' : ''}`}>
+          {check.state === 'ok' ? <><CheckCircle2 size={14} />{check.filled ? t(`可以用。已自动填好工作区“${check.filled.name || check.filled.id}”。`, `This key works. Its workspace, ${check.filled.name || check.filled.id}, was filled in for you.`) : t('这把 key 可以用。', 'This key works.')}</>
+            : KEY_CHECKS[check.state] ? t(...KEY_CHECKS[check.state])
+              : t(`没能检查：${serverText(check.detail || '')}`, `Could not check: ${check.detail || ''}`)}
+        </p>
+      ) : null}
       {error ? <p className="notice error">{error}</p> : null}
     </form>
   );
@@ -167,6 +209,17 @@ function ApiKeys({ boot, reload }) {
   const { ai } = boot.settings;
   const fromEnv = [ai.apiKeyFromEnv && 'ANTHROPIC_API_KEY', ai.openaiKeyFromEnv && 'OPENAI_API_KEY'].filter(Boolean);
   const drop = id => setDrafts(list => list.filter(item => item !== id));
+  // id -> what the Claude API said about that key the last time it was asked.
+  const [checks, setChecks] = useState({});
+  async function check(id) {
+    setChecks(all => ({ ...all, [id]: { state: 'busy' } }));
+    try {
+      const { check: result } = await api(`/api/keys/${id}/check`, { method: 'POST' });
+      setChecks(all => ({ ...all, [id]: result }));
+      if (result.filled) await reload();
+    } catch (failure) { setChecks(all => ({ ...all, [id]: { state: 'error', detail: failure.message } })); }
+  }
+  const done = async change => { await reload(); if (change?.check) void check(change.id); };
   return (
     <section className="card-section" id="api-keys">
       <h2><KeySquare size={18} />API key</h2>
@@ -174,8 +227,8 @@ function ApiKeys({ boot, reload }) {
         'Keys for the Claude API and the OpenAI API. Keep several and add one with the plus button; each service uses the one marked "In use". A key stays hidden until you click the eye. They are stored only in the Dayjob database on this computer.')}</p>
       {keys.length || drafts.length ? (
         <div className="key-list">
-          {keys.map(entry => <ApiKeyRow key={entry.id} entry={entry} onDone={reload} />)}
-          {drafts.map(id => <ApiKeyRow key={`draft-${id}`} onDone={async () => { await reload(); drop(id); }} onCancel={() => drop(id)} />)}
+          {keys.map(entry => <ApiKeyRow key={entry.id} entry={entry} check={checks[entry.id]} onCheck={check} onDone={done} />)}
+          {drafts.map(id => <ApiKeyRow key={`draft-${id}`} onDone={async change => { await done(change); drop(id); }} onCancel={() => drop(id)} />)}
         </div>
       ) : <p className="hint">{t('还没有 key。', 'No keys yet.')}</p>}
       {fromEnv.length ? <p className="hint">{t(`没有填的服务正在使用环境变量 ${fromEnv.join('、')}。`, `With no key filled in, ${fromEnv.join(' and ')} from the environment ${fromEnv.length > 1 ? 'are' : 'is'} used.`)}</p> : null}

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { apiDetail, clientOptions, keyInUse, keyProblem, keyProblemText } from '../jobs/scoring/anthropic-key.mjs';
 import { modelFor, modelInfo } from '../jobs/scoring/models.mjs';
 import { AssistantError } from './prompt.mjs';
 
@@ -11,23 +12,23 @@ const NO_USAGE = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, c
 export function createApiEngine({ getSettings, createClient = options => new Anthropic(options), maxRounds = 80 }) {
   // conversation id -> the messages sent so far, exactly as the API returned them (thinking blocks included).
   const sessions = new Map();
-  const key = () => getSettings().ai.apiKey || process.env.ANTHROPIC_API_KEY || '';
+  const key = () => keyInUse(getSettings().ai);
 
   return {
     id: 'anthropic-api',
     async status() {
-      return key() ? { available: true, detail: 'Claude API' } : { available: false, detail: 'Add an Anthropic API key in Settings.' };
+      return key().apiKey ? { available: true, detail: 'Claude API' } : { available: false, detail: 'Add an Anthropic API key in Settings.' };
     },
     live: id => sessions.has(id),
     close(id) { sessions.delete(id); },
     closeAll() { sessions.clear(); },
     async send({ id, text, system, model: wanted, tools, callTool, onText, onThinking, onRound, onDiscard, signal }) {
-      const apiKey = key();
-      if (!apiKey) throw new AssistantError('no-key', 'Add an Anthropic API key in Settings.');
+      const using = key();
+      if (!using.apiKey) throw new AssistantError('no-key', 'Add an Anthropic API key in Settings.');
       const model = modelFor('anthropic-api', wanted);
       // Every current Claude model thinks adaptively; the oldest ones in the list take no thinking setting at all.
       const adaptive = modelInfo('anthropic-api', model)?.efforts.length !== 0;
-      const client = createClient({ apiKey, maxRetries: 2, timeout: 10 * 60 * 1000 });
+      const client = createClient(clientOptions(using, { maxRetries: 2, timeout: 10 * 60 * 1000 }));
       const session = sessions.get(id) || { messages: [] };
       sessions.set(id, session);
       const base = session.messages.length;
@@ -93,10 +94,10 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
         if (session.messages.length === base + 1) session.messages.length = base;
         if (!session.messages.length) sessions.delete(id);
         if (signal?.aborted || error instanceof AssistantError) throw error;
-        if (error instanceof Anthropic.AuthenticationError) throw new AssistantError('bad-key', 'The Anthropic API key was rejected.');
+        if (keyProblem(error)) throw new AssistantError(keyProblem(error), keyProblemText(keyProblem(error)));
         if (error instanceof Anthropic.RateLimitError) throw new AssistantError('rate-limit', 'The Claude API is rate limiting requests. Try again in a moment.');
         if (error instanceof Anthropic.APIConnectionError) throw new AssistantError('offline', 'Could not reach the Claude API. Check the network connection.');
-        if (error instanceof Anthropic.APIError) throw new AssistantError('api', `Claude API error ${error.status}: ${error.message}`);
+        if (error instanceof Anthropic.APIError) throw new AssistantError('api', `Claude API error ${error.status}: ${apiDetail(error)}`);
         throw error;
       }
     },
