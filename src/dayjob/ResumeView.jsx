@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, FileUp, LoaderCircle, Plus, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { CheckCircle2, Download, FileUp, LoaderCircle, Paperclip, Plus, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { api } from '../api.js';
 import { formatTime, usd } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -25,6 +25,7 @@ function toBase64(file, failed) {
 }
 
 const MAX_RESUMES = 3;
+const RESUME_TYPES = '.pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain';
 
 function Resumes({ resumes, reload }) {
   const { t } = useI18n();
@@ -52,6 +53,31 @@ function Resumes({ resumes, reload }) {
       cue('done');
     } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); if (input.current) input.current.value = ''; }
   }
+  // The file for a resume that has only its text (saved before files were kept). One that reads as a different
+  // resume is kept only when the user says so: the text, and with it every score, stays as it was.
+  const fileInput = useRef(null);
+  const fileFor = useRef(null);
+  const [adding, setAdding] = useState(null);
+  async function addFile(file) {
+    const resume = fileFor.current;
+    if (fileInput.current) fileInput.current.value = '';
+    if (!file || !resume) return;
+    setError('');
+    if (file.size > MAX_BYTES) { setError(t('文件超过 8 MB。', 'The file is larger than 8 MB.')); return; }
+    setAdding(resume.id);
+    try {
+      const body = { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) };
+      try { await api(`/api/resumes/${resume.id}/file`, { method: 'POST', body }); }
+      catch (failure) {
+        if (failure.status !== 409) throw failure;
+        if (!window.confirm(t(`“${file.name}”读出来的内容和“${resume.name}”保存的文字差别很大，可能不是同一份简历。仍然把它作为这份简历的原件吗？（打分用的文字不会变。）`,
+          `“${file.name}” reads quite differently from the text saved for “${resume.name}”, so it may be another resume. Keep it as this resume's file anyway? (The text used for scoring stays as it is.)`))) return;
+        await api(`/api/resumes/${resume.id}/file`, { method: 'POST', body: { ...body, force: true } });
+      }
+      await reload();
+      cue('done');
+    } catch (failure) { setError(serverText(failure.message)); } finally { setAdding(null); }
+  }
   // The resume shrinks away and the others move up; it comes back if the delete fails.
   async function remove(resume, row) {
     if (!window.confirm(t(`删除简历“${resume.name}”？基于它的打分也会删除，相关岗位会改用其他简历。`, `Delete the resume “${resume.name}”? Scores based on it are deleted too, and its jobs move to your other resumes.`))) return;
@@ -63,8 +89,8 @@ function Resumes({ resumes, reload }) {
   return (
     <section className="card-section">
       <h2>{t(`简历（${resumes.length}/${MAX_RESUMES}）`, `Resumes (${resumes.length}/${MAX_RESUMES})`)}</h2>
-      <p className="hint">{t('最多 3 份，比如分别针对数据分析和软件工程。打分时，Dayjob 会给每个岗位自动选关键词重合度最高的那份简历。支持 PDF、Word（.docx）和纯文本；只保存提取出的文字，不保存原文件，数据只在本机。',
-        'Up to 3, for example one for data roles and one for software roles. Each job is scored against the resume that shares the most keywords with it. PDF, Word (.docx) or plain text; Dayjob keeps only the extracted text, never the file, and only on this computer.')}</p>
+      <p className="hint">{t('最多 3 份，比如分别针对数据分析和软件工程。Dayjob 会给每个岗位自动选关键词重合度最高的那份简历：打分用它的文字，投递时把它的原件附到申请表里。支持 PDF、Word（.docx）和纯文本；文字和原件都只保存在本机。',
+        'Up to 3, for example one for data roles and one for software roles. Each job gets the resume that shares the most keywords with it: its text is what the job is scored against, and its file is what goes into the application form. PDF, Word (.docx) or plain text; the text and the file are kept on this computer only.')}</p>
       {full ? <p className="notice">{t('已经有 3 份简历。删除一份后才能再上传。', 'You have 3 resumes. Delete one to upload another.')}</p> : (
         <div className={`dropzone${dragging ? ' dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files[0]); }}>
@@ -72,16 +98,24 @@ function Resumes({ resumes, reload }) {
             : arrived ? <CheckCircle2 size={24} className="pop-in ok-icon" /> : <FileUp size={24} />}
           <p>{busy ? t('正在读取简历…', 'Reading your resume…') : t('把简历拖到这里，或', 'Drop a resume here, or')}</p>
           <button className="button" data-fx="press" onClick={() => input.current?.click()} disabled={busy}>{t('选择文件', 'Choose a file')}</button>
-          <input ref={input} type="file" hidden accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-            onChange={event => upload(event.target.files[0])} />
+          <input ref={input} type="file" hidden accept={RESUME_TYPES} onChange={event => upload(event.target.files[0])} />
         </div>
       )}
       {error ? <p className="notice error">{error}</p> : null}
+      <input ref={fileInput} type="file" hidden accept={RESUME_TYPES} onChange={event => addFile(event.target.files[0])} />
       {resumes.length ? (
         <ul className="resume-list">
           {resumes.map(resume => (
             <li key={resume.id} className={arrived === resume.id ? 'dropped' : undefined}>
               <div><strong>{resume.name}</strong><span>{formatTime(resume.uploadedAt)} · {t(`${resume.characters.toLocaleString()} 字符`, `${resume.characters.toLocaleString()} characters`)}</span>
+                {resume.hasFile ? (
+                  <span className="resume-file"><Paperclip size={13} />{t('原件已保存，投递时可以直接附上', 'The file is kept and can be attached to applications')}
+                    <a className="link" href={`/api/resumes/${resume.id}/file`} download={resume.name}><Download size={13} />{t('下载', 'Download')}</a></span>
+                ) : (
+                  <span className="resume-file missing">{t('只有文字，没有原件，所以还不能附到申请表里。', 'Only the text is kept, so it cannot be attached to applications yet.')}
+                    <button className="link" disabled={adding === resume.id} onClick={() => { fileFor.current = resume; fileInput.current?.click(); }}>
+                      {adding === resume.id ? <LoaderCircle size={13} className="spin" /> : <FileUp size={13} />}{t('补上原件', 'Add the file')}</button></span>
+                )}
                 <details className="resume-preview"><summary>{t('查看提取出的文字（前 600 字）', 'Show the extracted text (first 600 characters)')}</summary><pre>{resume.preview}</pre></details>
               </div>
               <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(resume, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
@@ -494,8 +528,8 @@ function ApplicantProfile({ boot, reload, focused }) {
   return (
     <form className="card-section" id="applicant" ref={card} onSubmit={save}>
       <h2><UserRound size={18} />{t('申请资料', 'Application profile')}</h2>
-      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。只保存在这台电脑上；上传简历和提交前的检查始终由你来。',
-        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. They stay on this computer; uploading your resume and the final check are always yours.')}</p>
+      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。申请表有简历栏时，会一并附上和岗位最匹配的那份简历的原件。只保存在这台电脑上；提交前的检查始终由你来。',
+        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. When the form has a resume field, the file of the resume that fits the job goes in with them. They stay on this computer; the final check is always yours.')}</p>
       {PROFILE_GROUPS.map(group)}
       <ProfileEntries kind="education" items={form.education} setItems={setList('education')} inputs={EDUCATION_INPUTS} blank={EMPTY_EDUCATION} max={MAX_EDUCATION}
         legend={t('教育经历', 'Education')} addText={t('添加教育经历', 'Add a school')} />

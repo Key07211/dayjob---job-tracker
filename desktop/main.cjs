@@ -133,7 +133,9 @@ function setupIpc() {
   handle('dayjob:browser-answer', (id, allowed) => browser.answer(String(id), allowed === true));
   handle('dayjob:browser-agent-control', value => browser.setAgentControl(value === true));
   handle('dayjob:browser-auto-submit', value => browser.setAutoSubmit(value === true));
-  handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true }));
+  handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true, resume: options?.resume }));
+  handle('dayjob:browser-resume-for', choice => browser.resumeFor(choice));
+  handle('dayjob:browser-upload-resume', choice => browser.uploadResume(choice));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
   handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
@@ -260,9 +262,13 @@ async function createWindow() {
     else app.quit();
   });
 
+  // Run from source on Linux with no keyring, there would be no vault to try out: Electron's built-in key stands in.
+  // It changes nothing on Windows and macOS, and an installed Dayjob never asks for it.
+  if (!app.isPackaged && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);
   vault = createVault({ file: path.join(profileDir, 'vault.json'), safeStorage });
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
+    resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -310,6 +316,19 @@ const APPLY_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta char
 const EMBED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head>
 <body><label>Phone <input name="phone" type="tel"></label> <label>LinkedIn profile <input name="linkedin" required></label> <label>Desired salary <input name="salary"></label></body></html>`;
 
+// An application form that takes files: a cover letter on the page, and the resume inside the form embedded from
+// another site, in a field hidden behind a button (as most application forms have it). The embedded page writes
+// down what it was handed.
+const UPLOAD_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Upload · Smoke Co</title></head>
+<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get"><label>First name <input name="first"></label>
+<div><label for="cover">Cover letter</label> <input id="cover" name="cover_letter" type="file"></div></form>
+<iframe src="http://127.0.0.1:${embedPort}/embed-upload" width="500" height="200"></iframe></body></html>`;
+const EMBED_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded upload</title></head>
+<body><div><div>Resume/CV *</div><button type="button" onclick="document.getElementById('file').click()">Attach</button>
+<input id="file" name="resume" type="file" accept=".pdf,.docx,.txt" style="display:none"><p id="got"></p></div>
+<script>document.getElementById('file').addEventListener('change', async event => { const file = event.target.files[0];
+document.getElementById('got').textContent = file ? file.name + '|' + file.size + '|' + (await file.text()).slice(0, 24) : 'none'; });</script></body></html>`;
+
 // A login form and a sign-up form, for the password vault. Signing in posts,
 // so the password never shows in an address.
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
@@ -336,9 +355,9 @@ async function until(check, ms) {
 
 async function smokeBrowser(token) {
   const escape = value => String(value ?? '').replace(/[<>&"]/g, character => `&#${character.charCodeAt(0)};`);
-  const embed = http.createServer((_request, response) => {
+  const embed = http.createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(EMBED_PAGE);
+    response.end(request.url.startsWith('/embed-upload') ? EMBED_UPLOAD_PAGE : EMBED_PAGE);
   });
   await new Promise(resolve => embed.listen(0, '127.0.0.1', resolve));
   const site = http.createServer((request, response) => {
@@ -358,6 +377,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
+    if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
       ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
@@ -415,6 +435,29 @@ async function smokeBrowser(token) {
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
     const clicked = await call('click', { ref: job.elements.find(item => item.name === 'Submit application').ref });
     steps.autoAllowed = /Auto-submit is on/.test(clicked.note || '') && clicked.page.url.startsWith(`${base}/submitted?name=Auto+Submit`);
+
+    // 上传简历: Dayjob keeps a resume's own file and puts it into the form's resume field, here a hidden one in a
+    // form embedded from another site; the cover letter field is left alone, and a field that has a file is not
+    // given another.
+    const resumeText = `Smoke Tester\nData analyst: SQL, Python, dashboards and experiments.\n${'Built weekly reporting for the growth team and kept it running. '.repeat(4)}`;
+    const send = (route, method, body) => fetch(`${origin}${route}`, { method, body: JSON.stringify(body || {}), headers: { 'Content-Type': 'application/json', 'X-Dayjob-Token': token } });
+    const kept = await (await send('/api/resumes', 'POST', { name: 'Smoke Resume.txt', mime: 'text/plain', data: Buffer.from(resumeText).toString('base64') })).json();
+    await call('open', { url: `${base}/upload` });
+    const uploaded = await call('upload');
+    const uploadPage = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/upload`)).webContents;
+    const embedded = uploadPage.mainFrame.framesInSubtree.find(frame => frame.url.includes('/embed-upload'));
+    const expected = `Smoke Resume.txt|${Buffer.byteLength(resumeText)}|${resumeText.slice(0, 24)}`;
+    steps.resumeUploaded = kept.hasFile === true && uploaded.uploaded.resume === 'Smoke Resume.txt' && uploaded.uploaded.field.includes('Resume/CV')
+      && await until(async () => (await embedded.executeJavaScript("document.getElementById('got').textContent")) === expected, 5000)
+      && (await uploadPage.executeJavaScript("document.getElementById('cover').files.length")) === 0;
+    steps.resumeOnce = (await post('upload')).status === 409;
+    // 助手投递: a cover letter the assistant wrote goes into the form's cover letter field as a PDF that Dayjob
+    // makes. Neither that nor signing in is offered to Claude over MCP.
+    const letter = await browser.agent('letter', { text: 'Dear Smoke Co team,\n\nI build dashboards that people use every week.\n\nSmoke Tester' }, { by: 'assistant' });
+    const cover = await uploadPage.executeJavaScript("(async () => { const file = document.getElementById('cover').files[0]; return file ? file.name + '|' + file.type + '|' + (await file.text()).slice(0, 5) : 'none'; })()");
+    steps.letterAttached = letter.letter.as === 'file' && cover === 'Cover Letter - Smoke Tester.pdf|application/pdf|%PDF-';
+    steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404;
+    await send(`/api/resumes/${kept.id}`, 'DELETE');
 
     // 密码保管: a saved sign-in is filled into its site's login form, where
     // Claude's read only sees that the password box is filled; it is kept
@@ -485,12 +528,36 @@ async function smokeBrowser(token) {
       && Boolean(pageAt(`${base}/login?again=1`)) && !JSON.stringify(browser.state()).includes('Sm0ke-pass!');
     await browser.retryLogin();
     steps.autoRetried = await until(() => signedInAs('smoke@example.com'), 10000);
+    // 助手登录: asked by the assistant, Dayjob signs in with the vault's sign-in for the site and answers with how it
+    // went and nothing else. A login form that comes straight back is not sent a second time. (Its own site name,
+    // so the sign-ins sent above do not count against it.)
+    vault.save({ site: 'asst.localhost', username: 'asst@example.com', password: 'Asst-pass!' });
+    const asst = `http://asst.localhost:${site.address().port}`;
+    const byAssistant = { by: 'assistant' };
+    await browser.agent('open', { url: `${asst}/login` }, byAssistant);
+    const signedByAssistant = await browser.agent('signin', {}, byAssistant);
+    steps.assistantSignedIn = signedByAssistant.status === 'signed-in' && await until(() => signedInAs('asst@example.com', `${asst}/signed-in`), 5000)
+      && !/Asst-pass|asst@example/.test(JSON.stringify(signedByAssistant));
+    await browser.agent('open', { url: `${asst}/login?again=1` }, byAssistant);
+    steps.assistantNoRetry = (await browser.agent('signin', {}, byAssistant)).status === 'failed' && Boolean(pageAt(`${asst}/login?again=1`));
     // A two-step sign-in: the user name, Next, then the password and Sign in.
     vault.save({ site: 'localhost', username: 'two@example.com', password: 'Tw0-step!' });
     const local = `http://localhost:${site.address().port}`;
     await browser.go(`${local}/login-step1`);
     steps.autoTwoStep = await until(() => signedInAs('two@example.com', `${local}/signed-in`), 12000);
     browser.setAutoLogin(false);
+    // The assistant's click on a button that sends: it waits on a question marked as the assistant's, a "no" stops
+    // it, and under full takeover it goes through without the question.
+    await browser.agent('open', { url: `${base}/jobs/7` }, byAssistant);
+    const jobAgain = await browser.agent('read', {}, byAssistant);
+    await browser.agent('type', { ref: jobAgain.elements.find(item => item.name === 'Full name').ref, text: 'Asked First' }, byAssistant);
+    const sendRef = jobAgain.elements.find(item => item.name === 'Submit application').ref;
+    const asked = browser.agent('click', { ref: sendRef }, byAssistant).then(() => 'clicked', error => error.status);
+    steps.assistantAsked = await until(() => browser.state().approval?.by === 'assistant', 5000);
+    browser.answer(browser.state().approval?.id, false);
+    steps.assistantDeclined = (await asked) === 409 && Boolean(pageAt(`${base}/jobs/7`));
+    const taken = await browser.agent('click', { ref: sendRef }, { by: 'assistant', takeover: true });
+    steps.takeover = taken.allowed === 'auto' && /full takeover/.test(taken.note || '') && taken.page.url.startsWith(`${base}/submitted?name=Asked+First`);
     // 全部删除: every saved password goes, the vault password stays.
     steps.vaultCleared = vault.clear().count === 0 && vault.list().lock && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('two@example.com');
   } catch (error) {
@@ -502,7 +569,8 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared'].every(step => steps[step] === true);
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'assistantAsked',
+    'assistantDeclined', 'takeover'].every(step => steps[step] === true);
   return steps;
 }
 
@@ -643,7 +711,7 @@ async function boot() {
   const { createApp } = await import(pathToFileURL(path.join(app.getAppPath(), 'server', 'app.mjs')).href);
   service = await createApp({ dataDir, distDir: path.join(app.getAppPath(), 'dist'), notify: desktopNotification,
     allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
-    browser: { run: (action, input) => (browser ? browser.agent(action, input) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
+    browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
   language = service.repo.getSettings().language;
   origin = await service.listen(port);
   const bridge = path.join(app.getAppPath(), 'integrations', 'mcp-server.mjs');

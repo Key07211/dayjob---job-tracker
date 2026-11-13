@@ -305,7 +305,7 @@ export function goalLogInput(input) {
 }
 
 // What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).
-export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'tabs'];
+export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'upload', 'tabs'];
 export const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
 
 export function browserInput(action, input) {
@@ -327,7 +327,9 @@ export function browserInput(action, input) {
     case 'key': return { key: oneOf(input.key, BROWSER_KEYS, 'key') };
     case 'scroll': return { direction: input.direction == null ? 'down' : oneOf(input.direction, ['up', 'down'], 'direction'), ref: input.ref == null ? null : ref() };
     case 'navigate': return { action: oneOf(input.action, ['back', 'forward', 'reload'], 'action') };
-    case 'autofill': return {};
+    // resumeId: a resume to attach in place of the one that fits the job; resume: false leaves the resume field alone.
+    case 'autofill': return { resumeId: input.resumeId == null ? null : text(input.resumeId, 'resumeId', { min: 1, max: 80 }), resume: has(input, 'resume') && input.resume !== null ? boolean(input.resume, 'resume') : true };
+    case 'upload': return { resumeId: input.resumeId == null ? null : text(input.resumeId, 'resumeId', { min: 1, max: 80 }) };
     case 'tabs': {
       const chosen = input.action == null ? 'list' : oneOf(input.action, ['list', 'switch', 'close'], 'action');
       if (chosen !== 'list' && (typeof input.tabId !== 'string' || !/^tab-\d{1,6}$/.test(input.tabId))) fail('tabId is required; list the tabs to get it.');

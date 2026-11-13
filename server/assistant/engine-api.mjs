@@ -7,7 +7,8 @@ const NO_USAGE = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, c
 
 // The assistant on the Claude API, with the user's own key. Dayjob holds the conversation (the API keeps nothing)
 // and runs the tool loop itself: each round streams a reply, runs the tools it asked for, and sends the results back.
-export function createApiEngine({ getSettings, createClient = options => new Anthropic(options), maxRounds = 24 }) {
+// An application worked through in the Dayjob browser takes a few dozen rounds, so the limit on them is generous.
+export function createApiEngine({ getSettings, createClient = options => new Anthropic(options), maxRounds = 80 }) {
   // conversation id -> the messages sent so far, exactly as the API returned them (thinking blocks included).
   const sessions = new Map();
   const key = () => getSettings().ai.apiKey || process.env.ANTHROPIC_API_KEY || '';

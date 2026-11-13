@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { CheckCircle2, Speaker as SpeakerIcon } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { Select } from '../groove/Picker.jsx';
+import { ApplySwitch } from './AssistantPane.jsx';
 import { assistant, useAssistant } from './store.js';
 
 const ENGINES = [
@@ -23,8 +24,11 @@ export function AssistantSettings({ hasKey }) {
   return (
     <section className="card-section" id="assistant">
       <h2><SpeakerIcon size={18} />{t('助手', 'Assistant')}</h2>
-      <p className="hint">{t('窗口右边那台留声机。它能查岗位和投递、收藏、记投递、改搜索、开始抓取，改动都可以一键撤销；它碰不到密码保管，也不会替你提交申请。对话默认不保存。',
-        'The gramophone at the right of the window. It can look up jobs and applications, save jobs, record applications, change searches and start one, and every change can be undone in one click. It cannot reach the password vault and never submits an application for you. Conversations are not saved unless you keep them.')}</p>
+      <p className="hint">{info.browser
+        ? t('侧边栏里那台留声机，可以开在窗口右边，也可以占满整页。它能查岗位和投递、收藏、记投递、改搜索、开始抓取，改动都可以一键撤销；还能在 Dayjob 浏览器里替你投递：打开投递页、让密码保管在本机登录、填表、附上合适的简历、写求职信。密码和简历原件都不会交给模型，它只知道登录成没成、附的是哪份文件。对话默认不保存。',
+          'The gramophone in the sidebar, opened at the right of the window or as a full page. It can look up jobs and applications, save jobs, record applications, change searches and start one, and every change can be undone in one click. It can also apply for you in the Dayjob browser: open the application page, have the vault sign in on this computer, fill in the form, attach the resume that fits and write the cover letter. Passwords and resume files never go to the model; it learns only whether the sign-in worked and which file was attached. Conversations are not saved unless you keep them.')
+        : t('侧边栏里那台留声机，可以开在窗口右边，也可以占满整页。它能查岗位和投递、收藏、记投递、改搜索、开始抓取，改动都可以一键撤销；它碰不到密码保管。对话默认不保存。',
+          'The gramophone in the sidebar, opened at the right of the window or as a full page. It can look up jobs and applications, save jobs, record applications, change searches and start one, and every change can be undone in one click. It cannot reach the password vault. Conversations are not saved unless you keep them.')}</p>
       <div className="option-row">
         <span>{t('引擎', 'Engine')}</span>
         <div className="segmented" role="group" aria-label={t('助手引擎', 'Assistant engine')}>
@@ -43,6 +47,15 @@ export function AssistantSettings({ hasKey }) {
         </Select>
         <small>{t('换引擎或模型后，正在进行的对话会接着聊：Dayjob 把之前的内容交给新的引擎。', 'After a switch, the open conversation carries on: Dayjob hands what was said to the new engine.')}</small>
       </div>
+      {info.browser ? (
+        <div className="option-row">
+          <span>{t('替你投递', 'Applying for you')}</span>
+          <ApplySwitch mode={info.settings.apply} bare />
+          <small>{info.settings.apply === 'takeover'
+            ? t('全权接管：助手自己点“提交”。验证码、付款和只有你知道答案的问题，它仍然会停下来问你。这个开关也在对话框旁边。', 'Full takeover: the assistant clicks “Submit” itself. It still stops and asks at a captcha, a payment, or a question only you can answer. The same switch sits beside the chat box.')
+            : t('手动确认：提交之前，对话里会出现一张卡片，按住“投递”才会发出去。这个开关也在对话框旁边。', 'Ask me first: before anything is sent, a card appears in the chat and it goes out only when you hold “Send”. The same switch sits beside the chat box.')}</small>
+        </div>
+      ) : null}
     </section>
   );
 }

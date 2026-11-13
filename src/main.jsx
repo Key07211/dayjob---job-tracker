@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Speaker as SpeakerIcon, Volume2, VolumeX } from 'lucide-react';
+import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -13,6 +13,7 @@ import { SettingsView } from './dayjob/SettingsView.jsx';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
+import { AssistantCard } from './dayjob/assistant/AssistantCard.jsx';
 import { AssistantPane } from './dayjob/assistant/AssistantPane.jsx';
 import { assistant, onAssistantEffect, useAssistant } from './dayjob/assistant/store.js';
 import { PianoNav } from './dayjob/groove/PianoNav.jsx';
@@ -54,7 +55,8 @@ const SIDE_MIN_WINDOW = 1000;
 const SIDEBAR = 216;
 const PANE_MIN = 420;
 const VIEW_MIN = 360;
-// The assistant keeps a fixed width at the right edge; the browser and the view share what is left.
+// The assistant's side chat keeps a fixed width at the right edge; the browser and the view share what is left.
+// As a full page it takes the view's place, with the browser still beside it.
 const ASSISTANT_WIDTH = 360;
 const paneLimits = windowWidth => [PANE_MIN, Math.max(PANE_MIN, windowWidth - SIDEBAR - VIEW_MIN)];
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
@@ -94,13 +96,16 @@ function App() {
   // open with; any other way of changing views clears it. "browser" opens the
   // browser beside the current view.
   const [focus, setFocus] = useState(null);
+  // Going to a page while the assistant has the whole one: the page comes forward and the chat docks at the side.
+  const dockAssistant = () => { if (assistant.get().form === 'full') assistant.setForm('side'); };
   const goTo = useCallback(target => {
     if (target === 'browser') { setBrowserOpen(true); return; }
     setFocus(null);
     setView(target);
     setBrowserWide(false);
+    dockAssistant();
   }, []);
-  const openItem = useCallback((target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); }, []);
+  const openItem = useCallback((target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); dockAssistant(); }, []);
   const chat = useAssistant();
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -214,7 +219,7 @@ function App() {
   useEffect(() => onAssistantEffect(({ tool, changed, applied, ui }) => {
     const key = tool?.ok ? VIEWS.find(item => item.id === tool.view) : null;
     if (key) {
-      flyTo(document.querySelector('.assistant-pane .asst-head .gram-mouth') || document.querySelector('.assistant-toggle'), key.id);
+      flyTo(document.querySelector('.assistant-pane .asst-head .gram-mouth') || document.querySelector('.assistant-card .gramophone'), key.id);
       playKey(key.note, theme);
     }
     if (changed) {
@@ -312,13 +317,18 @@ function App() {
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
   const focusFor = target => (focus?.view === target ? focus.id : null);
-  const assistantOpen = chat.open;
+  // The assistant as a full page stands where the view does. When the browser takes the page instead (made wide,
+  // or the window too narrow for both), the chat docks at the side so it stays in sight.
+  const assistantFull = chat.form === 'full' && !(browserOpen && (browserWide || windowWidth < SIDE_MIN_WINDOW));
+  const assistantOpen = chat.open && !assistantFull;
+  const assistantForm = assistantFull ? 'full' : assistantOpen ? 'side' : 'closed';
   const room = windowWidth - (assistantOpen ? ASSISTANT_WIDTH : 0);
   const canSide = room >= SIDE_MIN_WINDOW;
   const wide = browserOpen && (browserWide || !canSide);
+  const asking = browser?.approval?.by === 'assistant';
   const pianoKeys = VIEWS.map(item => ({
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
-    active: item.id === 'browser' ? browserOpen : view === item.id && !wide,
+    active: item.id === 'browser' ? browserOpen : view === item.id && !wide && !assistantFull,
     badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
     onSelect: () => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id)),
   }));
@@ -377,15 +387,10 @@ function App() {
         <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
-          <div className="foot-row">
-            <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
-              <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
-            </button>
-            <button type="button" className={`assistant-toggle${assistantOpen ? ' active' : ''}${chat.busy ? ' busy' : ''}`} aria-pressed={assistantOpen}
-              title={assistantOpen ? t('收起助手', 'Close the assistant') : t('打开助手', 'Open the assistant')} aria-label={t('助手', 'Assistant')} onClick={() => assistant.setOpen(!assistantOpen)}>
-              <SpeakerIcon size={18} />
-            </button>
-          </div>
+          <AssistantCard form={assistantForm} asking={asking} onForm={assistant.setForm} />
+          <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
+            <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
+          </button>
           <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
             total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
           <Turntable busy={deckBusy} disabled={halting} progress={deckProgress} playing={Boolean(track)} onStart={scheduler.running ? stopRun : runNow}
@@ -404,15 +409,19 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} openItem={openItem} /> : null}
-      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}`}>
+      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}`}>
         <div className="main-view">
-          {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
-          {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
-          {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
-          {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
-          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}
-          {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
+          {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
+            <>
+              {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
+              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
+              {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
+              {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
+              {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
+              {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}
+              {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
+            </>
+          )}
         </div>
         {browserOpen ? (
           <>
@@ -424,7 +433,7 @@ function App() {
             </div>
           </>
         ) : null}
-        {assistantOpen ? <AssistantPane onClose={() => assistant.setOpen(false)} openItem={openItem} /> : null}
+        {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
       </main>
     </div>
   );

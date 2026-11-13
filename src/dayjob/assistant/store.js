@@ -2,10 +2,15 @@ import { useSyncExternalStore } from 'react';
 import { api, apiLines } from '../../api.js';
 
 // The assistant's state for the window: the open conversation, what the gramophone is doing, and the list of kept
-// conversations. It lives outside the pane so a reply carries on while the pane is closed.
+// conversations. It lives outside the pane so a reply carries on while the pane is closed, and so the chat keeps
+// its place (and what is half typed) when it moves between the side of the window and the whole of it.
 //
+// form: closed | side (a pane at the right edge) | full (the whole page); open is true for the last two.
 // phase: idle | thinking | speaking | tool (the gramophone's four looks).
-let state = { open: read() === 'open', info: null, conversation: null, busy: false, phase: 'idle', failure: '' };
+const FORMS = ['closed', 'side', 'full'];
+const saved = read();
+const firstForm = saved === 'open' ? 'side' : FORMS.includes(saved) ? saved : 'closed';
+let state = { form: firstForm, open: firstForm !== 'closed', info: null, conversation: null, busy: false, phase: 'idle', failure: '', draft: '' };
 const listeners = new Set();
 const effects = new Set();
 const hearers = new Set();
@@ -54,11 +59,14 @@ function handle(event) {
 
 export const assistant = {
   get: () => state,
-  setOpen(open) {
-    try { sessionStorage.setItem('dayjob-assistant', open ? 'open' : 'closed'); } catch { /* optional */ }
-    set({ open });
-    if (open && !state.info) void assistant.refresh();
+  setForm(form) {
+    if (!FORMS.includes(form) || form === state.form) return;
+    try { sessionStorage.setItem('dayjob-assistant', form); } catch { /* optional */ }
+    set({ form, open: form !== 'closed' });
+    if (form !== 'closed' && !state.info) void assistant.refresh();
   },
+  setOpen(open) { assistant.setForm(open ? (state.form === 'closed' ? 'side' : state.form) : 'closed'); },
+  setDraft(draft) { if (draft !== state.draft) set({ draft }); },
   // Which engines can run, the chosen one, and the kept conversations.
   async refresh() {
     try { set({ info: await api('/api/assistant') }); } catch (failure) { set({ failure: failure.message }); }

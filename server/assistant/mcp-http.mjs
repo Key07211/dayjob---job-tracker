@@ -13,7 +13,7 @@ export async function handleMcp({ request, response, body, tools, callTool }) {
     server.registerTool(tool.name, {
       description: tool.description,
       inputSchema: tool.shape,
-      annotations: { readOnlyHint: tool.tier === 'read', destructiveHint: false, idempotentHint: tool.tier === 'read', openWorldHint: tool.name === 'run_search' },
+      annotations: { readOnlyHint: tool.tier === 'read', destructiveHint: false, idempotentHint: tool.tier === 'read', openWorldHint: tool.name === 'run_search' || tool.tier === 'browser' },
     }, async input => {
       const outcome = await callTool(tool.name, input);
       return { content: [{ type: 'text', text: outcome.content }], ...(outcome.ok ? {} : { isError: true }) };

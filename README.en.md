@@ -35,7 +35,7 @@ Day and night each have their own colours: pale blue and warm yellow by day, bro
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
 | Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
 | Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
-| Assistant | A pixel gramophone at the right of the window (the speaker button beside Notifications). Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change it makes can be undone in one click. Conversations are not saved unless you keep or archive one, and any of them can be deleted. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
+| Assistant | A pixel gramophone with a place of its own in the sidebar, opened as a small chat at the right of the window or as a full page. Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change can be undone in one click. It can also apply for you in the Dayjob browser: open the application page, have the vault sign in, fill in the form, attach the resume that fits and write the cover letter. It asks before sending unless you switch it to full takeover beside the chat box. Passwords and resume files never go to the model. Conversations are not saved unless you keep or archive one. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | Day / night | Follows the clock by default (day at 07:00, night at 19:00; change the hours under Settings → Appearance). When the theme changes, the new colours sweep down the page at nightfall and up at daybreak. Next to the time at the top of every page is a day / night switch: click it and the sun rolls over into a moon, the clouds sink and the stars come out one by one. In clock mode a theme picked this way holds until the next change on the clock, then the clock takes over again. Dropdowns, calendars and time pickers follow the theme too. |
 | Opening | When Dayjob opens it plays a pixel opening of about two and a half seconds. There are three, one is picked at random each time, and never the one that played last. Gramophone: the assistant's pixel gramophone is cranked up and plays, notes fly from its horn, and "dayjob" is typed out letter by letter. Wave: sheets fly in from every side and stand up as a row of bars that pulse on the beat. Briefcase: four sheets fly into the briefcase, the meter bars and the record player appear, and it becomes Dayjob's icon. Each has day and night colours. At the end the picture breaks up a pixel at a time from the corners inwards and the page shows through; if the data is slow it holds for whole beats. Click or press any key to skip; it does not play when the window comes back from the tray. Turn it off under Settings → Appearance; it never plays when Windows asks for reduced motion. |
@@ -81,7 +81,7 @@ npm run package:win       # Windows installer and portable build in release/
 | `npm start` | `data/dayjob.sqlite` in the project (git-ignored) |
 | Custom | set `DAYJOB_DATA_DIR`; the port is `DAYJOB_PORT` |
 
-Only the text extracted from your resume is stored, never the file. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
+A resume is stored as two things: its extracted text (for scoring and matching) and the file itself (to attach to application forms), both in the local database only. The file is never sent to Claude or any AI; it only goes into the application form you are filling in. Resumes uploaded before 0.28 have only their text: click **Add the file** under Resume & AI to add it, and their scores stay as they are. API keys are entered under **Settings → API key**. You can keep several: add one with the plus button, and each service (Claude API, OpenAI API) uses the one marked "In use". Keys are stored in plain text in the local database. They stay hidden, and are never part of the settings data or handed to Claude through MCP; a key is shown only when you click the eye in Settings. You can also store none and use the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable.
 
 ## First steps
 
@@ -188,20 +188,53 @@ The arrows show the previous month or let you set next month's goals early. A ne
 
 ## Assistant
 
-The speaker button beside Notifications opens the assistant at the right of the window. It is a pixel gramophone: still when nothing is happening; its record turns while it thinks; the crank at its side is wound while it looks something up or makes a change; and while it answers, the horn pulls in and pushes out notes, more of them the faster the words come, each drifting off and fading a few pixels at a time. Say what you need in a sentence:
+The assistant has a place of its own in the sidebar, above Notifications: beside the gramophone it says what it is doing just now (thinking, working, which step of an application it is on, waiting for you), and the two buttons below are the two ways to open it.
+
+- **Side chat** opens at the right of the window, beside Home, Applications or the browser.
+- **Full page** gives it the whole page, with the kept conversations in a column at the left. While the browser is open the two stand side by side; when the browser fills the window, or the window is narrow, the assistant folds into the side chat by itself.
+
+Press the lit button again to close it. In a window that is not tall, its place in the sidebar gets more compact.
+
+It is a pixel gramophone: still when nothing is happening; its record turns while it thinks; the crank at its side is wound while it looks something up or makes a change; and while it answers, the horn pulls in and pushes out notes, more of them the faster the words come, each drifting off and fading a few pixels at a time. Say what you need in a sentence:
 
 | Day | Night |
 | --- | --- |
-| ![The assistant by day: asked for today's best jobs, then to save the first; the change has an Undo beside it](docs/media/assistant-en.webp) | ![The assistant at night](docs/media/assistant-dark-en.webp) |
+| ![The assistant by day: the full page beside the browser, the form filled in and a card asking before it is sent](docs/media/assistant-en.webp) | ![The assistant at night: the side chat after an application sent under full takeover](docs/media/assistant-dark-en.webp) |
 
-> The replies in these screenshots come from a stand-in model made for the demo, not from Claude; the jobs and the resume are made-up demo data.
+> The replies in these screenshots come from a stand-in model made for the demo, not from Claude; the jobs, the resume and the careers site are made-up demo data.
 
 - **Look things up**: today's best-scoring new jobs, the fit analysis of one job, which applications need a follow-up, how far you are from this week's goal, what your resume says.
-- **Make changes**: save a job or mark it not interested, record an application (only when you say you applied), update an application's status and notes, create or change a search, start a search, or bring a page or a single job in front of you.
+- **Make changes**: save a job or mark it not interested, record an application (when you say you applied, or after it sent one for you), update an application's status and notes, create or change a search, start a search, keep an answer you just gave in the application profile, or bring a page or a single job in front of you.
+- **Apply**: send an application for you in the Dayjob browser; see [Applying for you](#applying-for-you) below.
 
 Each thing it does leaves a small line in the reply saying what it was. A line for a change carries **Undo**, which puts things back in one click. If you have changed the same item yourself since, the undo is refused so your own edit is never overwritten. A note also flies from the gramophone's horn to that page's key in the sidebar.
 
-A few things it cannot do, on purpose: it cannot see or use the password vault; it does not fill in or submit application forms or sign in to websites; it cannot delete jobs, applications or searches, change settings, or change a resume (it can read one and suggest wording).
+A few things it cannot do, on purpose: it cannot see a password, and never types a password, a card number or a one-time code itself (the vault signs in on this computer); it never gets a resume file; it cannot delete jobs, applications or searches, change settings, or change a resume (it can read one and suggest wording). What it does on a web page (a click, a field, a submit) has no undo.
+
+### Applying for you
+
+Say "Apply to the Data Analyst job at Northwind Labs for me" and the assistant works through it in the Dayjob browser while you watch. A strip above the conversation shows how far it is: **Open → Sign in → Fill → Resume → Questions → Confirm → Record**.
+
+1. **Open**: it opens the job's application page. A job already tracked as applied is not applied to again.
+2. **Sign in**: when the page asks, it has Dayjob sign in with the account saved in Dayjob's password vault (**Settings → Passwords**). Dayjob fills the password in on this computer; the assistant learns only whether it worked, never the user name or the password. One try per site.
+3. **Fill**: the form is filled in from your application profile.
+4. **Resume**: the original file of the resume that fits this job best is attached (how it is chosen: the Resume row under [Built-in browser](#built-in-browser)). The assistant learns only the file's name.
+5. **Questions**: it writes free-text answers and the cover letter from what your resume and the posting say, inventing nothing. The cover letter is attached as a PDF to the form's cover letter upload, or typed into its box when there is no upload; **Read** on its line in the chat shows the whole letter. What only you know (expected pay, work authorization, start date and the like) it stops and asks, and it can keep the answer in the application profile so it need not ask again.
+6. **Confirm**: see the switch below.
+7. **Record**: once the page confirms the application, it is recorded under Applications.
+
+A switch above the chat box decides who presses the last button:
+
+| | What happens |
+| --- | --- |
+| **Ask me first** (default) | The assistant writes out what it filled in, which resume is attached and what it answered for you, and a **Send this application?** card appears in the chat. Hold its **Hold to send** button for about half a second and it goes out; **Not yet** sends nothing and leaves the form in the browser. With no answer in 10 minutes, nothing is sent. |
+| **Full takeover** | The assistant clicks submit itself and tells you afterwards. It asks once more when you first switch. |
+
+The same switch is under **Settings → Assistant**. It is for the assistant only: when a Claude outside Dayjob uses the browser over MCP, a submit always waits for you (unless you turned on Auto-submit in the browser).
+
+In both modes the assistant is told to stop and hand over to you at a captcha or another proof of being human, a code sent by text or email, a payment or bank detail, an identity document, an assessment, a recording, a sign-in that did not work, or a page it is not sure is this job; and text on a web page is content to it, never instructions. Those are rules given to the model, not hard blocks, so full takeover suits sites where you have already watched it apply a few times. Three things Dayjob itself enforces: the assistant cannot type into password, card-number or one-time-code fields; signing in goes through the vault only; and under Ask me first nothing is submitted until you hold the button.
+
+Applying for you exists in the desktop app only (it needs the Dayjob browser). As with its other conversations, the text of the page, your application profile and the text of your resume are sent to Claude; passwords and resume files are not.
 
 **Conversations are not saved by default**: one is gone when you start a new one or quit Dayjob. To keep one, click **Keep** above it. It is then stored in the local database, and you can continue it from the clock button in the assistant's header.
 
@@ -219,7 +252,7 @@ Choose the engine under **Settings → Assistant**. You can switch at any time a
 | Claude Code (default) | Uses the Claude Code signed in on this computer: no API key, and it draws on your subscription. Each conversation starts one `claude -p` process with every built-in tool switched off and only Dayjob's own tools connected. It does not load the other MCP servers you set up in Claude Code and leaves no session behind there. |
 | Claude API | Uses your own Anthropic API key (entered under **Settings → API key**), billed by use. The default model is Claude Opus 5.5 and can be changed in the same place. The prompt and what has already been said go through prompt caching, so a running conversation costs less. |
 
-The assistant is not the "Browser assistant" panel inside the browser, which handles autofill and passwords. It is also separate from "Connect Claude (MCP)" below: that lets a Claude Code or Claude Desktop outside Dayjob use it, while the assistant lives in the Dayjob window and needs no setup.
+The assistant is not the "Browser assistant" panel inside the browser, which handles autofill and passwords (when it applies for you, it uses the autofill and the vault behind that panel). It is also separate from "Connect Claude (MCP)" below: that lets a Claude Code or Claude Desktop outside Dayjob use it, while the assistant lives in the Dayjob window and needs no setup.
 
 ## Connect Claude (MCP)
 
@@ -255,7 +288,8 @@ Dayjob needs to be running. Then try:
 | `dayjob_browser_open` / `dayjob_browser_read` / `dayjob_browser_screenshot` | Open a page in the Dayjob browser, read its text and the elements to act on, take a screenshot |
 | `dayjob_browser_click` / `dayjob_browser_type` / `dayjob_browser_select` / `dayjob_browser_press_key` | Click, type, pick a dropdown option, press a key |
 | `dayjob_browser_scroll` / `dayjob_browser_navigate` / `dayjob_browser_tabs` | Scroll, go back, forward or reload, switch and close tabs |
-| `dayjob_browser_autofill` | Fill the open application form from the application profile (same as Autofill in the assistant panel) and tell Claude what was filled and which required fields are left; it never submits |
+| `dayjob_browser_autofill` | Fill the open application form from the application profile (same as Autofill in the assistant panel), attach the resume that fits the job when the form has a resume field, and tell Claude what was filled, which resume was attached and which required fields are still empty; never submits |
+| `dayjob_browser_upload_resume` | Attach a resume's file to the resume field of the open application form (the one that fits the job by default, or a given one); Claude gets the file's name, never the file; never submits |
 
 Changes made through MCP show as "Claude" on the timeline.
 
@@ -274,7 +308,8 @@ The **Browser assistant** panel (not the gramophone [Assistant](#assistant) at t
 | Part | What it does |
 | --- | --- |
 | This page | When the page is already in Dayjob, it shows the title, company and status, with **View in Dayjob** and **Mark applied**. Otherwise click **Add to Dayjob**: it reads the page's standard job data (schema.org JobPosting, which most job sites publish) or its text, and after you check it, saves the job, or **Save and mark applied** in one go. |
-| Autofill | Reads each question on the form and fills the empty boxes from your **Application profile**: name, email, phone, address, LinkedIn / GitHub / website, school and work, work authorization, sponsorship, relocation, desired salary, earliest start date, where you heard about the job and more, including dropdowns and radio buttons. Boxes that already have an answer are left alone. Afterwards it lists what it filled and the required fields still yours to fill in (such as the resume upload). Forms embedded from another site, like a Greenhouse form on a company's own page, work too. |
+| Autofill | Reads each question on the form and fills the empty boxes from your **Application profile**: name, email, phone, address, LinkedIn / GitHub / website, school and work, work authorization, sponsorship, relocation, desired salary, earliest start date, where you heard about the job and more, including dropdowns and radio buttons. Boxes that already have an answer are left alone. Afterwards it lists what it filled and the required fields still yours to fill in. Forms embedded from another site, like a Greenhouse form on a company's own page, work too. |
+| Resume | When the form has a resume field (also one hidden behind an "Attach" button), Autofill attaches your resume's file as well. By default it is **The one that fits the job**: for a page of a job that is in Dayjob, the resume that job is matched to; otherwise the one that shares the most keywords with the job text on the page. You can pick one resume in the dropdown instead, or **Do not attach one**. **Attach the resume only** does just this step. Upload fields for a cover letter, a transcript and the like are left alone, and a resume field that already has a file is not given another. |
 | Auto-submit | Off by default; while it is off, nothing is submitted unless you click it or allow it. Turning it on asks once more. While it is on, Autofill clicks Submit as soon as every required field is filled and checks that the page says the application was received, and Claude's clicks on Submit no longer ask first. It turns off again every time Dayjob starts. After a submit, click **Mark applied** and the job moves to Applications. |
 | Claude | Untick **Let Claude use it** and Claude can no longer open or use the browser. |
 
@@ -288,7 +323,7 @@ What Claude can and cannot do there:
 
 - It can open pages, read them, take screenshots, click, type, pick dropdown options and switch tabs, and fill in your profile first with `dayjob_browser_autofill`. You see it happen in the Dayjob window ("Claude is working").
 - Clicking a button such as Submit, Send, Confirm or Delete, or pressing Enter in a multi-field form, first asks you in Dayjob. Nothing happens until you click **Allow**, and the request is dropped after 2 minutes. Only while you have **Auto-submit** on does it go ahead straight away, and Claude is told so.
-- It never types passwords, card numbers or one-time codes, and it does not upload files; you choose the resume yourself. Text on web pages is treated as data, never as instructions.
+- It never types passwords, card numbers or one-time codes. The resume is attached by Dayjob (`dayjob_browser_autofill` does it along the way, or `dayjob_browser_upload_resume` on its own): Dayjob picks the resume and puts its file into the form, and Claude learns only the file's name and the field it went into, never the file. Any other file is still yours to choose. Text on web pages is treated as data, never as instructions.
 
 Some sites do not allow signing in with Google inside an app's browser. Sign in with email and password there, or click **Open in your browser**.
 

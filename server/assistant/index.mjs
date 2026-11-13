@@ -9,6 +9,12 @@ import { createConversationStore } from './store.mjs';
 import { createTools } from './tools.mjs';
 
 export const ENGINES = ['claude-cli', 'anthropic-api'];
+// Sending an application: 'confirm' waits for the user on a card in the chat; 'takeover' lets the assistant send it.
+export const APPLY_MODES = ['confirm', 'takeover'];
+const MODE_NOTES = {
+  confirm: 'Apply mode: manual confirm. A click that sends an application waits for the user on a card in the chat.',
+  takeover: 'Apply mode: full takeover. The user has let you send applications without asking each time.',
+};
 const MAX_LIVE = 8;
 const MAX_TEXT = 8000;
 const RESULT_CAP = 60000;
@@ -24,8 +30,11 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // it away from the list of kept ones until it is taken back out. Each engine holds its own working copy
 // while it runs (a Claude Code process, or the message list for the Claude API); whenever that copy is missing
 // (a kept conversation reopened, the engine switched, the process gone) the turns kept here are handed over as text.
-export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, now = () => new Date(), log = console.warn }) {
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now });
+//
+// browser: the desktop app's Dayjob browser ({ run(action, input, context) }), which the applying tools work in;
+// without it (plain `npm start`) those tools are not offered.
+export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, onSettings = () => {}, now = () => new Date(), log = console.warn }) {
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, onSettings, applyMode: () => settings().apply });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
   const available = engines || {
@@ -42,7 +51,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   function settings() {
     const saved = repo.getMeta('assistant') || {};
     const model = id => (typeof saved.models?.[id] === 'string' ? saved.models[id] : '');
-    return { engine: ENGINES.includes(saved.engine) ? saved.engine : 'claude-cli', models: Object.fromEntries(ENGINES.map(id => [id, model(id)])) };
+    return { engine: ENGINES.includes(saved.engine) ? saved.engine : 'claude-cli', models: Object.fromEntries(ENGINES.map(id => [id, model(id)])),
+      apply: APPLY_MODES.includes(saved.apply) ? saved.apply : 'confirm' };
   }
   function saveSettings(input) {
     const current = settings();
@@ -56,12 +66,13 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
         models[id] = value;
       }
     }
-    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models });
+    if (input.apply !== undefined && !APPLY_MODES.includes(input.apply)) throw new HttpError(400, `apply must be one of: ${APPLY_MODES.join(', ')}.`);
+    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models, apply: input.apply ?? current.apply });
     return settings();
   }
 
   // ---------- conversations ----------
-  const revive = row => ({ ...row, kept: true, actions: new Map(), notes: [], flight: null, live: null, engine: null, model: '', usedAt: Date.now() });
+  const revive = row => ({ ...row, kept: true, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now() });
   function release(conversation) {
     conversation.flight?.abort();
     for (const engine of Object.values(available)) engine.close(conversation.id);
@@ -74,7 +85,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
   function create() {
     const at = iso();
-    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, archivedAt: null, turns: [], kept: false, actions: new Map(), notes: [], flight: null, live: null, engine: null, model: '', usedAt: Date.now() };
+    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, archivedAt: null, turns: [], kept: false, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now() };
     conversations.set(conversation.id, conversation);
     trim();
     return conversation;
@@ -94,9 +105,12 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   const stored = conversation => ({ id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
     archivedAt: conversation.archivedAt, turns: conversation.turns });
   const persist = conversation => { if (conversation.kept && conversation.turns.length) store.save(stored(conversation)); };
-  // What the pane gets: no tool inputs or results, and whether each change can still be undone.
+  // What the pane gets: no tool inputs or results, and whether each change can still be undone. An applying tool
+  // also says which step of the application it was (step), a few plain facts for the card that asks before sending
+  // (facts: the job, the resume's name, how many fields), and, for a cover letter, the letter itself (detail).
   const toolView = (conversation, tool) => ({ id: tool.id, name: tool.name, tier: tool.tier, view: tool.view, ok: tool.ok, label: tool.label, error: tool.error, offset: tool.offset,
-    undone: Boolean(tool.undone), undoable: Boolean(conversation.actions.get(tool.id) && !tool.undone) });
+    undone: Boolean(tool.undone), undoable: Boolean(conversation.actions.get(tool.id) && !tool.undone),
+    ...(tool.step ? { step: tool.step } : {}), ...(tool.facts ? { facts: tool.facts } : {}), ...(tool.detail ? { detail: tool.detail } : {}) });
   const view = conversation => ({ id: conversation.id, title: conversation.title, kept: conversation.kept, archivedAt: conversation.archivedAt || null,
     createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, busy: Boolean(conversation.flight),
     turns: conversation.turns.map(turn => (turn.role === 'user' ? { role: 'user', text: turn.text, at: turn.at }
@@ -111,13 +125,18 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const tier = tools.get(name)?.tier || 'read';
     live.emit({ type: 'tool', phase: 'start', id: callId, name, tier });
     let outcome;
-    try { outcome = await tools.run(name, input); } catch (error) {
+    // A tool may wait on the user (the card that asks before an application is sent): the engine does not take
+    // that silence for a reply gone quiet.
+    const engine = available[conversation.engine];
+    engine?.hold?.(conversation.id, true);
+    try { outcome = await tools.run(name, input, { signal: conversation.flight?.signal, memo: conversation.memo }); } catch (error) {
       log(`[dayjob] assistant tool ${name}: ${error.stack || error.message}`);
       outcome = { ok: false, error: 'Dayjob could not do that.', tier, view: null };
-    }
+    } finally { engine?.hold?.(conversation.id, false); }
     const content = clip(JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error }), RESULT_CAP);
     const record = { id: callId, name, tier: outcome.tier, view: outcome.view, ok: outcome.ok, label: outcome.label || null, error: outcome.ok ? null : outcome.error,
-      input: input ?? {}, summary: clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false };
+      input: input ?? {}, summary: clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false,
+      ...(outcome.ok && outcome.step ? { step: outcome.step } : {}), ...(outcome.ok && outcome.facts ? { facts: outcome.facts } : {}), ...(outcome.ok && outcome.detail ? { detail: outcome.detail } : {}) };
     if (outcome.ok && outcome.undo) conversation.actions.set(callId, outcome.undo);
     live.turn.tools.push(record);
     live.emit({ type: 'tool', phase: 'done', id: callId, tool: toolView(conversation, record), changed: Boolean(outcome.changed), applied: Boolean(outcome.applied), ui: outcome.ui || null });
@@ -151,7 +170,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
 
   async function reply(conversation, text, emit, controller) {
-    const { engine: engineId, models } = settings();
+    const { engine: engineId, models, apply } = settings();
     const engine = available[engineId];
     const at = iso();
     const earlier = [...conversation.turns];
@@ -165,7 +184,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     if (conversation.engine && (conversation.engine !== engineId || conversation.model !== models[engineId])) available[conversation.engine]?.close(conversation.id);
     conversation.engine = engineId;
     conversation.model = models[engineId];
-    let message = withNotes(text, conversation.notes.splice(0));
+    // With the Dayjob browser at hand, each message says how the user wants applications sent just now.
+    let message = withNotes(text, [...conversation.notes.splice(0), ...(browser ? [MODE_NOTES[apply]] : [])]);
     if (!engine.live(conversation.id) && earlier.length) message = `${transcript(earlier)}\n\n${message}`;
     // Text from separate rounds (before and after a tool) is set apart by a blank line.
     let mark = 0;
@@ -216,7 +236,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const [cli, api] = await Promise.all(ENGINES.map(id => available[id].status()));
     return { settings: settings(), engines: { 'claude-cli': cli, 'anthropic-api': api },
       models: CLAUDE_MODELS.map(model => ({ id: model.id, name: model.name, tag: model.tag || null })),
-      defaultModels: Object.fromEntries(ENGINES.map(id => [id, PROVIDERS[id].defaultModel])), kept: store.list(),
+      defaultModels: Object.fromEntries(ENGINES.map(id => [id, PROVIDERS[id].defaultModel])), kept: store.list(), browser: Boolean(browser),
       tools: tools.list.map(tool => ({ name: tool.name, tier: tool.tier })) };
   }
 
