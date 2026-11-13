@@ -43,7 +43,7 @@ const ERRORS = {
 
 // One thing the assistant did. A change carries its undo; a lookup, or a step in the browser, is just a quiet line.
 // A cover letter it wrote can be read here.
-function ToolChip({ tool, busy }) {
+function ToolChip({ tool, busy, openItem }) {
   const { t } = useI18n();
   const [working, setWorking] = useState(false);
   const [reading, setReading] = useState(false);
@@ -62,13 +62,14 @@ function ToolChip({ tool, busy }) {
       {tool.undone ? <em>{t('已撤销', 'Undone')}</em> : null}
       {tool.undoable ? <button type="button" disabled={working || busy} onClick={undo}><Undo2 size={12} />{t('撤销', 'Undo')}</button> : null}
       {tool.detail ? <button type="button" aria-expanded={reading} onClick={() => setReading(value => !value)}>{reading ? t('收起', 'Hide') : t('查看', 'Read')}</button> : null}
+      {openItem && (tool.name === 'remember' || tool.name === 'forget') ? <button type="button" onClick={() => openItem('settings', 'assistant-memory')}>{t('全部记忆', 'All notes')}</button> : null}
     </span>
   );
   if (!tool.detail || !reading) return chip;
   return <>{chip}<div className="asst-letter">{tool.detail}</div></>;
 }
 
-const STEP_NAMES = { open: ['打开', 'Open'], login: ['登录', 'Sign in'], fill: ['填写', 'Fill'], resume: ['简历', 'Resume'], questions: ['问题', 'Questions'], confirm: ['确认', 'Confirm'], record: ['记录', 'Record'] };
+const STEP_NAMES = { open: ['打开', 'Open'], login: ['登录', 'Sign in'], fill: ['填写', 'Fill'], resume: ['简历', 'Resume'], questions: ['问题', 'Answer'], confirm: ['确认', 'Confirm'], record: ['记录', 'Record'] };
 
 // Where the application being worked on stands: seven steps, the done ones filled in and the current one lit.
 function ApplySteps({ run, asking, busy }) {
@@ -165,7 +166,7 @@ export function ApplySwitch({ mode, bare = false }) {
 const settled = text => ((text.match(/\*\*/g) || []).length % 2 ? text.slice(0, text.lastIndexOf('**')) + text.slice(text.lastIndexOf('**') + 2) : text);
 
 // A reply: its text with each tool call shown where it happened.
-function Reply({ turn, busy }) {
+function Reply({ turn, busy, openItem }) {
   const { t } = useI18n();
   const tools = [...(turn.tools || [])].sort((a, b) => (a.offset ?? 0) - (b.offset ?? 0));
   const parts = [];
@@ -183,7 +184,7 @@ function Reply({ turn, busy }) {
   return (
     <div className="asst-reply">
       {parts.map((part, index) => (part.tools
-        ? <div key={part.key} className="asst-chips">{part.tools.map(tool => <ToolChip key={tool.id} tool={tool} busy={busy} />)}</div>
+        ? <div key={part.key} className="asst-chips">{part.tools.map(tool => <ToolChip key={tool.id} tool={tool} busy={busy} openItem={openItem} />)}</div>
         : <Markdown key={`text-${index}`} text={turn.writing ? settled(part.text) : part.text} />))}
       {waiting ? <i className="asst-dots" role="status" aria-label={t('正在想', 'Thinking')}><b /><b /><b /></i> : null}
       {turn.stopped ? <p className="asst-note">{t('已停止', 'Stopped')}</p> : null}
@@ -350,7 +351,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
         <div className="asst-scroll" ref={scroller} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }}>
           {turns.length ? turns.map((turn, index) => (turn.role === 'user'
             ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
-            : <Reply key={index} turn={turn} busy={busy} />)) : (
+            : <Reply key={index} turn={turn} busy={busy} openItem={openItem} />)) : (
             <div className="asst-empty">
               <Gramophone key={short ? 'short' : 'tall'} scale={short ? 2 : 3} label={t('助手留声机', 'Assistant gramophone')} />
               <p>{info?.browser

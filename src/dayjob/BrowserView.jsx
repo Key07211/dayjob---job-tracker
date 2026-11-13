@@ -90,6 +90,58 @@ function Approval({ approval }) {
   );
 }
 
+// 自动收录, over the page. Recorded: Dayjob saw an application go through here and tracks it now; the line says for
+// which job, with a way to open it and to take it back. Asked: the page never said which job it was, so the user
+// names it, or says it was not an application.
+function AppliedStrip({ applied, openItem }) {
+  const { t } = useI18n();
+  const bar = useRef(null);
+  const [form, setForm] = useState({ title: applied.title || '', company: applied.company || '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const close = () => leave(bar.current, 'up', () => desktop.answerApplied(null).catch(() => {}));
+  const failed = failure => { setError(serverText(bridgeMessage(failure))); shake(bar.current); setBusy(false); };
+  if (applied.state === 'recorded') {
+    const undo = () => {
+      setBusy(true);
+      setError('');
+      api(`/api/applications/${applied.applicationId}`, { method: 'DELETE' }).then(close).catch(failed);
+    };
+    const who = applied.by === 'assistant' ? t('助手投的', 'sent by the assistant') : applied.by === 'claude' ? t('Claude 投的', 'sent by Claude') : '';
+    return (
+      <div className="browser-offer browser-applied" ref={bar} role="status">
+        <CircleCheck size={18} />
+        <p><strong>{t('已自动记为已投递', 'Recorded as applied')}</strong>{applied.company} · {applied.title}{who ? <span>{who}</span> : null}</p>
+        <div className="form-actions">
+          <button className="button" onClick={undo} disabled={busy}>{t('撤销', 'Undo')}</button>
+          <button className="button" onClick={() => { openItem('applications', applied.applicationId); desktop.answerApplied(null).catch(() => {}); }} disabled={busy}>{t('查看', 'View')}</button>
+          <button className="icon-button" title={t('知道了', 'OK')} aria-label={t('知道了', 'OK')} onClick={close} disabled={busy}><X size={15} /></button>
+        </div>
+        {error ? <p className="notice error">{error}</p> : null}
+      </div>
+    );
+  }
+  const record = event => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    desktop.answerApplied(form).then(() => cue('success')).catch(failed);
+  };
+  return (
+    <form className="browser-offer browser-applied ask" ref={bar} onSubmit={record} autoComplete="off">
+      <BriefcaseBusiness size={18} />
+      <p><strong>{t('刚才提交的是一份申请吗？', 'Was that an application?')}</strong>{t('网页显示申请已收到，但没说是哪个岗位。填上职位和公司，Dayjob 就记下并开始追踪。', 'The page says an application was received, but not for which job. Enter the title and the company and Dayjob starts tracking it.')}</p>
+      <input value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} maxLength={240} placeholder={t('职位', 'Job title')} aria-label={t('职位', 'Job title')} required />
+      <input value={form.company} onChange={event => setForm(current => ({ ...current, company: event.target.value }))} maxLength={160} placeholder={t('公司', 'Company')} aria-label={t('公司', 'Company')} required />
+      <div className="form-actions">
+        <button type="button" className="button" onClick={close} disabled={busy}>{t('不是申请', 'Not an application')}</button>
+        <button type="submit" className="button primary" data-fx="pop" disabled={busy}><BriefcaseBusiness size={15} />{t('记为已投递', 'Record it')}</button>
+      </div>
+      {error ? <p className="notice error">{error}</p> : null}
+    </form>
+  );
+}
+
 function SaveForm({ draft, apply, onCancel, onSaved }) {
   const { t } = useI18n();
   const [form, setForm] = useState({ title: draft.title || '', company: draft.company || '', location: draft.location || '' });
@@ -470,6 +522,12 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           setLookupKey(key => key + 1);
           if (application) setFill(current => current && { ...current, marked: application });
         }} /> : null}
+        <label className="check assist-switch" title={t('你或助手在这里投出一份申请、网页显示已收到后，Dayjob 自己把它记进投递追踪', 'Once you or the assistant send an application here and the page says it was received, Dayjob adds it to Applications by itself')}>
+          <input type="checkbox" checked={state.autoTrack !== false} onChange={event => desktop.setAutoTrack(event.target.checked).catch(() => {})} />
+          {t('投出后自动收录', 'Record applications by itself')}
+        </label>
+        <small>{state.autoTrack !== false ? t('网页显示申请已收到时，Dayjob 自动记为已投递并开始追踪，可以一键撤销。', 'When the page says an application was received, Dayjob records it and starts tracking. One click takes it back.')
+          : t('已关闭：投出后要自己点“标记已投递”。', 'Off: mark an application as applied yourself after sending it.')}</small>
       </section>
 
       <section className="assist-section">
@@ -530,10 +588,10 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
               <p className={fill.confirmed ? 'ok' : 'warn'}>{fill.confirmed ? t('已提交，页面显示申请已收到。', 'Submitted. The page says the application was received.')
                 : t(`已点击“${fill.button}”。看一眼页面，确认提交成功。`, `Clicked “${fill.button}”. Check the page to make sure it went through.`)}</p>
             ) : null}
-            {fill.submitted && !fill.marked && !fill.from.posting?.application
+            {fill.submitted && !fill.marked && !fill.recorded && !fill.from.posting?.application
               ? <button className="button small primary" onClick={markSubmitted}><BriefcaseBusiness size={14} />{t('标记已投递', 'Mark applied')}</button> : null}
-            {fill.marked ? <p className="ok">{t('已加入投递追踪。', 'Added to Applications.')}
-              <button className="link" onClick={() => openItem('applications', fill.marked.id)}>{t('查看', 'View')}</button></p> : null}
+            {fill.marked || fill.recorded ? <p className="ok">{fill.recorded && !fill.marked ? t('已自动加入投递追踪。', 'Added to Applications by itself.') : t('已加入投递追踪。', 'Added to Applications.')}
+              <button className="link" onClick={() => openItem('applications', (fill.marked || { id: fill.recorded.applicationId }).id)}>{t('查看', 'View')}</button></p> : null}
           </div>
         ) : null}
         <label className="check assist-switch">
@@ -711,6 +769,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
       {state.approval ? <Approval key={state.approval.id} approval={state.approval} /> : null}
+      {state.applied && !state.approval ? <AppliedStrip key={state.applied.id} applied={state.applied} openItem={openItem} /> : null}
       {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.closed} onKept={setKept} />
         : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p>
         : <LoginStrip login={state.login} autoLogin={state.autoLogin} />}

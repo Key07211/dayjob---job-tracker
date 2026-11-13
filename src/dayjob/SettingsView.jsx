@@ -726,6 +726,9 @@ export function SettingsView({ boot, reload, update, focus }) {
   return (
     <section className="settings-page">
       <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div></header>
+      {/* One column, or two side by side in a wide window: the first holds the searching, the keys and what they cost. */}
+      <div className="page-columns">
+      <div className="page-column">
       <form className="card-section" onSubmit={save}>
         <h2>{t('每日抓取', 'Daily search')}</h2>
         <div className="form-grid">
@@ -758,9 +761,11 @@ export function SettingsView({ boot, reload, update, focus }) {
       <ApiKeys boot={boot} reload={reload} />
       <Spend boot={boot} reload={reload} focused={focus === 'api-spend'} />
       <ClaudeConnection />
-      <BrowserData />
-      <AssistantSettings hasKey={boot.settings.ai.hasApiKey} />
+      </div>
+      <div className="page-column">
+      <AssistantSettings hasKey={boot.settings.ai.hasApiKey} focus={focus} />
       <PasswordVault />
+      <BrowserData />
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />
       <SoundSettings />
@@ -796,6 +801,8 @@ export function SettingsView({ boot, reload, update, focus }) {
         {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
         {info?.portable ? <p className="hint">{t('便携版不会写入 Claude 配置；安装版才能稳定连接 MCP。', 'The portable version does not write Claude\'s config; install Dayjob for a lasting MCP connection.')}</p> : null}
       </section>
+      </div>
+      </div>
     </section>
   );
 }

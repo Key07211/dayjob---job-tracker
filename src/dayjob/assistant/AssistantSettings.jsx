@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { CheckCircle2, Speaker as SpeakerIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, CheckCircle2, NotebookPen, Pencil, Plus, Speaker as SpeakerIcon, Trash2, X } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { Select } from '../groove/Picker.jsx';
 import { ApplySwitch } from './AssistantPane.jsx';
@@ -11,8 +11,64 @@ const ENGINES = [
 ];
 const MODEL_TAGS = { recommended: ['推荐', 'recommended'], top: ['最强', 'most capable'], fast: ['快、省', 'fast, cheap'], older: ['旧版', 'older'] };
 
+const MEMORY_MAX = 60;
+const MEMORY_TEXT = 400;
+
+// 助手的记忆: the standing answers and preferences the assistant works from ("Protected veteran: I am not one"). The
+// user adds, rewords and removes them here; the assistant adds its own when told "remember…" in the chat.
+function Memory({ notes, focused }) {
+  const { t } = useI18n();
+  const [text, setText] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { if (focused) document.getElementById('assistant-memory')?.scrollIntoView({ block: 'start' }); }, [focused]);
+  const run = async (work, after) => {
+    setBusy(true);
+    setError('');
+    try { await work(); after?.(); } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+  };
+  const add = event => { event.preventDefault(); void run(() => assistant.memory.add(text), () => setText('')); };
+  const save = event => { event.preventDefault(); void run(() => assistant.memory.update(editing.id, editing.text), () => setEditing(null)); };
+  return (
+    <>
+      <h2 id="assistant-memory"><NotebookPen size={18} />{t('助手的记忆', 'What the assistant keeps in mind')}</h2>
+      <p className="hint">{t('写下每次都一样的答案和你的偏好，一条一行。助手填申请表、回答问题时会照着做，不再每次问你；在对话里说“记住……”，它也会自己记到这里。这些内容保存在这台电脑上，对话时会发给模型，所以不要写密码。',
+        'Write down the answers that are the same every time and how you like things done, one to a line. The assistant follows them when it fills in applications and answers questions, without asking each time; say “remember…” in the chat and it adds a note here itself. The notes stay on this computer and go to the model with a conversation, so do not write passwords.')}</p>
+      <form className="memory-add" onSubmit={add}>
+        <input value={text} maxLength={MEMORY_TEXT} onChange={event => setText(event.target.value)} disabled={notes.length >= MEMORY_MAX}
+          placeholder={t('例如：是否受保护退伍军人，选“不是”', 'For example: Protected veteran status: choose “I am not a protected veteran”')} aria-label={t('新的一条记忆', 'A new note')} />
+        <button type="submit" className="button primary" disabled={busy || text.trim().length < 2 || notes.length >= MEMORY_MAX}><Plus size={15} />{t('记住', 'Remember')}</button>
+      </form>
+      {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
+      {notes.length ? (
+        <ul className="memory-list">
+          {notes.map(note => (editing?.id === note.id ? (
+            <li key={note.id}>
+              <form onSubmit={save}>
+                <input value={editing.text} maxLength={MEMORY_TEXT} autoFocus onChange={event => setEditing({ id: note.id, text: event.target.value })}
+                  onKeyDown={event => { if (event.key === 'Escape') setEditing(null); }} aria-label={t('修改这条记忆', 'Reword this note')} />
+                <button type="submit" className="icon-button" title={t('保存', 'Save')} aria-label={t('保存', 'Save')} disabled={busy || editing.text.trim().length < 2}><Check size={15} /></button>
+                <button type="button" className="icon-button" title={t('取消', 'Cancel')} aria-label={t('取消', 'Cancel')} onClick={() => setEditing(null)}><X size={15} /></button>
+              </form>
+            </li>
+          ) : (
+            <li key={note.id}>
+              <p>{note.text}{note.by === 'assistant' ? <small>{t('助手记的', 'noted by the assistant')}</small> : null}</p>
+              <button className="icon-button" title={t('修改', 'Reword')} aria-label={t('修改', 'Reword')} onClick={() => { setError(''); setEditing({ id: note.id, text: note.text }); }}><Pencil size={14} /></button>
+              <button className="icon-button" title={t('删掉', 'Remove')} aria-label={t('删掉', 'Remove')} disabled={busy} onClick={() => run(() => assistant.memory.remove(note.id))}><Trash2 size={14} /></button>
+            </li>
+          )))}
+        </ul>
+      ) : <p className="hint memory-empty">{t('还没有记下任何东西。常用的几条：是否需要签证担保、是否受保护退伍军人、是否残障、性别和族裔怎么选、期望薪资怎么填、最早入职时间。',
+        'Nothing is kept in mind yet. The usual ones: whether you need visa sponsorship, protected veteran status, disability status, how to answer gender and ethnicity, what to put for expected salary, your earliest start date.')}</p>}
+      {notes.length >= MEMORY_MAX ? <small className="hint">{t(`最多 ${MEMORY_MAX} 条，删掉一条才能再加。`, `Up to ${MEMORY_MAX} notes; remove one to add another.`)}</small> : null}
+    </>
+  );
+}
+
 // Settings → Assistant: which engine answers in the pane, and with which model.
-export function AssistantSettings({ hasKey }) {
+export function AssistantSettings({ hasKey, focus }) {
   const { t } = useI18n();
   const { info } = useAssistant();
   // Asked again when a key is added or removed above, so the line below is never out of date.
@@ -56,6 +112,7 @@ export function AssistantSettings({ hasKey }) {
             : t('手动确认：提交之前，对话里会出现一张卡片，按住“投递”才会发出去。这个开关也在对话框旁边。', 'Ask me first: before anything is sent, a card appears in the chat and it goes out only when you hold “Send”. The same switch sits beside the chat box.')}</small>
         </div>
       ) : null}
+      <Memory notes={info.memory || []} focused={focus === 'assistant-memory'} />
     </section>
   );
 }

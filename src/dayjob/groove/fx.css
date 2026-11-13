@@ -217,17 +217,19 @@ input, select, textarea { transition: border-color 156ms, box-shadow 156ms cubic
 .facts-line span:nth-child(n+5) { animation-delay: 156ms; }
 @keyframes chip-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 /* Pages made of cards (Settings, Searches, Resume & AI) lay them down one after another. */
-.settings-page > .card-section { animation: card-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
-.settings-page > .card-section:nth-child(3) { animation-delay: 39ms; }
-.settings-page > .card-section:nth-child(4) { animation-delay: 78ms; }
-.settings-page > .card-section:nth-child(5) { animation-delay: 117ms; }
-.settings-page > .card-section:nth-child(6) { animation-delay: 156ms; }
-.settings-page > .card-section:nth-child(n+7) { animation-delay: 195ms; }
+.settings-page > .card-section, .page-column > .card-section { animation: card-in 312ms cubic-bezier(.2, .8, .2, 1) both; }
+.settings-page > .card-section:nth-child(3), .page-column > .card-section:nth-child(2) { animation-delay: 39ms; }
+.settings-page > .card-section:nth-child(4), .page-column > .card-section:nth-child(3) { animation-delay: 78ms; }
+.settings-page > .card-section:nth-child(5), .page-column > .card-section:nth-child(4) { animation-delay: 117ms; }
+.settings-page > .card-section:nth-child(6), .page-column > .card-section:nth-child(5) { animation-delay: 156ms; }
+.settings-page > .card-section:nth-child(n+7), .page-column > .card-section:nth-child(n+6) { animation-delay: 195ms; }
+/* The cards come in one by one, so the block that holds the two columns does not come in as a whole. */
+.settings-page > .page-columns { animation: none; }
 @keyframes card-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
   .pkey em, .sidebar-foot .nav-item em, .funnel-bars .track i, .split-bar i, .home-table .rate i, .heatmap rect, .facts-line span,
-  .settings-page > .card-section { animation: none; }
+  .settings-page > .card-section, .page-column > .card-section { animation: none; }
   input, select, textarea, .kpi.clickable { transition: none; }
   .kpi.clickable:hover { transform: none; }
 }

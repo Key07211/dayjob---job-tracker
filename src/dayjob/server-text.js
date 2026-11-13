@@ -22,6 +22,10 @@ const EXACT = {
   'The resume file is larger than 8 MB.': '简历文件超过 8 MB。',
   'Almost no text was found in this resume. If it is a scanned image, export it as a text-based PDF or upload a .docx.': '简历里几乎读不到文字。如果是扫描图片，请导出为可以复制文字的 PDF，或上传 .docx。',
   'Posting not found.': '找不到这个岗位。',
+  'A note is a line of text.': '一条记忆是一行文字。',
+  'Write the note first.': '先写下要记住的内容。',
+  'Passwords do not belong in the assistant\'s memory, which is sent to the model. Keep them in the password vault.': '密码不能放进助手的记忆：记忆会发给模型。密码请放在密码保管里。',
+  'Enter the job title and the company.': '请填上职位和公司。',
   'Claude Code was not found. Install it and sign in, or set its path in Settings.': '没有找到 Claude Code。请安装并登录，或在下面填写路径。',
   'Claude Code is not signed in. Run claude in a terminal and type /login, then check again.': 'Claude Code 还没有登录。在终端运行 claude 并输入 /login，登录后点“重新检测”。',
   'No Anthropic API key is set.': '还没有设置 Anthropic API key。',
@@ -109,16 +113,20 @@ const EXACT = {
   'There is no form on this page to fill in. Open the application form first (often behind an “Apply” button).': '这一页上没有可以填的表单，要先打开申请表（通常在“Apply”按钮后面）。',
   'There is nowhere to attach a file on this page. Open the application form first (often behind an “Apply” button).': '这一页上没有上传文件的地方，要先打开申请表。',
   'No resume has been uploaded to Dayjob yet. Ask the user to add one under Resume & AI.': 'Dayjob 里还没有简历，请先到“简历与 AI”上传。',
-  'Dayjob does not let Claude type passwords, card numbers or one-time codes. Ask the user to fill that field in the Dayjob window.': '密码、卡号和验证码不让助手输入，请你在浏览器里自己填这一栏。',
   'The user has paused Claude in the Dayjob browser. Ask them to turn “Let Claude use it” back on in the browser toolbar.': '浏览器工具栏里的“允许 Claude 使用”关着，打开后助手才能操作网页。',
   'The Dayjob browser is part of the Dayjob desktop app. Ask the user to open Dayjob from the Start menu.': 'Dayjob 浏览器只在桌面版里有。',
   'This posting has no link to open.': '这个岗位没有可以打开的链接。',
   'Give at least one field to save.': '没有要保存的内容。',
 };
 
-const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
+const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知', Note: '记忆' };
 
 const PATTERNS = [
+  [/^Dayjob does not let Claude type passwords, card numbers or one-time codes, and e\d+ \(“(.*)”\) is such a field\. Ask the user to fill it in the Dayjob window\.$/s,
+    (all, field) => `密码、卡号和验证码不让助手输入${field ? `，“${field}”这一栏被认作这一类` : ''}，请你在浏览器里自己填。`],
+  [/^e\d+ \(“(.*)”\) is covered by (.*)\. Close or scroll past it first\.$/s, (all, field) => `“${field}”被页面上别的东西挡住了，助手点不到。关掉挡住它的弹窗或提示后再试。`],
+  [/^A note can be up to (\d+) characters\.$/, (all, count) => `一条记忆最多 ${count} 个字。`],
+  [/^The assistant's memory holds up to (\d+) notes\. Remove one first\.$/, (all, count) => `助手的记忆最多 ${count} 条，删掉一条才能再加。`],
   [/^Too many wrong tries\. Try again in (\d+) seconds\.$/, (all, seconds) => `输错太多次了，请 ${seconds} 秒后再试。`],
   [/^(\d+) of (\d+) could not be scored: (.*)$/s, (all, failed, total, reason) => `${total} 个岗位中有 ${failed} 个没能打分：${serverText(reason)}`],
   [/^No (\w+) job board named "(.+)" was found\.$/, (all, ats, slug) => `没有找到 ${ats} 上名为“${slug}”的招聘页，请检查链接。`],

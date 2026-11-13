@@ -256,7 +256,8 @@
 .metronome.live .mw-rail { opacity: 1; }
 
 /* Each page's title block, with the date and the clock above the title. */
-.view-header > .title-block { flex: 0 1 auto; min-width: 0; }
+/* It never takes the whole line, so the wave's slot (which may be left no width) stays on that line with it. */
+.view-header > .title-block { flex: 0 1 auto; min-width: 0; max-width: calc(100% - 16px); }
 .view-date { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
 .clock { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 .clock .fx-roll { font-weight: inherit; }

@@ -217,6 +217,56 @@ function installAutofill(name) {
     const text = (document.body?.innerText || '').slice(0, 20000);
     return /thank(s| you)[^.]{0,60}(appl|submi|interest)|application (has been |was )?(submitted|received|sent)|we('ve| have) received your application|successfully (submitted|applied)|申请已(提交|收到)|投递成功|感谢您的申请/i.test(text);
   }
+  // 自动收录: what this frame shows of an application. form: fields a person applying fills in (a resume upload,
+  // or an email beside a name or phone, among three fields or more). confirmed: the page says an application went
+  // through, in words a job page or a rejection would not use.
+  const APPLIED = /thank(s| you)[^.\n]{0,60}(appl|submi)|application (has been |was |is )?(successfully )?(submitted|received|sent|complete)|(we('ve| have)|successfully) (received|submitted) your application|you('ve| have) (successfully )?applied|successfully (submitted|applied)|申请已(成功)?(提交|收到|发送)|(投递|申请)成功|已成功(投递|申请)|感谢(您|你)的(申请|投递)/i;
+  // When the person last sent a form in this frame: a form's own submit, or a click on a button that reads like one.
+  const SENDS = /\b(submit|send|apply|finish|complete)\b|提交|投递|发送|完成|申请/i;
+  const heard = new WeakSet();
+  let sentAt = 0;
+  function listen(root) {
+    if (heard.has(root)) return;
+    heard.add(root);
+    // Dayjob hears of it at once (a line on the console under this run's name), since the page may be gone a moment later.
+    const sent = () => {
+      sentAt = Date.now();
+      try { console.debug(`${name}:sent`); } catch { /* it is asked again when the page is next looked at */ }
+    };
+    root.addEventListener('submit', sent, true);
+    root.addEventListener('click', event => {
+      const button = event.target?.closest?.('button, input[type="submit"], input[type="image"], [role="button"], a');
+      if (!button) return;
+      if ((button.type === 'submit' && button.form) || SENDS.test(clean(button.innerText || button.value || button.getAttribute('aria-label') || '', 80))) sent();
+    }, true);
+  }
+  // say: give the page's words whatever it looks like; forget: what was sent has been dealt with.
+  function watch({ say = false, forget = false } = {}) {
+    if (forget) sentAt = 0;
+    for (const root of roots()) listen(root);
+    let fields = 0;
+    let file = false;
+    let email = false;
+    let person = false;
+    let text = '';
+    for (const root of roots()) {
+      text += `${(root.body || root).innerText || ''}\n`;
+      for (const element of root.querySelectorAll('input, select, textarea')) {
+        const type = element.tagName === 'INPUT' ? (element.type || 'text').toLowerCase() : element.tagName.toLowerCase();
+        if (type === 'file') { file = file || !element.disabled; continue; }
+        if (BUTTON_TYPES.includes(type) || ['hidden', 'password', 'search', 'range', 'color'].includes(type) || !visible(element)) continue;
+        fields += 1;
+        const said = `${element.name} ${element.id} ${element.getAttribute('autocomplete') || ''} ${element.getAttribute('placeholder') || ''} ${element.getAttribute('aria-label') || ''} ${element.labels?.[0]?.textContent || ''}`.toLowerCase();
+        if (type === 'email' || /e-?mail|邮箱|邮件/.test(said)) email = true;
+        if (type === 'tel' || /name|phone|mobile|姓名|名字|电话|手机/.test(said)) person = true;
+      }
+    }
+    const form = fields >= 3 && (file || (email && person));
+    const confirmed = APPLIED.test(text.slice(0, 30000));
+    // What an application form or the page after it says, for telling which job it was (it stays on this computer).
+    const words = say || form || confirmed ? `${document.title}\n${text}`.replace(/\s+/g, ' ').slice(0, 6000).toLowerCase() : '';
+    return { form, confirmed, words, url: location.href, sent: sentAt ? Date.now() - sentAt : null };
+  }
 
   // Every place a file can be attached, hidden ones too: most application forms hide the real field behind a
   // button of their own ("Attach", "Upload resume").
@@ -275,7 +325,7 @@ function installAutofill(name) {
     } catch (error) { return { error: String(error?.message || error).slice(0, 200) }; }
   }
 
-  return (globalThis[name] = { scan, fill, submit, confirmation, files, attach });
+  return (globalThis[name] = { scan, fill, submit, confirmation, watch, files, attach });
 }
 
 // ---------- matching, outside the page ----------

@@ -483,6 +483,63 @@ export async function createApp(options = {}) {
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
     baseUrl: () => `http://127.0.0.1:${server.address().port}` });
 
+  // 自动收录: an application the Dayjob browser saw go through (something was sent from an application form and the
+  // page then said so). urls: the pages that tab went through, newest first; draft: what a job page there said
+  // about the job. The posting is the one Dayjob has for one of those pages, else a new one made from the draft.
+  // A tab passes other jobs on its way, so the job must be named (its company or its title) in words: what the
+  // application form and the page after it said. named: the user typed the job, which settles it.
+  //   recorded  tracked from now on (created: the posting is new too)
+  //   already   this job was tracked before
+  //   unsure    there is a job (guess), but neither page named it
+  //   unknown   no posting, and no job page that says which job it was
+  function trackApplied({ urls = [], draft = null, by = 'user', words, page = '', named = false } = {}) {
+    const flat = value => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const said = flat(words);
+    const says = value => { const wanted = flat(value); return wanted.length >= 3 && said.includes(wanted); };
+    // Without the pages' words (a caller that knows the job) there is nothing to check against.
+    const about = item => words === undefined || says(item.company) || says(item.title);
+    const brief = application => ({ id: application.id, company: application.company, title: application.title, appliedAt: application.appliedAt });
+    const already = (application, posting) => ({ status: 'already', application: brief(application), posting: { id: posting.id } });
+    let posting = null;
+    for (const url of urls.slice(0, 12)) {
+      posting = repo.findPostingByUrl(String(url));
+      if (posting) break;
+    }
+    let jobUrl = draft?.url;
+    if (posting && named && !(flat(posting.title) === flat(draft?.title) && flat(posting.company) === flat(draft?.company))) {
+      // The user named another job than the one whose page the tab went through: it gets a posting of its own,
+      // under the address of the application form.
+      jobUrl = [page, ...urls].find(url => url && !repo.findPostingByUrl(String(url)));
+      posting = null;
+    } else if (posting && !named && !about(posting)) return { status: 'unsure', guess: { title: posting.title, company: posting.company || '' } };
+    let created = false;
+    if (posting) {
+      const existing = repo.applicationForPosting(posting.id);
+      if (existing) return already(existing, posting);
+    } else {
+      if (!draft?.structured || !draft.title || !draft.company || !jobUrl) return { status: 'unknown' };
+      if (!named && !about(draft)) return { status: 'unsure', guess: { title: String(draft.title).slice(0, 240), company: String(draft.company).slice(0, 160) } };
+      let item;
+      try {
+        const jobType = [].concat(draft.employmentType || []).map(type => ({ FULL_TIME: 'fulltime', PART_TIME: 'parttime', CONTRACTOR: 'contract', CONTRACT: 'contract', INTERN: 'internship', INTERNSHIP: 'internship', TEMPORARY: 'temporary' })[String(type).toUpperCase()]).find(Boolean);
+        const own = jobUrl === draft.url;
+        item = manualPosting({ title: String(draft.title).slice(0, 240), company: String(draft.company).slice(0, 160), location: own ? String(draft.location || '').slice(0, 160) || undefined : undefined,
+          jobUrl, description: own ? String(draft.description || '').slice(0, 100000) || undefined : undefined, datePosted: own ? /^\d{4}-\d\d-\d\d/.exec(draft.datePosted || '')?.[0] || undefined : undefined,
+          jobType: own ? jobType || undefined : undefined, ...(own && draft.remote ? { isRemote: true } : {}) });
+      } catch { return { status: 'unknown' }; }
+      posting = repo.getPosting(repo.upsertPosting(item).id);
+      const existing = repo.applicationForPosting(posting.id);
+      if (existing) return already(existing, posting);
+      created = true;
+    }
+    const chinese = repo.getSettings().language === 'zh';
+    const who = by === 'assistant' ? (chinese ? '助手' : 'the assistant') : by === 'claude' ? 'Claude' : (chinese ? '你' : 'you');
+    const note = chinese ? `自动收录：${who}在 Dayjob 浏览器里提交后，网页显示申请已收到。` : `Recorded automatically: after ${who} sent it in the Dayjob browser, the page said the application was received.`;
+    const application = repo.createApplication({ postingId: posting.id, company: posting.company || 'Unknown company', title: posting.title, jobUrl: posting.applyUrl || posting.jobUrl,
+      note, resumeId: posting.resumeId, followUpDays: repo.getSettings().tracking.followUpDays, source: 'auto' });
+    return { status: 'recorded', created, application: brief(application), posting: { id: posting.id } };
+  }
+
   const server = http.createServer(async (request, response) => {
     try {
       validateRequest(request, response);
@@ -522,7 +579,7 @@ export async function createApp(options = {}) {
   server.headersTimeout = 15000;
   let listening = false;
   return {
-    server, repo, scheduler, scorer, assistant, filename,
+    server, repo, scheduler, scorer, assistant, filename, trackApplied,
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); }); });
       listening = true;

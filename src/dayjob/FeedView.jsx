@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, Sparkles, X } from 'lucide-react';
+import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
 import { label, relativeDay, salaryText } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -35,6 +35,9 @@ function useDebounced(value, delay) {
 export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
   const { t } = useI18n();
   const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
+  // In a narrow view the filters fold behind 筛选; the number on it is how many of them narrow the list just now.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const narrowing = [filters.minScore, filters.sinceDays, filters.site, filters.searchId].filter(Boolean).length;
   const [result, setResult] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -265,8 +268,11 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
       {!hasResume && mode === 'active' ? (
         <p className="notice">{t('还没有上传简历，岗位不会被打分。', 'No resume yet, so jobs are not scored.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : null}
-      <div className="filters">
+      <div className={`filters${filtersOpen ? ' open' : ''}`}>
         <input className="search-input" placeholder={t('搜索职位、公司或地点', 'Search title, company or location')} value={filters.q} onChange={event => set('q', event.target.value)} />
+        <button type="button" className="button filters-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(open => !open)}>
+          <SlidersHorizontal size={15} />{t('筛选', 'Filters')}{narrowing ? <b>{narrowing}</b> : null}</button>
+        <div className="filters-more">
         <Select value={filters.sort} onChange={event => set('sort', event.target.value)} aria-label={t('排序', 'Sort')}>
           {SORTS.map(option => <option key={option.id} value={option.id}>{t(...option.label)}</option>)}
         </Select>
@@ -287,6 +293,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
           </Select>
         ) : null}
         <label className="check"><input type="checkbox" checked={filters.includeClosed} onChange={event => set('includeClosed', event.target.checked)} />{t('显示已关闭', 'Show closed')}</label>
+        </div>
       </div>
       {error ? <p className="notice error">{error}</p> : null}
       {menu ? <JobMenu key={menu.n} at={menu.at} title={[menu.item.title, menu.item.company].filter(Boolean).join(' · ')} items={menuItems(menu.item)} returnFocus={menu.row}
