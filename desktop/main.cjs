@@ -282,6 +282,15 @@ async function createWindow() {
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
   await window.loadURL(origin);
+  // The window's own colour shows for an instant before the page's first frame, so it takes the page's ground: a
+  // night window then opens dark at once (the page has picked its theme by now, in public/theme-init.js).
+  try {
+    const night = await Promise.race([
+      window.webContents.executeJavaScript("document.documentElement.dataset.theme === 'night'"),
+      new Promise(resolve => setTimeout(() => resolve(false), 500)),
+    ]);
+    if (night && !window.isDestroyed()) window.setBackgroundColor('#23201C');
+  } catch { /* the day ground stays */ }
   if (!smoke && !process.argv.includes('--hidden')) showWindow();
 }
 

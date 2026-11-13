@@ -287,7 +287,7 @@ function App() {
 
   // The opening plays over the page when the window first shows. It is the first child of the root div in both trees
   // below, so it carries on when the first data arrives.
-  const opening = <Opening ready={Boolean(boot)} failed={Boolean(error) && !boot} newJobs={boot?.stats?.newPostings} />;
+  const opening = <Opening ready={Boolean(boot)} failed={Boolean(error) && !boot} />;
   if (!boot) {
     return (
       <div className="boot-screen">
