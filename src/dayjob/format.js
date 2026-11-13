@@ -74,6 +74,13 @@ export function formatTime(value) {
   return `${formatDay(value)} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+// US dollars as Dayjob counts API spending: cents, and "<$0.01" for a call or two that came to less than one.
+export function usd(value) {
+  const amount = Number(value) || 0;
+  if (amount > 0 && amount < 0.005) return '<$0.01';
+  return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function daysSince(value, now = new Date()) {
   const date = toDate(value);
   return date ? Math.max(0, Math.floor((now - date) / DAY)) : null;

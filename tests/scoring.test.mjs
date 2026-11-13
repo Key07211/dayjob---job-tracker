@@ -467,7 +467,7 @@ test('the scorer logs what each answered call used', async () => {
   const { repo } = memoryRepo();
   for (const id of ['1', '2', '3']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: 'Acme', jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
   repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
-  assert.deepEqual(repo.usageSummary(new Date('2026-10-21T16:00:00Z')).today.score, { calls: 0, measured: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0 });
+  assert.deepEqual(repo.usageSummary(new Date('2026-10-21T16:00:00Z')).today.score, { calls: 0, measured: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, costUsd: 0, planUsd: 0, unpriced: 0 });
   const used = { 'Job 1': { inputTokens: 100, outputTokens: 700, cacheReadTokens: 6000, cacheWriteTokens: 900 }, 'Job 2': null };
   const provider = { id: 'claude-cli', status: async () => ({ available: true, detail: 'ok' }),
     score: async ({ posting: item }) => {
@@ -482,8 +482,9 @@ test('the scorer logs what each answered call used', async () => {
 
   const summary = repo.usageSummary(new Date('2026-10-21T16:00:00Z'));
   // Two calls answered, one of them without numbers; the failed one is not a row.
-  assert.deepEqual(summary.today.score, { calls: 2, measured: 1, inputTokens: 7000, cachedTokens: 6000, outputTokens: 700 });
-  assert.deepEqual(summary.today.other, { calls: 1, measured: 1, inputTokens: 50, cachedTokens: 0, outputTokens: 60 });
+  // Claude Code calls are priced for reference only: 100 in, 6000 read, 900 written and 700 out at Opus 5.5 prices.
+  assert.deepEqual(summary.today.score, { calls: 2, measured: 1, inputTokens: 7000, cachedTokens: 6000, outputTokens: 700, costUsd: 0, planUsd: 0.0201, unpriced: 0 });
+  assert.deepEqual(summary.today.other, { calls: 1, measured: 1, inputTokens: 50, cachedTokens: 0, outputTokens: 60, costUsd: 0, planUsd: 0.0014, unpriced: 0 });
   assert.deepEqual(summary.month.score, summary.today.score);
   assert.deepEqual([summary.last.measured, summary.last.model, summary.last.turns, summary.last.chars], [false, 'claude-opus-5-5', 2, 5200]);
   assert.equal(repo.getPosting('li-1').score.score, 78, 'the score itself is stored as before');
