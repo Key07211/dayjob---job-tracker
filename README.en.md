@@ -125,6 +125,17 @@ If you had turned off "Score after each search" in 0.2.0 or earlier, you get "On
 
 **Usage** under Resume & AI lists how many jobs were scored today and in the last 30 days, the input and output tokens they used, and the numbers for the latest score. The counts are what the AI reports (Claude Code, the Claude API, the OpenAI API; Codex reports none, so only its calls are counted) and are recorded from 0.22.0 on. The assistant's replies are listed on a line of their own.
 
+### API spending and what is left
+
+**Settings → API spending** turns every call made with an API key into US dollars at the services' list prices: what today, this month and the last 30 days cost, one bar a day for those 30 days, and what each key spent this month. The services show no balance to an ordinary key (Anthropic's usage and cost endpoints need an organization's Admin key, and report spending, not a balance), so for a "percent left" you first give the key an allowance and Dayjob counts down from it:
+
+| Allowance | How it counts |
+| --- | --- |
+| Prepaid balance | Enter the balance the console shows for the key right now. It counts down from that moment; enter it again after a top-up. |
+| Monthly budget | Enter the most the key should spend in a month. It starts again on the 1st, and what the month has already cost counts. |
+
+One notification says when 15% is left and another when it is used up. Claude Code and Codex on this computer run on a subscription and cost no API money; what the same usage would cost at API prices is shown beside the sums for reference. The figures are Dayjob's own count: only calls made in Dayjob (not the same key's use elsewhere), at the standard prices of 2026-11-13 (5-minute cache writes, OpenAI's standard tier, the higher rates for a call over the long-context threshold), without volume discounts or tax. The service's bill is what counts. Calls recorded since 0.22.0 are priced too; a model that is not in the price list is left out, and the card says how many calls that was.
+
 While scoring runs, the bottom left shows "AI is scoring 3/12" and a **Pause scoring** button. Pausing stops the job being scored at once (the Claude Code or Codex process ends too, so it uses no more allowance) and keeps the rest waiting; new jobs from searches and scores you ask for wait as well. **Resume scoring** carries on, skipping jobs you have since marked not interested or applied to. Dayjob stays paused after a restart.
 
 **Remove jobs under 60** at the top right of **Today** moves every new job scoring under 60 to Not interested in one go. Saved, applied and unscored jobs stay. Click **Undo** right after to bring them back.

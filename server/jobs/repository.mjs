@@ -4,6 +4,7 @@ import { transaction } from './db.mjs';
 import { rankResumes, resumeTerms } from './keywords.mjs';
 import { splitCompanyId } from './scrapers/company-boards.mjs';
 import { DEFAULT_APPLICANT, migrateApplicant } from './applicant.mjs';
+import { costOf, KEY_SERVICE, METERED, PRICES_AS_OF } from './scoring/prices.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -28,7 +29,8 @@ export const DEFAULT_SETTINGS = {
   updates: { autoCheck: true },
   desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,
-  // { id, service, name, key, active }: one key per service is the one in use.
+  // { id, service, name, key, active, allowance? }: one key per service is the one in use.
+  // allowance { kind: 'balance' | 'monthly', amount, at }: what the user says the key may spend, in US dollars.
   apiKeys: [],
   retentionDays: 45,
 };
@@ -117,12 +119,16 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     return { entry, settings: updateSettings({ apiKeys: [...items, entry] }) };
   }
   // active: true moves "in use" to this key; the other keys of its service give it up.
-  function updateApiKey(id, { name, key, active }) {
+  // allowance: an amount starts the count again from now; null stops counting.
+  function updateApiKey(id, { name, key, active, allowance }) {
     const target = getApiKey(id);
     if (!target) return null;
     return updateSettings({ apiKeys: getSettings().apiKeys.map(item => {
-      if (item.id === id) return { ...item, ...(name === undefined ? {} : { name }), ...(key === undefined ? {} : { key }), ...(active ? { active: true } : {}) };
-      return active && item.service === target.service ? { ...item, active: false } : item;
+      if (item.id !== id) return active && item.service === target.service ? { ...item, active: false } : item;
+      const next = { ...item, ...(name === undefined ? {} : { name }), ...(key === undefined ? {} : { key }), ...(active ? { active: true } : {}) };
+      if (allowance === null) delete next.allowance;
+      else if (allowance) next.allowance = { kind: allowance.kind, amount: allowance.amount, at: iso() };
+      return next;
     }) });
   }
   // Removing the key in use hands the service's next key the job.
@@ -449,21 +455,94 @@ export function createRepository(db, { now = () => new Date() } = {}) {
 
   // ---------- AI usage ----------
   const whole = value => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.max(0, Math.round(Number(value))));
+  const METERED_SQL = METERED.map(id => `'${id}'`).join(', ');
+  // Sums of many small costs are kept to a millionth of a dollar, so the same calls always add up the same.
+  const dollars = value => Math.round((Number(value) || 0) * 1e6) / 1e6;
+  // A key's allowance runs low at this share of it, and the user is told once.
+  const LOW_PERCENT = 15;
+  // What a key has left of the allowance its owner gave it. balance: the amount was the key's balance at `at`, and
+  // every call since counts against it. monthly: the amount is for a calendar month, counted from its first day.
+  function allowanceState(entry, at = now()) {
+    const allowance = entry?.allowance;
+    if (!allowance || !(allowance.amount > 0)) return null;
+    const since = allowance.kind === 'monthly' ? new Date(at.getFullYear(), at.getMonth(), 1).toISOString() : allowance.at;
+    const used = q('SELECT COALESCE(SUM(cost_usd), 0) AS used FROM ai_usage WHERE key_id = ? AND at >= ?').get(entry.id, since).used;
+    const left = dollars(Math.max(0, allowance.amount - used));
+    return { kind: allowance.kind, amount: allowance.amount, at: allowance.at, since, used: dollars(used), left, percent: Math.round(left / allowance.amount * 1000) / 10 };
+  }
+  // The cost is worked out here, once, at the prices of the day, and the call is put down to the API key in use
+  // for its service. Returns what it cost and, when this call took a key's allowance under the line, an alert.
   function logUsage({ kind, postingId = null, provider, model = null, usage = null, turns = null, chars = null, durationMs = null }) {
-    q(`INSERT INTO ai_usage (at, kind, posting_id, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, chars, duration_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(iso(), String(kind || 'ask'), postingId, String(provider || 'unknown'), model || null,
+    const service = KEY_SERVICE[provider];
+    const payer = service ? inUse(getSettings().apiKeys, service) : null;
+    const before = allowanceState(payer);
+    const cost = costOf(model, usage, turns);
+    q(`INSERT INTO ai_usage (at, kind, posting_id, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns, chars, duration_ms, key_id, cost_usd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(iso(), String(kind || 'ask'), postingId, String(provider || 'unknown'), model || null,
       usage ? whole(usage.inputTokens) : null, usage ? whole(usage.outputTokens) : null, usage ? whole(usage.cacheReadTokens) : null,
-      usage ? whole(usage.cacheWriteTokens) : null, whole(turns), whole(chars), whole(durationMs));
+      usage ? whole(usage.cacheWriteTokens) : null, whole(turns), whole(chars), whole(durationMs), payer?.id ?? null, cost);
+    const after = before ? allowanceState(payer) : null;
+    const level = !after ? null : before.left > 0 && after.left <= 0 ? 'empty' : before.percent > LOW_PERCENT && after.percent <= LOW_PERCENT ? 'low' : null;
+    return { cost, keyId: payer?.id ?? null, alert: level ? { level, id: payer.id, service: payer.service, name: payer.name, kind: after.kind, left: after.left, percent: after.percent } : null };
+  }
+  // Calls logged before costs were kept get theirs now, once.
+  function priceUsage() {
+    if (getMeta('usagePriced')) return 0;
+    const rows = q('SELECT id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns FROM ai_usage WHERE cost_usd IS NULL AND input_tokens IS NOT NULL').all();
+    let priced = 0;
+    for (const row of rows) {
+      const cost = costOf(row.model, { inputTokens: row.input_tokens, outputTokens: row.output_tokens, cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens }, row.turns);
+      if (cost === null) continue;
+      q('UPDATE ai_usage SET cost_usd = ? WHERE id = ?').run(cost, row.id);
+      priced += 1;
+    }
+    setMeta('usagePriced', PRICES_AS_OF);
+    return priced;
   }
   // calls: every call; measured: the ones that reported tokens. inputTokens is
-  // the whole input, cachedTokens the part of it read from a cache.
-  const usageTotals = row => ({ calls: row?.calls || 0, measured: row?.measured || 0, inputTokens: row?.input || 0, cachedTokens: row?.cached || 0, outputTokens: row?.output || 0 });
+  // the whole input, cachedTokens the part of it read from a cache. costUsd is
+  // what the calls billed to an API key cost; planUsd what the ones made on a
+  // subscription (Claude Code, Codex) would have cost at the same prices;
+  // unpriced counts billed calls whose model has no known price.
+  const usageTotals = row => ({ calls: row?.calls || 0, measured: row?.measured || 0, inputTokens: row?.input || 0, cachedTokens: row?.cached || 0, outputTokens: row?.output || 0,
+    costUsd: dollars(row?.cost), planUsd: dollars(row?.plan), unpriced: row?.unpriced || 0 });
   function usageSince(since) {
     const totals = where => usageTotals(q(`SELECT COUNT(*) AS calls, COUNT(input_tokens) AS measured,
       COALESCE(SUM(input_tokens + COALESCE(cache_read_tokens, 0) + COALESCE(cache_write_tokens, 0)), 0) AS input,
-      COALESCE(SUM(cache_read_tokens), 0) AS cached, COALESCE(SUM(output_tokens), 0) AS output
+      COALESCE(SUM(cache_read_tokens), 0) AS cached, COALESCE(SUM(output_tokens), 0) AS output,
+      COALESCE(SUM(CASE WHEN provider IN (${METERED_SQL}) THEN cost_usd END), 0) AS cost,
+      COALESCE(SUM(CASE WHEN provider NOT IN (${METERED_SQL}) THEN cost_usd END), 0) AS plan,
+      COUNT(CASE WHEN provider IN (${METERED_SQL}) AND input_tokens IS NOT NULL AND cost_usd IS NULL THEN 1 END) AS unpriced
       FROM ai_usage WHERE at >= ? AND ${where}`).get(since));
     return { score: totals("kind = 'score'"), assistant: totals("kind = 'assistant'"), other: totals("kind NOT IN ('score', 'assistant')") };
+  }
+  // The money side of the log: what the calls billed to API keys cost today, this calendar month and over the last
+  // 30 days (day by day), what each key has spent this month and has left of its allowance, and for reference what
+  // this month's subscription calls would have cost. Days and months are the computer's own.
+  function usageSpend(at = now()) {
+    const day = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+    const month = new Date(at.getFullYear(), at.getMonth(), 1);
+    const back = new Date(at.getFullYear(), at.getMonth(), at.getDate() - 29);
+    const money = since => {
+      const row = q(`SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls, COUNT(CASE WHEN input_tokens IS NOT NULL AND cost_usd IS NULL THEN 1 END) AS unpriced
+        FROM ai_usage WHERE provider IN (${METERED_SQL}) AND at >= ?`).get(since.toISOString());
+      return { usd: dollars(row.usd), calls: row.calls, unpriced: row.unpriced };
+    };
+    const plan = q(`SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls FROM ai_usage WHERE provider NOT IN (${METERED_SQL}) AND at >= ?`).get(month.toISOString());
+    const byKey = new Map(q(`SELECT key_id AS id, COALESCE(SUM(cost_usd), 0) AS usd FROM ai_usage WHERE provider IN (${METERED_SQL}) AND at >= ? GROUP BY key_id`)
+      .all(month.toISOString()).map(row => [row.id, row.usd]));
+    const keys = getSettings().apiKeys.map(entry => ({ id: entry.id, service: entry.service, name: entry.name, active: entry.active, monthUsd: dollars(byKey.get(entry.id)),
+      allowance: allowanceState(entry, at) }));
+    const held = new Set(keys.map(entry => entry.id));
+    const otherUsd = [...byKey].reduce((sum, [id, usd]) => (held.has(id) ? sum : sum + usd), 0);
+    const local = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const days = new Map(Array.from({ length: 30 }, (_, i) => [local(new Date(back.getFullYear(), back.getMonth(), back.getDate() + i)), 0]));
+    for (const row of q(`SELECT at, cost_usd FROM ai_usage WHERE provider IN (${METERED_SQL}) AND cost_usd IS NOT NULL AND at >= ?`).all(back.toISOString())) {
+      const key = local(new Date(row.at));
+      if (days.has(key)) days.set(key, days.get(key) + row.cost_usd);
+    }
+    return { pricesAsOf: PRICES_AS_OF, lowPercent: LOW_PERCENT, today: money(day), month: money(month), last30: money(back), plan: { usd: dollars(plan.usd), calls: plan.calls },
+      keys, otherUsd: dollars(otherUsd), daily: [...days].map(([date, usd]) => ({ date, usd: dollars(usd) })) };
   }
   // Today (local day), the last 30 days, and the newest scoring call.
   function usageSummary(now = new Date()) {
@@ -611,7 +690,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, countResumes, deleteResume, rematchPostings,
-    saveScore, getScore, unscoredPostingIds, logUsage, usageSummary,
+    saveScore, getScore, unscoredPostingIds, logUsage, priceUsage, usageSummary, usageSpend,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,
   };

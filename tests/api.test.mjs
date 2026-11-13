@@ -436,7 +436,8 @@ test('GET /api/scoring/usage reports what scoring has used', async () => {
     const added = await call('/api/postings', { method: 'POST', body: { title: 'Data Analyst', company: 'Acme', jobUrl: 'https://acme.example/jobs/1' } });
     assert.equal((await call(`/api/postings/${added.body.id}/score`, { method: 'POST', body: {} })).status, 200);
     const usage = (await call('/api/scoring/usage')).body;
-    assert.deepEqual(usage.today.score, { calls: 1, measured: 1, inputTokens: 80, cachedTokens: 30, outputTokens: 20 });
+    // Claude Code runs on a subscription: its call is priced for reference (10 in, 30 read, 40 written, 20 out at Opus 5.5 prices) and is no money spent.
+    assert.deepEqual(usage.today.score, { calls: 1, measured: 1, inputTokens: 80, cachedTokens: 30, outputTokens: 20, costUsd: 0, planUsd: 0.000646, unpriced: 0 });
     assert.deepEqual([usage.last.model, usage.last.inputTokens, usage.last.turns, usage.last.chars], ['claude-opus-5-5', 80, 2, 900]);
     // A score that is already there is reused, so it is not a second call.
     await call(`/api/postings/${added.body.id}/score`, { method: 'POST', body: {} });

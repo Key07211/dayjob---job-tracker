@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { AssistantSettings } from './assistant/AssistantSettings.jsx';
+import { Spend } from './Spend.jsx';
 import { SoundSettings } from './groove/SoundSettings.jsx';
 import { prefs, usePrefs } from './groove/prefs.js';
 import { cue } from './groove/sound.js';
@@ -702,6 +703,7 @@ export function SettingsView({ boot, reload, update, focus }) {
         <div className="form-actions"><button className="button primary" type="submit"><SavedLabel saved={saved}>{t('保存设置', 'Save settings')}</SavedLabel></button></div>
       </form>
       <ApiKeys boot={boot} reload={reload} />
+      <Spend boot={boot} reload={reload} focused={focus === 'api-spend'} />
       <ClaudeConnection />
       <BrowserData />
       <AssistantSettings hasKey={boot.settings.ai.hasApiKey} />
