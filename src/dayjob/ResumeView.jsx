@@ -558,9 +558,16 @@ export function ResumeView({ boot, reload, status, focus, openItem }) {
   return (
     <section className="settings-page">
       <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('简历与 AI', 'Resume & AI')}</h1></div></header>
-      <Resumes resumes={boot.resumes} reload={reload} />
-      <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
-      <AiSettings boot={boot} reload={reload} status={status} openItem={openItem} />
+      {/* One column, or two side by side in a wide window: the resumes and the profile, then how the AI scores. */}
+      <div className="page-columns">
+        <div className="page-column">
+          <Resumes resumes={boot.resumes} reload={reload} />
+          <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
+        </div>
+        <div className="page-column">
+          <AiSettings boot={boot} reload={reload} status={status} openItem={openItem} />
+        </div>
+      </div>
     </section>
   );
 }

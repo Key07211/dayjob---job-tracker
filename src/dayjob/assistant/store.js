@@ -29,6 +29,7 @@ const effect = detail => effects.forEach(listener => listener(detail));
 // Each piece of a reply as it arrives, for the gramophone, which sends out notes as fast as the words come.
 export function onAssistantWords(listener) { hearers.add(listener); return () => hearers.delete(listener); }
 
+const keepMemory = result => { if (state.info) set({ info: { ...state.info, memory: result.memory } }); };
 const lastTurn = conversation => conversation.turns[conversation.turns.length - 1];
 // The reply being written is the last turn; every change makes a new conversation object for React.
 function writing(change) {
@@ -54,6 +55,8 @@ function handle(event) {
   } else if (event.type === 'tool' && event.phase === 'done') {
     writing(turn => ({ ...turn, tools: turn.tools.map(tool => (tool.id === event.id ? event.tool : tool)) }));
     effect({ tool: event.tool, changed: event.changed, applied: event.applied, ui: event.ui });
+    // The assistant noted or dropped something: the list under Settings follows.
+    if (event.ui?.memory) void assistant.refresh();
   } else if (event.type === 'end') set({ conversation: event.conversation });
 }
 
@@ -100,6 +103,12 @@ export const assistant = {
     if (state.conversation?.kept) void assistant.refresh();
   },
   stop() { flight?.abort(); },
+  // 助手的记忆, as edited under Settings. Each call gives back the whole list.
+  memory: {
+    async add(text) { keepMemory(await api('/api/assistant/memory', { method: 'POST', body: { text } })); },
+    async update(id, text) { keepMemory(await api(`/api/assistant/memory/${id}`, { method: 'PATCH', body: { text } })); },
+    async remove(id) { keepMemory(await api(`/api/assistant/memory/${id}`, { method: 'DELETE' })); },
+  },
   // A new conversation: the one left behind is forgotten unless it was kept.
   async reset() {
     flight?.abort();
@@ -151,6 +160,8 @@ export const assistant = {
           ? { ...turn, tools: turn.tools.map(tool => (tool.id === actionId ? { ...tool, undone: true, undoable: false } : tool)) } : turn)) } });
       }
       effect({ undone: true, changed: true });
+      // What was taken back may have been a note in the assistant's memory.
+      void assistant.refresh();
     } catch (failure) { set({ failure: failure.message }); }
   },
   async saveSettings(patch) {

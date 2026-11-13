@@ -6,6 +6,7 @@ import { createCliEngine } from './engine-cli.mjs';
 import { handleMcp } from './mcp-http.mjs';
 import { AssistantError, SYSTEM_PROMPT, transcript, withNotes } from './prompt.mjs';
 import { createConversationStore } from './store.mjs';
+import { createMemory, MEMORY_EMPTY } from './memory.mjs';
 import { createTools } from './tools.mjs';
 
 export const ENGINES = ['claude-cli', 'anthropic-api'];
@@ -34,7 +35,8 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // browser: the desktop app's Dayjob browser ({ run(action, input, context) }), which the applying tools work in;
 // without it (plain `npm start`) those tools are not offered.
 export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, onSettings = () => {}, now = () => new Date(), log = console.warn }) {
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, onSettings, applyMode: () => settings().apply });
+  const memory = createMemory(repo, now);
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, onSettings, memory, applyMode: () => settings().apply });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
   const available = engines || {
@@ -185,8 +187,15 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     conversation.engine = engineId;
     conversation.model = models[engineId];
     // With the Dayjob browser at hand, each message says how the user wants applications sent just now.
-    let message = withNotes(text, [...conversation.notes.splice(0), ...(browser ? [MODE_NOTES[apply]] : [])]);
-    if (!engine.live(conversation.id) && earlier.length) message = `${transcript(earlier)}\n\n${message}`;
+    // The memory comes with the first message an engine session gets, and again whenever it has changed since.
+    // An empty memory is only said once it has been emptied: the model has no notes to unlearn before that.
+    const remembered = memory.note();
+    const handover = !engine.live(conversation.id);
+    const told = conversation.remembered ?? '';
+    const notes = [...conversation.notes.splice(0), ...(browser ? [MODE_NOTES[apply]] : []), ...(remembered ? (handover || told !== remembered ? [remembered] : []) : told ? [MEMORY_EMPTY] : [])];
+    conversation.remembered = remembered;
+    let message = withNotes(text, notes);
+    if (handover && earlier.length) message = `${transcript(earlier)}\n\n${message}`;
     // Text from separate rounds (before and after a tool) is set apart by a blank line.
     let mark = 0;
     let gap = false;
@@ -236,7 +245,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const [cli, api] = await Promise.all(ENGINES.map(id => available[id].status()));
     return { settings: settings(), engines: { 'claude-cli': cli, 'anthropic-api': api },
       models: CLAUDE_MODELS.map(model => ({ id: model.id, name: model.name, tag: model.tag || null })),
-      defaultModels: Object.fromEntries(ENGINES.map(id => [id, PROVIDERS[id].defaultModel])), kept: store.list(), browser: Boolean(browser),
+      defaultModels: Object.fromEntries(ENGINES.map(id => [id, PROVIDERS[id].defaultModel])), kept: store.list(), browser: Boolean(browser), memory: memory.list(),
       tools: tools.list.map(tool => ({ name: tool.name, tier: tool.tier })) };
   }
 
@@ -285,6 +294,11 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const input = await readJson(request);
     if (pathname === '/api/assistant/chat' && method === 'POST') return stream(response, input);
     if (pathname === '/api/assistant/settings' && method === 'PATCH') return respond(response, 200, saveSettings(input));
+    // 助手的记忆: the user's own notes for the assistant, read and edited under Settings.
+    if (pathname === '/api/assistant/memory' && method === 'POST') { memory.add(input.text, 'user'); return respond(response, 201, { memory: memory.list() }); }
+    const note = pathname.match(/^\/api\/assistant\/memory\/([^/]+)$/);
+    if (note && method === 'PATCH') { memory.update(note[1], input.text); return respond(response, 200, { memory: memory.list() }); }
+    if (note && method === 'DELETE') { need(memory.remove(note[1]), 'Note'); return respond(response, 200, { memory: memory.list() }); }
     if (match && method === 'POST' && match[2] === '/undo') {
       if (typeof input.actionId !== 'string') throw new HttpError(400, 'actionId is required.');
       return respond(response, 200, await undo(match[1], input.actionId));
@@ -328,7 +342,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
 
   return {
-    http, tools, store, settings,
+    http, tools, store, settings, memory,
     // For tests and the desktop shell.
     conversations,
     close() {

@@ -213,6 +213,18 @@ function App() {
     playApply();
     api('/api/status').then(setStatus).catch(() => {});
   });
+  // 自动收录: an application the Dayjob browser saw go through is recorded by Dayjob itself. The lists catch up, and it
+  // strums like any other; they catch up again when the note is taken back.
+  const appliedNote = browser?.applied?.state === 'recorded' ? browser.applied : null;
+  const appliedSeen = useRef(null);
+  useEffect(() => {
+    const id = appliedNote?.id || null;
+    if (id === appliedSeen.current) return;
+    appliedSeen.current = id;
+    setDataVersion(version => version + 1);
+    if (id) emit('apply', { postingId: appliedNote.postingId });
+    else api('/api/status').then(setStatus).catch(() => {});
+  }, [appliedNote?.id]);
   useEffect(() => installClickFx(), []);
   // What the assistant does shows in the window: a note flies from the gramophone's horn to the page's key, which sounds;
   // lists catch up with a change; and "show me" brings the page forward.

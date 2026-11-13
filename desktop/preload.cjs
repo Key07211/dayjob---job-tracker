@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     answerOffer: answer => ipcRenderer.invoke('dayjob:browser-login-offer', answer),
     // 自动登录: on or off, and after a sign-in that did not go through, try again or let it be.
     setAutoLogin: value => ipcRenderer.invoke('dayjob:browser-auto-login', value),
+    setAutoTrack: value => ipcRenderer.invoke('dayjob:browser-auto-track', value),
+    answerApplied: answer => ipcRenderer.invoke('dayjob:browser-applied-answer', answer),
     retryLogin: () => ipcRenderer.invoke('dayjob:browser-login-retry'),
     dismissLogin: () => ipcRenderer.invoke('dayjob:browser-login-dismiss'),
   }),

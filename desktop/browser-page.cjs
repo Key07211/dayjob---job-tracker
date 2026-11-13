@@ -112,9 +112,40 @@ function install() {
   }
 
   const disabled = element => Boolean(element.disabled || element.getAttribute('aria-disabled') === 'true');
+  const choice = element => element.tagName === 'INPUT' && (element.type === 'checkbox' || element.type === 'radio');
+  // Whether a click at the point lands on the element: on it, inside it, on its label, or on the see-through
+  // input of the same option, which many forms stretch over the label or the drawn button.
+  function reaches(element, point, hit) {
+    if (!hit) return false;
+    const labels = [...(element.labels || [])];
+    if (hit === element || hit === point || element.contains(hit) || point.contains(hit) || hit.contains(point) || labels.some(label => label.contains(hit))) return true;
+    const label = hit.closest('label');
+    if (label && (label.control === element || label.contains(element))) return true;
+    if (!choice(hit)) return false;
+    // Another input over this option: the option's own, when the two share the box that holds only this option.
+    for (let box = hit.parentElement, depth = 0; box && depth < 2; box = box.parentElement, depth += 1) {
+      if (!box.contains(point)) continue;
+      return !choice(element) && box.querySelectorAll('input[type="checkbox"], input[type="radio"]').length === 1;
+    }
+    return false;
+  }
   const editable = element => element.isContentEditable || element.tagName === 'TEXTAREA'
     || (element.tagName === 'INPUT' && !['checkbox', 'radio', 'file', 'range', 'color', ...BUTTON_TYPES].includes(element.type));
-  const secret = element => element.type === 'password' || /^cc-|one-time-code/.test(element.autocomplete || '');
+  // A field Claude may not type in: a password, a card number or a one-time code. Sites also put
+  // autocomplete="one-time-code" or "new-password" on ordinary fields, only to keep the browser's own autofill
+  // away from them, so those hints count when the field itself agrees: its words say so, or it is a short box for digits.
+  const SECRET_WORDS = /pass(word|code|phrase)?\b|passwd|\bpwd\b|\botp\b|one[- ]?time|verif|\b2fa\b|\bmfa\b|security code|auth\w* code|\bpin\b|\bcvv\b|\bcvc\b|密码|口令|验证码|校验码|动态码/i;
+  const hints = element => String(element.getAttribute?.('autocomplete') || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const said = element => [name(element), element.id, element.getAttribute('name'), element.getAttribute('placeholder')].filter(Boolean).join(' ');
+  const digitBox = element => /^(numeric|decimal)$/.test(element.getAttribute('inputmode') || '') || ['tel', 'number'].includes(element.type) || (element.maxLength > 0 && element.maxLength <= 8);
+  function secret(element) {
+    if (element.type === 'password') return true;
+    const given = hints(element);
+    if (given.some(hint => hint.startsWith('cc-'))) return true;
+    if (given.includes('one-time-code')) return SECRET_WORDS.test(said(element)) || digitBox(element);
+    if (given.includes('current-password') || given.includes('new-password')) return SECRET_WORDS.test(said(element));
+    return false;
+  }
 
   function value(element) {
     if (element.tagName === 'SELECT') return clean(element.selectedOptions[0]?.text || '', 200);
@@ -123,8 +154,27 @@ function install() {
     return secret(element) ? '(filled)' : clean(element.value, 300);
   }
 
+  // The question a radio button or a checkbox answers: its group's caption, when the page gives the group one.
+  function question(element) {
+    const box = element.closest('fieldset, [role="radiogroup"], [role="group"]');
+    if (!box) return '';
+    const aria = box.getAttribute('aria-label');
+    if (aria?.trim()) return clean(aria, 160);
+    const labelledBy = box.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const root = box.getRootNode();
+      const joined = labelledBy.split(/\s+/).map(id => textOf(root.getElementById?.(id) || box.ownerDocument.getElementById(id))).filter(Boolean).join(' ');
+      if (joined) return clean(joined, 160);
+    }
+    return box.tagName === 'FIELDSET' ? clean(textOf(box.querySelector(':scope > legend')), 160) : '';
+  }
+
   function describe(element, ref) {
     const item = { ref, role: role(element), name: name(element) };
+    if (item.role === 'radio' || item.role === 'checkbox') {
+      const group = question(element);
+      if (group && group !== item.name) item.group = group;
+    }
     if (element.tagName === 'A' && element.href) item.href = element.href.slice(0, 300);
     if (element.tagName === 'INPUT' && item.role === 'textbox' && element.type !== 'text') item.type = element.type;
     if (element.tagName === 'INPUT' && (element.type === 'checkbox' || element.type === 'radio')) item.checked = element.checked;
@@ -251,23 +301,35 @@ function install() {
       const element = find(ref);
       if (!element) return { error: 'missing' };
       const info = { role: role(element), name: name(element), disabled: disabled(element), risky: risky(element), editable: editable(element) };
+      // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
+      // picture, or under another option's, is still answered.
+      if (choice(element)) { info.choice = element.type; info.checked = element.checked; }
       const point = clickable(element);
       point.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
       const rect = point.getBoundingClientRect();
       const x = rect.left + Math.min(rect.width / 2, 40);
       const y = rect.top + rect.height / 2;
       const hit = point.getRootNode().elementFromPoint?.(x, y) || point.ownerDocument.elementFromPoint(x, y);
-      const reaches = hit && (hit === point || point.contains(hit) || hit.contains(point) || [...(element.labels || [])].some(label => label.contains(hit)));
-      if (!reaches) info.coveredBy = hit ? `${hit.tagName.toLowerCase()} “${textOf(hit).slice(0, 80) || hit.className}”` : 'nothing (outside the window)';
+      if (!reaches(element, point, hit)) info.coveredBy = hit ? `${hit.tagName.toLowerCase()} “${textOf(hit).slice(0, 80) || name(hit) || hit.className}”` : 'nothing (outside the window)';
       const offset = frameOffset(point);
       return { ...info, x: x + offset.x, y: y + offset.y };
+    },
+
+    // Sets a real checkbox or radio button the way pressing Space on it would, for one the mouse cannot reach.
+    toggle({ ref }) {
+      const element = find(ref);
+      if (!element) return { error: 'missing' };
+      if (!choice(element)) return { error: 'not-choice', role: role(element) };
+      if (disabled(element)) return { error: 'disabled' };
+      if (!(element.type === 'radio' && element.checked)) element.click();
+      return { name: name(element), checked: element.checked };
     },
 
     focus({ ref, append = false }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };
       if (!editable(element)) return { error: 'not-editable', role: role(element) };
-      if (secret(element)) return { error: 'secret' };
+      if (secret(element)) return { error: 'secret', name: name(element) };
       if (disabled(element) || element.readOnly) return { error: 'disabled' };
       element.scrollIntoView({ block: 'center', behavior: 'instant' });
       element.focus();
@@ -286,7 +348,8 @@ function install() {
 
     read({ ref }) {
       const element = find(ref);
-      return element ? { value: value(element) ?? '' } : { error: 'missing' };
+      if (!element) return { error: 'missing' };
+      return { value: value(element) ?? '', ...(choice(element) ? { checked: element.checked } : element.hasAttribute('aria-checked') ? { checked: element.getAttribute('aria-checked') === 'true' } : {}) };
     },
 
     // For fields that did not take typed text: set the value the way a user's

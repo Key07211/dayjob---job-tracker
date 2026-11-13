@@ -144,6 +144,9 @@ function setupIpc() {
   handle('dayjob:browser-login-retry', () => browser.retryLogin());
   handle('dayjob:browser-login-dismiss', () => browser.dismissLogin());
   handle('dayjob:browser-auto-login', value => browser.setAutoLogin(value === true));
+  handle('dayjob:browser-auto-track', value => browser.setAutoTrack(value === true));
+  handle('dayjob:browser-applied-answer', answer => browser.answerApplied(answer && typeof answer === 'object'
+    ? { title: String(answer.title ?? ''), company: String(answer.company ?? '') } : null));
   // The password vault: the interface sends passwords in (to keep, or the vault's own to open it), and gets them
   // back only from the open vault, when the user asks Settings to show them.
   const vaultChanged = result => { browser.refreshLogin(); if (window && !window.isDestroyed()) window.webContents.send('dayjob:vault-changed'); return result; };
@@ -269,6 +272,7 @@ async function createWindow() {
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
+    track: { applied: input => service.trackApplied(input) },
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -329,6 +333,36 @@ const EMBED_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <script>document.getElementById('file').addEventListener('change', async event => { const file = event.target.files[0];
 document.getElementById('got').textContent = file ? file.name + '|' + file.size + '|' + (await file.text()).slice(0, 24) : 'none'; });</script></body></html>`;
 
+// Questions with choices, drawn the ways application forms draw them: the real radio button see-through and stretched
+// over its own label; shrunk to a dot beside a label that stands in for it; lying under a picture of itself; and a
+// checkbox under its label. Then two ordinary fields that carry a hint meant for passwords and codes (sites put it
+// there to keep the browser's own autofill away), and a real box for a code.
+const CHOICE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Questions · Smoke Co</title><style>
+fieldset{border:0;margin:14px 0;padding:0}.opt{position:relative;display:block;width:260px;padding:10px 14px;margin:6px 0;border:1px solid #888;border-radius:8px}
+.opt input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0}.dot{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.pill{display:inline-block;padding:8px 14px;margin:4px 0;border:1px solid #888;border-radius:20px}.under{position:relative;width:260px;height:38px;margin:6px 0}
+.under input{position:absolute;left:8px;top:10px}.under .face{position:absolute;inset:0;z-index:2;padding:8px 14px;background:#fff;border:1px solid #888;border-radius:8px}</style></head>
+<body><h1>Application questions</h1><form action="/answered" method="get">
+<fieldset><legend>Will you now or in the future require sponsorship for employment visa status?</legend>
+<label class="opt"><input type="radio" name="sponsor" value="yes"><span>Yes</span></label><label class="opt"><input type="radio" name="sponsor" value="no"><span>No</span></label></fieldset>
+<fieldset><legend>Veteran status</legend>
+<input class="dot" type="radio" name="veteran" value="is" id="vet-is"><label class="pill" for="vet-is">I am a protected veteran</label><br>
+<input class="dot" type="radio" name="veteran" value="not" id="vet-not"><label class="pill" for="vet-not">I am not a protected veteran</label></fieldset>
+<fieldset><legend>Gender</legend><div class="under"><input type="radio" name="gender" value="decline" aria-label="Decline to self-identify"><div class="face">Decline to self-identify</div></div></fieldset>
+<label class="opt"><input type="checkbox" name="certify" value="yes"><span>I certify that my answers are true</span></label>
+<p><label>LinkedIn profile <input name="linkedin" type="text" autocomplete="one-time-code"></label></p>
+<p><label>Preferred first name <input name="preferred" type="text" autocomplete="new-password"></label></p>
+<p><label>Verification code <input name="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label></p>
+<button type="button">Save answers</button></form></body></html>`;
+
+// A second job at the same company, and an application form that never says which job or company it is for.
+const SECOND_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Research Analyst · Smoke Co</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Research Analyst","hiringOrganization":{"@type":"Organization","name":"Smoke Co"},
+"description":"Read the market and write it up."}</script></head><body><h1>Research Analyst</h1><p>Read the market and write it up.</p><a href="/apply">Apply for this job</a></body></html>`;
+const QUIET_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Application</title></head>
+<body><h1>Your application</h1><form action="/applied" method="get"><label>First name <input name="first" required></label>
+<label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label> <button>Submit application</button></form></body></html>`;
+
 // A login form and a sign-up form, for the password vault. Signing in posts,
 // so the password never shows in an address.
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
@@ -377,6 +411,9 @@ async function smokeBrowser(token) {
     if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
+    if (url.pathname === '/choices') return response.end(CHOICE_PAGE);
+    if (url.pathname === '/jobs/9') return response.end(SECOND_JOB_PAGE);
+    if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
@@ -430,6 +467,60 @@ async function smokeBrowser(token) {
     browser.setAutoSubmit(true);
     const sent = await browser.autofill({ submit: true });
     steps.autoSubmitted = sent.submitted && sent.confirmed && sent.page.url.startsWith(`${base}/applied?first=Smoke&last=Tester&email=smoke%40example.com&auth=Yes`);
+    // 自动收录: the page said the application went through, so Dayjob tracks it by itself, for the job whose page
+    // this tab came from (a posting made from what that page said, since Dayjob had none), and says so in the window.
+    const tracked = () => service.repo.listApplications();
+    const fromPage = service.repo.getApplication(sent.recorded?.applicationId || '');
+    steps.autoRecorded = sent.recorded?.title === 'Data Analyst' && sent.recorded.company === 'Smoke Co' && tracked().length === 1
+      && fromPage?.events?.[0]?.source === 'auto' && fromPage.jobUrl === `${base}/jobs/7`
+      && browser.state().applied?.state === 'recorded' && browser.state().applied.applicationId === fromPage.id && browser.state().applied.by === 'user';
+    steps.autoRecordedShown = await until(() => window.webContents.executeJavaScript("Boolean(document.querySelector('.browser-applied'))"), 5000);
+    await browser.answerApplied(null);
+    // An application the user sends by hand is recorded the same way. Another job's page was opened in the tab
+    // since, so it is that job, and the form (which names the company) bears it out.
+    const tabPage = () => window.contentView.children.find(child => child.webContents?.getURL().startsWith(base))?.webContents;
+    const sendByHand = first => tabPage().executeJavaScript(`document.querySelector('[name="first"]').value = ${JSON.stringify(first)}; document.querySelector('form').requestSubmit(); true`);
+    await call('open', { url: `${base}/jobs/9` });
+    await call('open', { url: `${base}/apply` });
+    await sendByHand('Hand');
+    steps.userRecorded = await until(() => browser.state().applied?.state === 'recorded', 8000) && browser.state().applied.title === 'Research Analyst'
+      && browser.state().applied.by === 'user' && tracked().length === 2;
+    await browser.answerApplied(null);
+    // A form that names neither the job nor the company: Dayjob will not guess from the pages before it. It asks,
+    // offering the last job page as a start, and records what the user answers as a job of its own.
+    await call('open', { url: `${base}/quiet-apply` });
+    await sendByHand('Quiet');
+    steps.askedWhichJob = await until(() => browser.state().applied?.state === 'ask', 8000) && browser.state().applied.title === 'Research Analyst' && tracked().length === 2;
+    await browser.answerApplied({ title: 'Field Analyst', company: 'Quiet Co' });
+    const namedJob = tracked().find(item => item.title === 'Field Analyst');
+    steps.namedRecorded = browser.state().applied?.state === 'recorded' && tracked().length === 3 && namedJob?.company === 'Quiet Co' && namedJob.jobUrl === `${base}/quiet-apply`;
+    await browser.answerApplied(null);
+    // Sending the same job's form again records nothing new; switched off, nothing is recorded at all.
+    steps.autoTrackSwitch = browser.setAutoTrack(false).autoTrack === false && JSON.parse(fs.readFileSync(path.join(profileDir, 'browser.json'), 'utf8')).autoTrack === false
+      && browser.setAutoTrack(true).autoTrack === true;
+    for (const item of tracked()) service.repo.deleteApplication(item.id);
+
+    // 选择题: Claude's click answers a radio button or a checkbox however the page draws it, and says how it stands
+    // after; a field is refused only when it really is for a password or a code.
+    await call('open', { url: `${base}/choices` });
+    const questions = await call('read');
+    const option = (role, name) => questions.elements.find(item => item.role === role && item.name === name)?.ref;
+    const answer = () => tabPage().executeJavaScript("new URLSearchParams(new FormData(document.querySelector('form'))).toString()");
+    const yes = await call('click', { ref: option('radio', 'Yes') });
+    const no = await call('click', { ref: option('radio', 'No') });
+    steps.choiceUnderLabel = yes.clicked.checked === true && no.clicked.checked === true && (await answer()).includes('sponsor=no');
+    steps.choiceBesideLabel = (await call('click', { ref: option('radio', 'I am not a protected veteran') })).clicked.checked === true && (await answer()).includes('veteran=not');
+    steps.choiceCovered = (await call('click', { ref: option('radio', 'Decline to self-identify') })).clicked.checked === true && (await answer()).includes('gender=decline');
+    const certify = option('checkbox', 'I certify that my answers are true');
+    steps.choiceCheckbox = (await call('click', { ref: certify })).clicked.checked === true && (await answer()).includes('certify=yes')
+      && (await call('click', { ref: certify })).clicked.checked === false && !(await answer()).includes('certify');
+    // Reading the page tells an option's state and the question it answers ("No" alone says nothing).
+    const chosen = (await call('read')).elements.find(item => item.name === 'No' && item.role === 'radio');
+    steps.choiceRead = chosen?.checked === true && /require sponsorship/.test(chosen.group || '');
+    steps.plainFieldTyped = (await call('type', { ref: option('textbox', 'LinkedIn profile'), text: 'https://www.linkedin.com/in/smoke' })).typed.value === 'https://www.linkedin.com/in/smoke'
+      && (await call('type', { ref: option('textbox', 'Preferred first name'), text: 'Smokey' })).typed.value === 'Smokey';
+    const refusedCode = await post('type', { ref: option('textbox', 'Verification code'), text: '123456' });
+    steps.codeRefused = refusedCode.status === 409 && /one-time codes, and e\d+ \(“Verification code”\)/.test((await refusedCode.json()).error) && !(await answer()).includes('123456');
     await call('open', { url: `${base}/jobs/7` });
     const job = await call('read');
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
@@ -570,7 +661,8 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'assistantAsked',
-    'assistantDeclined', 'takeover'].every(step => steps[step] === true);
+    'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused'].every(step => steps[step] === true);
   return steps;
 }
 
