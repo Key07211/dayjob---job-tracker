@@ -187,7 +187,16 @@ export function apiKeyInput(input, { partial = false } = {}) {
     if (input.active !== true) fail('Choose another key to use instead.');
     out.active = true;
   }
-  if (!Object.keys(out).length) fail('Provide a name, a key or active.');
+  // What the key may spend, in US dollars: its balance from now on, or a budget for each month. null stops counting.
+  if (partial && has(input, 'allowance')) {
+    if (input.allowance === null) out.allowance = null;
+    else {
+      const amount = Number(input.allowance?.amount);
+      if (typeof input.allowance !== 'object' || !Number.isFinite(amount) || amount <= 0 || amount > 1000000) fail('Enter the allowance as an amount in US dollars, more than 0.');
+      out.allowance = { kind: oneOf(input.allowance.kind ?? 'balance', ['balance', 'monthly'], 'Allowance'), amount: Math.round(amount * 100) / 100 };
+    }
+  }
+  if (!Object.keys(out).length) fail('Provide a name, a key, active or an allowance.');
   return out;
 }
 

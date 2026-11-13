@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Download, FileUp, LoaderCircle, Paperclip, Plus, RefreshCw, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { api } from '../api.js';
-import { formatTime } from './format.js';
+import { formatTime, usd } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { BEAT, cue } from './groove/sound.js';
@@ -157,7 +157,7 @@ const listed = (provider, model) => PROVIDERS[provider].models.some(item => item
 
 // What scoring has used, as the AI reported it. Read when the page opens and
 // again as each score lands.
-function Usage({ landed, provider }) {
+function Usage({ landed, provider, openItem }) {
   const { t, locale } = useI18n();
   const [usage, setUsage] = useState(null);
   useEffect(() => {
@@ -168,12 +168,15 @@ function Usage({ landed, provider }) {
   if (!usage) return null;
   const n = value => Math.round(Number(value) || 0).toLocaleString(locale);
   const tokens = item => t(`输入 ${n(item.inputTokens)} · 输出 ${n(item.outputTokens)}`, `${n(item.inputTokens)} in · ${n(item.outputTokens)} out`);
+  // Money spent on an API key, and beside it what the subscription's calls would have cost at the same prices.
+  const cost = item => [item.costUsd > 0 ? usd(item.costUsd) : '', item.planUsd > 0 ? t(`订阅部分按 API 价约 ${usd(item.planUsd)}`, `subscription calls about ${usd(item.planUsd)} at API prices`) : '']
+    .filter(Boolean).map(part => ` · ${part}`).join('');
   const scored = item => {
     if (!item.calls) return t('还没有打分', 'Nothing scored yet');
     const times = t(`打分 ${n(item.calls)} 次`, `${n(item.calls)} scored`);
     if (!item.measured) return times;
     return `${times} · ${tokens(item)} · ${t(`平均每次输入 ${n(item.inputTokens / item.measured)}、输出 ${n(item.outputTokens / item.measured)}`,
-      `${n(item.inputTokens / item.measured)} in and ${n(item.outputTokens / item.measured)} out per score`)}`;
+      `${n(item.inputTokens / item.measured)} in and ${n(item.outputTokens / item.measured)} out per score`)}${cost(item)}`;
   };
   const { today, month, last } = usage;
   const lastLine = last?.measured ? [
@@ -188,12 +191,14 @@ function Usage({ landed, provider }) {
         <dt>{t('今天', 'Today')}</dt><dd>{scored(today.score)}</dd>
         <dt>{t('近 30 天', 'Last 30 days')}</dt><dd>{scored(month.score)}</dd>
         {lastLine ? <><dt>{t('最近一次', 'Latest score')}</dt><dd>{lastLine}</dd></> : null}
-        {month.assistant?.calls ? <><dt>{t('助手', 'Assistant')}</dt><dd>{t(`近 30 天回答 ${n(month.assistant.calls)} 次`, `${n(month.assistant.calls)} ${month.assistant.calls === 1 ? 'reply' : 'replies'} in 30 days`)}{month.assistant.measured ? ` · ${tokens(month.assistant)}` : ''}</dd></> : null}
-        {month.other.calls ? <><dt>{t('其他', 'Other')}</dt><dd>{t(`近 30 天搜索建议和读取申请资料 ${n(month.other.calls)} 次`, `Search suggestions and profile reads in 30 days: ${n(month.other.calls)} ${month.other.calls === 1 ? 'call' : 'calls'}`)}{month.other.measured ? ` · ${tokens(month.other)}` : ''}</dd></> : null}
+        {month.assistant?.calls ? <><dt>{t('助手', 'Assistant')}</dt><dd>{t(`近 30 天回答 ${n(month.assistant.calls)} 次`, `${n(month.assistant.calls)} ${month.assistant.calls === 1 ? 'reply' : 'replies'} in 30 days`)}{month.assistant.measured ? ` · ${tokens(month.assistant)}${cost(month.assistant)}` : ''}</dd></> : null}
+        {month.other.calls ? <><dt>{t('其他', 'Other')}</dt><dd>{t(`近 30 天搜索建议和读取申请资料 ${n(month.other.calls)} 次`, `Search suggestions and profile reads in 30 days: ${n(month.other.calls)} ${month.other.calls === 1 ? 'call' : 'calls'}`)}{month.other.measured ? ` · ${tokens(month.other)}${cost(month.other)}` : ''}</dd></> : null}
       </dl>
       <p className="hint">{t('数字是 AI 自己报告的 token 数，加入这项记录之前的打分不在内。输入包括简历、岗位描述，以及 AI 工具自己附带的内容。',
         'These are token counts as the AI reports them; scores made before this was added are not counted. Input covers the resume, the posting, and whatever the AI tool adds itself.')}
-        {provider === 'codex-cli' ? t(' Codex 不报告 token 数，所以只记次数。', ' Codex does not report tokens, so only the calls are counted.') : ''}</p>
+        {provider === 'codex-cli' ? t(' Codex 不报告 token 数，所以只记次数。', ' Codex does not report tokens, so only the calls are counted.') : ''}
+        {t(' 美元是按公开标价折算的；本机 Claude Code 和 Codex 走订阅，不另外扣钱。', ' Dollars are worked out from list prices; Claude Code and Codex on this computer run on a subscription and cost nothing extra.')}
+        <button type="button" className="link" onClick={() => openItem('settings', 'api-spend')}>{t('看 API 消费和剩余额度', 'See API spending and what is left')}</button></p>
     </>
   );
 }
@@ -334,7 +339,7 @@ function AiSettings({ boot, reload, status, openItem }) {
       </div>
       <p className="hint">{t('每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
         'Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
-      <Usage landed={scoring.landed?.at(-1)?.seq ?? 0} provider={ai.provider} />
+      <Usage landed={scoring.landed?.at(-1)?.seq ?? 0} provider={ai.provider} openItem={openItem} />
       {form.provider === 'codex-cli' ? <p className="hint">{t('ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna；Plus、Pro、Business、Enterprise、Edu 可以用列表里的全部模型。没登录时，在终端运行 codex 并选择用 ChatGPT 登录。',
         'On ChatGPT Free and Go, Codex offers GPT-6 Luna only; Plus, Pro, Business, Enterprise and Edu get every model listed. To sign in, run codex in a terminal and choose Sign in with ChatGPT.')}</p> : null}
       {form.provider === 'anthropic-api' && model?.fallback ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',

@@ -52,6 +52,18 @@ export async function createApp(options = {}) {
   const log = options.log || console.warn;
   const httpClient = options.http || createHttp({ fetch: options.fetch });
   const notify = createNotifier({ repo, desktop: options.notify || nativeNotification });
+  repo.priceUsage();
+  // Every AI call goes through repo.logUsage. When one takes an API key's allowance under the line, or uses the
+  // last of it, the user is told, once for each.
+  const logUsage = repo.logUsage;
+  repo.logUsage = entry => {
+    const logged = logUsage(entry);
+    if (logged.alert) {
+      try { notify({ kind: 'spend', ...message(repo.getSettings().language, logged.alert.level === 'empty' ? 'allowanceEmpty' : 'allowanceLow', logged.alert), refId: logged.alert.id }); }
+      catch (error) { log(`[dayjob] allowance notice: ${error.message}`); }
+    }
+    return logged;
+  };
 
   let jobspy = null;
   const jobspyCommand = () => repo.getSettings().jobspy.pythonCommand || (process.platform === 'win32' ? 'python' : 'python3');
@@ -163,6 +175,7 @@ export async function createApp(options = {}) {
     if (pathname === '/api/sites') return sites(flag(params.get('refresh')));
     if (pathname === '/api/scoring/status') return scorer.status(flag(params.get('refresh')));
     if (pathname === '/api/scoring/usage') return repo.usageSummary(now());
+    if (pathname === '/api/usage/spend') return repo.usageSpend(now());
     if (pathname === '/api/postings') {
       return repo.listPostings({ status: params.get('status') || 'active', site: params.get('site') || undefined, q: params.get('q') || undefined,
         minScore: number(params.get('minScore')), searchId: params.get('searchId') || undefined, sort: params.get('sort') || 'posted',

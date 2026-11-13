@@ -209,6 +209,12 @@ const migrations = [
   );
   CREATE INDEX ai_usage_at ON ai_usage (at);
   `,
+  // What each call cost at list prices when it was made, and the API key it
+  // was billed to (null for Claude Code, Codex and a key from the environment).
+  `
+  ALTER TABLE ai_usage ADD COLUMN key_id TEXT;
+  ALTER TABLE ai_usage ADD COLUMN cost_usd REAL;
+  `,
   // The file a resume was read from (PDF, Word or text), kept so it can be attached to an application. Resumes
   // saved before this have only their text.
   `

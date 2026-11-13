@@ -157,7 +157,7 @@ test('a message streams a reply with its tool call, and the pane never gets tool
 
   // Each reply is counted in the usage log, on its own line and not with the search suggestions.
   const used = app.repo.usageSummary().today;
-  assert.deepEqual(used.assistant, { calls: 3, measured: 3, inputTokens: 30, cachedTokens: 0, outputTokens: 15 });
+  assert.deepEqual(used.assistant, { calls: 3, measured: 3, inputTokens: 30, cachedTokens: 0, outputTokens: 15, costUsd: 0, planUsd: 0, unpriced: 0 });
   assert.deepEqual([used.score.calls, used.other.calls], [0, 0]);
 });
 

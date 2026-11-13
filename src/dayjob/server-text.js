@@ -33,6 +33,7 @@ const EXACT = {
   'API key is required.': '请填写 API key。',
   'An API key has no spaces in it.': 'API key 里不能有空格。',
   'API key not found.': '找不到这个 API key，请刷新后再试。',
+  'Enter the allowance as an amount in US dollars, more than 0.': '额度请填一个大于 0 的美元金额。',
   'Dayjob keeps up to 12 API keys. Remove one first.': '最多保存 12 个 API key，请先删掉一个。',
   'Add an OpenAI API key in Settings.': '还没有设置 OpenAI API key。',
   'The OpenAI API key was rejected.': 'OpenAI API key 无效，请检查后重新填写。',
