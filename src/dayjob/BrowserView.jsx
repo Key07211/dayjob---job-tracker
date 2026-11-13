@@ -76,7 +76,7 @@ function Approval({ approval }) {
     <div className="browser-approval" ref={bar} role="alertdialog" aria-live="assertive">
       <ShieldAlert size={18} />
       <p>
-        <strong>{t('Claude 想先征得你同意', 'Claude is asking first')}</strong>
+        <strong>{approval.by === 'assistant' ? t('助手想先征得你同意', 'The assistant is asking first') : t('Claude 想先征得你同意', 'Claude is asking first')}</strong>
         {approval.action === 'enter'
           ? t(`在 ${site} 的“${approval.name}”里按回车，这可能会提交表单。`, `Press Enter in “${approval.name}” on ${site}. This may submit the form.`)
           : t(`在 ${site} 上点击“${approval.name}”，这可能会提交或发送内容。`, `Click “${approval.name}” on ${site}. This may submit or send something.`)}

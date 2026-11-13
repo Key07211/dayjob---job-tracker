@@ -94,6 +94,21 @@ const EXACT = {
   'Search not found.': '找不到这个搜索。',
   'Resume not found.': '找不到这份简历。',
   'Dayjob could not do that.': 'Dayjob 没能完成这一步。',
+  // What the Dayjob browser answers the assistant with; the commoner ones.
+  'The user declined this in Dayjob, so nothing happened.': '你没有允许，所以什么都没发出去。',
+  'The user did not answer in Dayjob within 10 minutes, so nothing happened. Ask them in the chat before trying again.': '10 分钟里没有回答，所以什么都没发出去。',
+  'The user stopped the reply, so this was not done.': '回答被停下了，这一步没有做。',
+  'The page changed since it was last read. Call browser_read again for fresh refs.': '页面变了，助手需要重新读一遍。',
+  'No page is open in the Dayjob browser. Open one with browser_open.': 'Dayjob 浏览器里还没有打开页面。',
+  'The application profile (申请资料) is empty. Ask the user to fill it in under Resume & AI in Dayjob first.': '申请资料还是空的，请先到“简历与 AI”里填写。',
+  'There is no form on this page to fill in. Open the application form first (often behind an “Apply” button).': '这一页上没有可以填的表单，要先打开申请表（通常在“Apply”按钮后面）。',
+  'There is nowhere to attach a file on this page. Open the application form first (often behind an “Apply” button).': '这一页上没有上传文件的地方，要先打开申请表。',
+  'No resume has been uploaded to Dayjob yet. Ask the user to add one under Resume & AI.': 'Dayjob 里还没有简历，请先到“简历与 AI”上传。',
+  'Dayjob does not let Claude type passwords, card numbers or one-time codes. Ask the user to fill that field in the Dayjob window.': '密码、卡号和验证码不让助手输入，请你在浏览器里自己填这一栏。',
+  'The user has paused Claude in the Dayjob browser. Ask them to turn “Let Claude use it” back on in the browser toolbar.': '浏览器工具栏里的“允许 Claude 使用”关着，打开后助手才能操作网页。',
+  'The Dayjob browser is part of the Dayjob desktop app. Ask the user to open Dayjob from the Start menu.': 'Dayjob 浏览器只在桌面版里有。',
+  'This posting has no link to open.': '这个岗位没有可以打开的链接。',
+  'Give at least one field to save.': '没有要保存的内容。',
 };
 
 const FOUND = { Suggestion: '推荐', Posting: '岗位', Application: '投递记录', Search: '搜索', Company: '公司', Resume: '简历', Run: '抓取记录', Notification: '通知' };
@@ -116,6 +131,11 @@ const PATTERNS = [
   [/^Cannot start (.+?): (.*)$/s, (all, command, detail) => `无法启动 ${command}：${detail}`],
   [/^(\S+) limited requests; the rest are checked next time\.$/, (all, site) => `${site} 在限流，其余岗位下次再检查。`],
   [/^(GitHub|Website) link must be (?:a web link|a full http\(s\) link)\.$/, (all, name) => `${name === 'Website' ? '个人网站' : name} 链接格式不对，请填写完整网址。`],
+  [/^This job is already tracked as applied \((.+)\)\. Do not apply again unless the user asks for exactly that\.$/, () => '这个岗位已经投过了，没有再投一次。'],
+  [/^The page did not load \((.+)\)\.$/, (all, detail) => `页面没有打开（${detail}）。`],
+  [/^No element (e\d+) on this page any more\. .*$/, () => '页面上找不到刚才那个元素了，助手需要重新读一遍。'],
+  [/^This form has no place for a cover letter: .*$/s, () => '这张表单里没有放求职信的地方。'],
+  [/^“(.*)” already has a file\. .*$/s, (all, field) => `“${field}”里已经有文件了。`],
 ];
 
 export function serverText(message) {

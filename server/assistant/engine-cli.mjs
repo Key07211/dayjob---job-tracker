@@ -10,6 +10,7 @@ import { AssistantError } from './prompt.mjs';
 
 const IDLE_MS = 10 * 60 * 1000;
 const QUIET_MS = 4 * 60 * 1000;
+const TOOL_MS = 15 * 60 * 1000;
 const STALE_MS = 24 * 60 * 60 * 1000;
 const SIGNED_OUT = /not logged in|\/login|invalid api key|authentication_error/i;
 
@@ -89,7 +90,8 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     fs.writeFileSync(path.join(cwd, 'mcp.json'), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url: mcpUrl(), headers: { Authorization: `Bearer ${token}` } } } }));
     fs.writeFileSync(path.join(cwd, 'system.txt'), system);
     const shell = needsShell(found.command);
-    const child = spawn(found.command, assistantArgs({ model, shell, strictMcp }), { cwd, windowsHide: true, shell });
+    // A tool call can wait on the user for minutes (the card that asks before an application is sent).
+    const child = spawn(found.command, assistantArgs({ model, shell, strictMcp }), { cwd, windowsHide: true, shell, env: { ...process.env, MCP_TOOL_TIMEOUT: String(TOOL_MS) } });
     const session = { child, cwd, token, model, strictMcp, turn: null, buffer: '', stderr: '', closed: false, idle: null, quiet: null, served: model || null };
     sessions.set(id, session);
     const fail = error => {
@@ -211,6 +213,13 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
         : { available: false, detail: 'Claude Code was not found. Install it and sign in, or set its path under Resume & AI.' };
     },
     live: id => sessions.has(id),
+    // While one of Dayjob's tools runs for this conversation, the quiet watch stands still: the tool may be waiting
+    // on the user. It starts over when the tool is done.
+    hold(id, on) {
+      const session = sessions.get(id);
+      if (!session?.turn) return;
+      if (on) clearTimeout(session.quiet); else watch(id, session);
+    },
     close: id => end(id),
     closeAll() { for (const id of [...sessions.keys()]) end(id); },
     // The token in a tool request names the conversation whose process sent it.

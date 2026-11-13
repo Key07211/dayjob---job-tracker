@@ -457,6 +457,7 @@ export async function createApp(options = {}) {
   }
 
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, log, engines: options.assistantEngines,
+    browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
     baseUrl: () => `http://127.0.0.1:${server.address().port}` });
 
   const server = http.createServer(async (request, response) => {

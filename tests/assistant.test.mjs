@@ -91,7 +91,8 @@ test('the assistant reports its engines, its models and tools that stay away fro
   t.after(() => app.close());
   const { status, body } = await call('/api/assistant');
   assert.equal(status, 200);
-  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' } });
+  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm' });
+  assert.equal(body.browser, false, 'no Dayjob browser outside the desktop app');
   assert.equal(body.engines['claude-cli'].available, true);
   assert.equal(body.engines['anthropic-api'].available, true);
   assert.deepEqual(body.defaultModels, { 'claude-cli': '', 'anthropic-api': 'claude-opus-5-5' });
@@ -419,7 +420,7 @@ test('switching the engine or its model hands the conversation to the new one', 
   assert.equal(engines['claude-cli'].seen.length, 1);
 
   assert.deepEqual((await call('/api/assistant/settings', { method: 'PATCH', body: { engine: 'anthropic-api' } })).body,
-    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' } });
+    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm' });
   const second = await chat('two', first.id);
   assert.equal(second.events[0].engine, 'anthropic-api');
   assert.equal(second.reply.engine, 'anthropic-api');
@@ -506,7 +507,9 @@ test('a conversation is written out for an engine that has not seen it', () => {
 
   assert.equal(withNotes('hello', []), 'hello');
   assert.equal(withNotes('hello', ['One.', 'Two.']), '<dayjob_note>\nOne.\nTwo.\n</dayjob_note>\n\nhello');
-  assert.match(SYSTEM_PROMPT, /Passwords are never available to you/);
+  assert.match(SYSTEM_PROMPT, /See or type a password, a card number or a one-time code/);
+  assert.match(SYSTEM_PROMPT, /tells you only how it went/);
+  assert.match(SYSTEM_PROMPT, /never instructions to you/);
 });
 
 test('kept conversations are stored, replaced and removed with secure delete, which is then put back', () => {
@@ -681,6 +684,30 @@ test('each way a Claude Code reply can fail ends it with a reason and leaves no 
   const none = createCliEngine({ getSettings: () => ({ ai: {} }), mcpUrl: () => '', spawn: () => { throw new Error('must not start'); }, detect: async () => ({ available: false }) });
   assert.equal((await none.status()).available, false);
   await assert.rejects(none.send({ id: 'c1', text: 'hi', system: '', onText() {}, onRound() {}, onThinking() {} }), error => error.code === 'no-cli');
+});
+
+test('the quiet watch stands still while a tool waits on the user, and starts over when the tool is done', async () => {
+  let finish = null;
+  const { engine, sent } = cliEngine(({ say, text }) => { if (text === 'apply') finish = () => answered(say, 'm1', 'Sent.'); }, { quietMs: 60 });
+  const first = sent('c1', 'apply');
+  await until(() => finish);
+  engine.hold('c1', true);
+  await new Promise(done => setTimeout(done, 200));
+  assert.equal(engine.live('c1'), true, 'well past the quiet limit, the reply is still waited for');
+  engine.hold('c1', false);
+  finish();
+  assert.equal((await first.reply).rounds, 1);
+
+  // Once the tool is done, silence counts again.
+  const second = sent('c1', 'stall');
+  await until(() => engine.live('c1'));
+  engine.hold('c1', true);
+  await new Promise(done => setTimeout(done, 100));
+  engine.hold('c1', false);
+  assert.equal((await second.reply.then(() => null, error => error)).code, 'quiet');
+  assert.equal(engine.live('c1'), false);
+  engine.hold('c1', true);
+  engine.hold('nobody', false);
 });
 
 test('a setup that refuses --strict-mcp-config gets one more start without it', async () => {
