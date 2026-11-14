@@ -16,9 +16,11 @@ import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import { AssistantCard } from './dayjob/assistant/AssistantCard.jsx';
 import { AssistantPane } from './dayjob/assistant/AssistantPane.jsx';
 import { assistant, onAssistantEffect, useAssistant } from './dayjob/assistant/store.js';
+import { Guide } from './dayjob/guide/Guide.jsx';
+import { guide, useGuide } from './dayjob/guide/store.js';
 import { PianoNav } from './dayjob/groove/PianoNav.jsx';
 import { BeatLoader, BrandMark, Wordmark } from './dayjob/groove/BrandMark.jsx';
-import { Opening } from './dayjob/groove/Opening.jsx';
+import { Opening, openingPlays } from './dayjob/groove/Opening.jsx';
 import { Turntable } from './dayjob/groove/Turntable.jsx';
 import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
@@ -37,6 +39,7 @@ import './dayjob/groove/fx.css';
 import './dayjob/groove/picker.css';
 import './dayjob/groove/opening.css';
 import './dayjob/assistant/assistant.css';
+import './dayjob/guide/guide.css';
 
 // note: the page's key, 0–7 from the top, so its phrase stays the same with or without the browser.
 const VIEWS = [
@@ -123,6 +126,14 @@ function App() {
   const [pending, setPending] = useState(0);
   const browser = useBrowserState(goTo);
   const update = useUpdateState();
+  // The user guide. The first time Dayjob opens on this computer, once the opening has given way and the first
+  // data is here, the assistant steps out and shows the user around; later it comes only when asked for.
+  const tour = useGuide();
+  const [opened, setOpened] = useState(() => !openingPlays());
+  const openingEnded = useCallback(() => setOpened(true), []);
+  const booted = Boolean(boot);
+  useEffect(() => (booted && opened ? guide.firstTime(BEAT / 2) : undefined), [booted, opened]);
+  useEffect(() => { if (tour.on) setShowNotifications(false); }, [tour.on]);
 
   const reload = useCallback(async () => {
     try {
@@ -299,7 +310,7 @@ function App() {
 
   // The opening plays over the page when the window first shows. It is the first child of the root div in both trees
   // below, so it carries on when the first data arrives.
-  const opening = <Opening ready={Boolean(boot)} failed={Boolean(error) && !boot} />;
+  const opening = <Opening ready={Boolean(boot)} failed={Boolean(error) && !boot} onEnd={openingEnded} />;
   if (!boot) {
     return (
       <div className="boot-screen">
@@ -384,9 +395,9 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${tour.on ? ' guiding' : ''}`}>
       {opening}
-      <aside className="sidebar">
+      <aside className="sidebar" inert={tour.on}>
         <div className="brand">
           <BrandMark label={t('回到主页', 'Back to Home')} onClick={() => goTo('home')} />
           <Wordmark />
@@ -421,7 +432,7 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} openItem={openItem} /> : null}
-      <main className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}`}>
+      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}`}>
         <div className="main-view">
           {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
             <>
@@ -440,13 +451,14 @@ function App() {
             {!wide ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
               onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
             <div className="browser-pane" style={wide ? undefined : { width }}>
-              <BrowserView state={browser} covered={showNotifications || resizing} boot={boot} dataVersion={dataVersion} openItem={openItem}
+              <BrowserView state={browser} covered={showNotifications || resizing || tour.on} boot={boot} dataVersion={dataVersion} openItem={openItem}
                 wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} />
             </div>
           </>
         ) : null}
         {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
       </main>
+      {tour.on ? <Guide views={VIEWS} startView={view} goTo={goTo} openItem={openItem} theme={theme} hasBrowser={hasBrowser} /> : null}
     </div>
   );
 }

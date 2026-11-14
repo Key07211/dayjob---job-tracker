@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Archive, ArchiveRestore, ArrowUp, Check, ChevronRight, Globe, History, Maximize2, PanelRight, Pin, PinOff, Search, ShieldCheck, Square, SquarePen, Trash2, TriangleAlert, Undo2, X, Zap } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUp, BookOpen, Check, ChevronRight, Globe, History, Maximize2, PanelRight, Pin, PinOff, Search, ShieldCheck, Square, SquarePen, Trash2, TriangleAlert, Undo2, X, Zap } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { relativeDay } from '../format.js';
 import { Markdown } from '../Markdown.jsx';
@@ -8,6 +8,7 @@ import { holdToConfirm } from '../groove/fx.js';
 import { cue } from '../groove/sound.js';
 import { APPLY_STEPS, applyRun, stepStates } from './apply.js';
 import { Gramophone } from './Gramophone.jsx';
+import { guide } from '../guide/store.js';
 import { assistant, useAssistant } from './store.js';
 
 const desktopBrowser = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
@@ -360,6 +361,8 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
                 : t('查岗位、记一笔投递、改搜索条件、开始抓取，都可以用一句话交给我。我改动的每一处都能一键撤销。', 'Look up jobs, record an application, change a search or start one: say it in a sentence. Every change I make can be undone in one click.')}</p>
               <div className="asst-starters">
                 {starters.map(([zh, en]) => <button key={en} type="button" className="button small" disabled={busy} onClick={() => send(t(zh, en))}>{t(zh, en)}</button>)}
+                {/* Not a message: the written guide, which needs no model. */}
+                <button type="button" className="button small asst-tour" onClick={() => guide.start()}><BookOpen size={14} />{t('带我看一遍 Dayjob', 'Show me around Dayjob')}</button>
               </div>
             </div>
           )}

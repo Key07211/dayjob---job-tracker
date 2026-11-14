@@ -43,11 +43,14 @@ function chosenOpening() {
 }
 
 // ready: the first data has arrived; failed: it could not arrive (the page under the opening says so).
-export function Opening({ ready, failed }) {
+// onEnd: called once when it has given way to the page (never when no opening plays; see openingPlays).
+export function Opening({ ready, failed, onEnd }) {
   const [on, setOn] = useState(playing);
   const cover = useRef(null);
   const canvas = useRef(null);
   const run = useRef(null);
+  const ended = useRef(onEnd);
+  ended.current = onEnd;
 
   // Ends it at once: the cover goes, wherever the picture was.
   const close = useCallback(() => {
@@ -55,6 +58,7 @@ export function Opening({ ready, failed }) {
     playing = false;
     run.current?.stop();
     setOn(false);
+    ended.current?.();
   }, []);
 
   useLayoutEffect(() => {

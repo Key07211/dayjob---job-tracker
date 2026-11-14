@@ -723,6 +723,31 @@ async function smokeUpdate() {
   return steps;
 }
 
+// The first time Dayjob opens on a computer, the assistant steps out once the opening has gone, greets the user and
+// offers to show them around. Here it is sent away the way a user who presses "Not now" does: the window is given
+// back, and this computer has seen it. (A profile that had seen it before is not greeted again.)
+async function smokeGuide(seenBefore) {
+  const run = code => window.webContents.executeJavaScript(code);
+  const steps = { seenBefore };
+  try {
+    steps.greeted = await until(() => run("Boolean(document.querySelector('.guide-card.intro.placed'))"), seenBefore ? 1500 : 10000);
+    if (steps.greeted) {
+      steps.title = await run("document.querySelector('#guide-title').textContent");
+      steps.offers = await run("document.querySelectorAll('.guide-foot .button').length === 2 && Boolean(document.querySelector('.guide-foot .button.primary'))");
+      steps.windowWaits = await run("document.querySelector('.sidebar').inert && document.querySelector('main').inert");
+      await run("document.querySelector('.guide-foot .button:not(.primary)').click()");
+      steps.left = await until(() => run("!document.querySelector('.guide')"), 5000);
+      steps.windowBack = await run("!document.querySelector('.sidebar').inert && !document.querySelector('main').inert");
+      steps.seen = Boolean(await run("localStorage.getItem('dayjob-guide')"));
+    }
+  } catch (error) {
+    steps.error = error.message;
+  }
+  steps.ok = !steps.error && (seenBefore ? !steps.greeted
+    : steps.greeted && /Dayjob/.test(steps.title) && ['offers', 'windowWaits', 'left', 'windowBack', 'seen'].every(step => steps[step] === true));
+  return steps;
+}
+
 async function runSmoke() {
   const started = Date.now();
   const timings = {};
@@ -740,6 +765,7 @@ async function runSmoke() {
   const response = await fetch(`${origin}/api/bootstrap`);
   const state = await response.json();
   const rendererLoaded = ['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
+  const guideSeenBefore = Boolean(await window.webContents.executeJavaScript("localStorage.getItem('dayjob-guide')"));
   await window.webContents.executeJavaScript("document.querySelector('.language-toggle').click()");
   let english = false;
   for (let attempt = 0; attempt < 50 && !english; attempt += 1) {
@@ -762,6 +788,8 @@ async function runSmoke() {
     openingClosed = await window.webContents.executeJavaScript("!document.querySelector('.opening')");
     if (!openingClosed) await new Promise(resolve => setTimeout(resolve, 100));
   }
+  const guideCheck = await smokeGuide(guideSeenBefore);
+  timings.guide = Date.now() - started;
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
@@ -791,8 +819,8 @@ async function runSmoke() {
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && openingClosed && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && openingClosed && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
