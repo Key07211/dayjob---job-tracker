@@ -2,7 +2,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
-import { I18nProvider, LanguageSwitch, tr, useI18n } from './i18n.jsx';
+import { I18nProvider, LanguageSwitch, currentLanguage, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
 import { HomeView } from './dayjob/HomeView.jsx';
 import { FeedView } from './dayjob/FeedView.jsx';
@@ -22,7 +22,6 @@ import { PianoNav } from './dayjob/groove/PianoNav.jsx';
 import { BeatLoader, BrandMark, Wordmark } from './dayjob/groove/BrandMark.jsx';
 import { Opening, openingPlays } from './dayjob/groove/Opening.jsx';
 import { Turntable } from './dayjob/groove/Turntable.jsx';
-import { WeekBars } from './dayjob/groove/WeekBars.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
@@ -52,7 +51,6 @@ const VIEWS = [
   { id: 'resume', label: ['简历与 AI', 'Resume & AI'], icon: FileUser, note: 6 },
   { id: 'settings', label: ['设置', 'Settings'], icon: Settings, note: 7 },
 ];
-const WEEKDAYS = { zh: ['一', '二', '三', '四', '五', '六', '日'], en: ['M', 'T', 'W', 'T', 'F', 'S', 'S'] };
 // The browser opens beside the current view; below this window width it fills the window.
 const SIDE_MIN_WINDOW = 1000;
 const SIDEBAR = 216;
@@ -80,7 +78,7 @@ function nextRunText(value) {
 const saveLanguage = language => { api('/api/settings', { method: 'PATCH', body: { language } }).catch(() => {}); };
 
 function App() {
-  const { t, lang, setLang } = useI18n();
+  const { t, setLang } = useI18n();
   const groove = usePrefs();
   const theme = useTheme();
   const nowPlaying = useNowPlaying();
@@ -129,6 +127,8 @@ function App() {
   // The user guide. The first time Dayjob opens on this computer, once the opening has given way and the first
   // data is here, the assistant steps out and shows the user around; later it comes only when asked for.
   const tour = useGuide();
+  // The Settings guide keeps a column at the right of the window for its card, and the page gets narrower.
+  const tourDocked = tour.on && tour.tour === 'settings';
   const [opened, setOpened] = useState(() => !openingPlays());
   const openingEnded = useCallback(() => setOpened(true), []);
   const booted = Boolean(boot);
@@ -139,7 +139,12 @@ function App() {
     try {
       const value = await api('/api/bootstrap');
       setToken(value.csrfToken);
-      if (!adopted.current && value.settings.language) setLang(value.settings.language, { adopt: true });
+      // A language saved earlier wins. Before one has been, the window already speaks the system's (i18n.jsx); it is
+      // saved here as the choice, so the tray and the notifications speak it too.
+      if (!adopted.current) {
+        if (value.languageChosen) setLang(value.settings.language, { adopt: true });
+        else setLang(currentLanguage());
+      }
       adopted.current = true;
       setBoot(value);
       setStatus({ stats: value.stats, scheduler: value.scheduler, scoring: value.scoring, runs: value.runs });
@@ -335,7 +340,6 @@ function App() {
     : scheduler.running ? (scheduler.phase === 'track' ? t('正在更新投递状态…', 'Updating applications…') : t(`正在抓取 ${Math.round(deckProgress * 100)}%`, `Fetching ${Math.round(deckProgress * 100)}%`)) : '';
   const track = groove.followMusic ? nowPlaying.track : null;
   const trackSub = track ? [track.artist, appName(track.app, t)].filter(Boolean).join(' · ') : '';
-  const weekTotal = (stats.week || []).reduce((sum, value) => sum + value, 0);
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
@@ -414,8 +418,6 @@ function App() {
           <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
           </button>
-          <WeekBars week={stats.week || [0, 0, 0, 0, 0, 0, 0]} days={WEEKDAYS[lang] || WEEKDAYS.en} title={t('本周投递', 'This week')}
-            total={t(`${weekTotal} 份`, `${weekTotal} applied`)} breathe={deckBusy || Boolean(track)} />
           <Turntable busy={deckBusy} disabled={halting} progress={deckProgress} playing={Boolean(track)} onStart={scheduler.running ? stopRun : runNow}
             label={scheduler.running ? (halting ? t('正在停止…', 'Stopping…') : t('再点一下停止抓取', 'Click again to stop the search')) : t('点唱片开始抓取', 'Click the record to search now')}
             title={track ? track.title : t('每日推荐', 'Daily picks')}
@@ -432,7 +434,7 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} openItem={openItem} /> : null}
-      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}`}>
+      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}${tourDocked ? ' with-guide' : ''}`}>
         <div className="main-view">
           {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
             <>
@@ -457,6 +459,7 @@ function App() {
           </>
         ) : null}
         {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
+        {tourDocked ? <div className="guide-dock" aria-hidden="true" /> : null}
       </main>
       {tour.on ? <Guide views={VIEWS} startView={view} goTo={goTo} openItem={openItem} theme={theme} hasBrowser={hasBrowser} /> : null}
     </div>

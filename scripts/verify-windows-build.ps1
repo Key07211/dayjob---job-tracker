@@ -29,9 +29,10 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   if (-not (Test-Path -LiteralPath $result)) { throw "$Name smoke test wrote no report (exit code $($process.ExitCode))" }
   # UTF-8 explicitly: Windows PowerShell 5.1 would read it in the system code page.
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
-  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} guide={11} browser={5} update={6} jobspy={7} closeKeepsRunning={8} version={9} executable={10}" -f
+  Write-Output ("{0}: ok={1} rendererLoaded={2} startedIn={12} (system {13}, ok={14}) english={3} languageSaved={4} guide={11} browser={5} update={6} jobspy={7} closeKeepsRunning={8} version={9} executable={10}" -f
     $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok,
-    $(if ($report.jobspy.builtIn -and $report.jobspy.available) { "built in $($report.jobspy.version)" } else { 'missing' }), $report.closeKeepsRunning, $report.version, $report.executable, $report.guide.ok)
+    $(if ($report.jobspy.builtIn -and $report.jobspy.available) { "built in $($report.jobspy.version)" } else { 'missing' }), $report.closeKeepsRunning, $report.version, $report.executable, $report.guide.ok,
+    $report.languageAtStart.startedIn, $report.languageAtStart.system, $report.languageAtStart.ok)
   if ($report.timings) { Write-Output "${Name} timings (ms since the window loaded): $($report.timings | ConvertTo-Json -Compress)" }
   if ($report.error) { Write-Output "${Name} error: $($report.error)" }
   foreach ($line in @($report.log)) { if ($line) { Write-Output "${Name} renderer: $line" } }

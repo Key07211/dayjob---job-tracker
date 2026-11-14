@@ -58,11 +58,13 @@ let quitting = false;
 let soundRequests = 0;
 let shutdownStarted = false;
 let language = null;
+// The language a smoke run expects the window to open in.
+let smokeLanguage = 'zh';
 // Renderer errors during a smoke test, so a failed check says what broke.
 const smokeLog = [];
 
 // Desktop copy follows the interface language (a Dayjob setting); before the
-// service starts, the system language decides.
+// service starts, and until a language has been picked, the system language decides.
 const TEXT = {
   zh: { title: 'Dayjob · 求职追踪', tooltip: 'Dayjob · 每日岗位抓取与投递追踪', open: '打开 Dayjob', run: '立即抓取新岗位', data: '打开数据文件夹', quit: '退出 Dayjob',
     portable: '请先安装 Dayjob，再添加稳定的 Claude MCP 连接。', cannotStart: 'Dayjob 无法启动',
@@ -75,7 +77,9 @@ const TEXT = {
     approval: ({ action, name, site }) => ({ title: 'Claude is asking first', body: action === 'enter' ? `Press Enter in “${name}” on ${site}` : `Click “${name}” on ${site}` }),
     browser: { openTab: 'Open link in new tab', openExternal: 'Open link in your browser', copyLink: 'Copy link address', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select all', back: 'Back', forward: 'Forward', reload: 'Reload' } },
 };
-const text = () => TEXT[language || (app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en')];
+// Chinese on a Chinese system, English on any other: the same rule the page follows on a first launch (src/i18n.jsx).
+const systemLanguage = () => (app.getLocale().toLowerCase().startsWith('zh') ? 'zh' : 'en');
+const text = () => TEXT[language || systemLanguage()];
 
 function showWindow() {
   if (!window || window.isDestroyed()) return;
@@ -751,10 +755,16 @@ async function smokeGuide(seenBefore) {
 async function runSmoke() {
   const started = Date.now();
   const timings = {};
+  // The window opens in the language saved earlier, or on a first launch in the system's (Chinese on a Chinese
+  // system, English on any other), which it then saves.
+  const WORDS = { zh: ['主页', '今日岗位', '投递追踪', '搜索与公司'], en: ['Home', 'Today', 'Applications', 'Searches'] };
+  const shows = lang => `${JSON.stringify(WORDS[lang])}.every(item => document.body.innerText.includes(item)) && document.documentElement.lang === '${lang === 'en' ? 'en' : 'zh-CN'}'`;
   // A freshly built app on a cold Windows runner can take over ten seconds to draw.
-  const ready = "['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => document.body.innerText.includes(item))";
-  await until(() => window.webContents.executeJavaScript(ready), 45000);
+  await until(() => window.webContents.executeJavaScript(`(${shows('zh')}) || (${shows('en')})`), 45000);
   timings.ready = Date.now() - started;
+  const startedIn = await window.webContents.executeJavaScript(shows('en')) ? 'en' : 'zh';
+  const languageKept = await until(() => service.repo.languageChosen() && service.repo.getSettings().language === startedIn, 5000);
+  const languageAtStart = { expected: smokeLanguage, startedIn, system: systemLanguage(), kept: languageKept, ok: startedIn === smokeLanguage && languageKept };
   const renderer = await window.webContents.executeJavaScript(`(async () => ({
     title: document.title,
     content: document.body.innerText.slice(0, 2000),
@@ -764,9 +774,16 @@ async function runSmoke() {
   }))()`);
   const response = await fetch(`${origin}/api/bootstrap`);
   const state = await response.json();
-  const rendererLoaded = ['主页', '今日岗位', '投递追踪', '搜索与公司'].every(item => renderer.content.includes(item));
+  const rendererLoaded = WORDS[startedIn].every(item => renderer.content.includes(item));
   const guideSeenBefore = Boolean(await window.webContents.executeJavaScript("localStorage.getItem('dayjob-guide')"));
-  await window.webContents.executeJavaScript("document.querySelector('.language-toggle').click()");
+  // The switch is tried from whichever language the window opened in, and the run goes on in English.
+  const flip = "document.querySelector('.language-toggle').click()";
+  if (startedIn === 'en') {
+    await window.webContents.executeJavaScript(flip);
+    languageAtStart.chinese = await until(() => window.webContents.executeJavaScript(shows('zh')), 5000);
+    languageAtStart.ok = languageAtStart.ok && languageAtStart.chinese;
+  }
+  await window.webContents.executeJavaScript(flip);
   let english = false;
   for (let attempt = 0; attempt < 50 && !english; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -818,9 +835,9 @@ async function runSmoke() {
   window.close();
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
-  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
+  const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && languageAtStart.ok && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && openingClosed && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, openingClosed, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
@@ -839,7 +856,9 @@ async function boot() {
     // The Python with JobSpy that the installed app carries beside app.asar (scripts/build-jobspy.mjs).
     jobspyDir: app.isPackaged ? path.join(process.resourcesPath, 'jobspy') : undefined,
     browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
-  language = service.repo.getSettings().language;
+  // What the window speaks when it opens: the language saved earlier, or the system's on a first launch.
+  language = service.repo.languageChosen() ? service.repo.getSettings().language : null;
+  smokeLanguage = language || systemLanguage();
   origin = await service.listen(port);
   const bridge = path.join(app.getAppPath(), 'integrations', 'mcp-server.mjs');
   claude = createClaudeConnection({ command: process.execPath, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1', DAYJOB_URL: origin } });

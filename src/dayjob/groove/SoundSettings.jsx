@@ -1,6 +1,7 @@
 import { useI18n } from '../../i18n.jsx';
 import { KEY_WINDOWS, WAVE_STYLES, prefs, usePrefs, useTheme } from './prefs.js';
 import { playHello, previewTune } from './sound.js';
+import { GuideHelp } from '../guide/GuideHelp.jsx';
 import { appName, canFollow, setFollow, useNowPlaying } from './music.js';
 
 const TUNES = [['auto', '跟随主题', 'With the theme'], ['dew', '晨露', 'Dew'], ['canon', '卡农', 'Canon']];
@@ -19,8 +20,8 @@ export function SoundSettings() {
   const { track } = useNowPlaying();
   const playing = groove.followMusic && track;
   return (
-    <section className="card-section">
-      <h2>{t('声音与音乐', 'Sound and music')}</h2>
+    <section className="card-section" data-guide="sound">
+      <h2>{t('声音与音乐', 'Sound and music')}<GuideHelp id="sound" /></h2>
       <div className="option-row">
         <span>{t('提示音', 'Sounds')}</span>
         <Toggle on={groove.sound} label={t('提示音', 'Sounds')} onChange={on => { prefs.set({ sound: on }); if (on) playHello(); }} />
