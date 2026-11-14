@@ -10,8 +10,10 @@ import { APPLICATION_STATUSES, createRepository, MAX_API_KEYS, MAX_RESUMES } fro
 import { createHttp } from './jobs/scrapers/http-client.mjs';
 import { SITES } from './jobs/scrapers/index.mjs';
 import { COUNTRIES } from './jobs/scrapers/indeed.mjs';
-import { createJobspyBridge, detectJobspy } from './jobs/scrapers/jobspy-bridge.mjs';
+import { builtInJobspy, createJobspyBridge, detectJobspy } from './jobs/scrapers/jobspy-bridge.mjs';
 import { fetchCompanyBoard, parseCompanyBoard } from './jobs/scrapers/company-boards.mjs';
+import { findCompanyBoards } from './jobs/company-finder.mjs';
+import { companyJobMatches } from './jobs/matching.mjs';
 import { createSearchRunner } from './jobs/search-runner.mjs';
 import { createScorer } from './jobs/scoring/index.mjs';
 import { createTracker } from './jobs/tracker.mjs';
@@ -26,7 +28,7 @@ import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
 import { checkKey } from './jobs/scoring/anthropic-key.mjs';
 import { apiKeyInput, applicationPatch, applyInput, BROWSER_ACTIONS, browserInput, goalInput, goalLogInput, goalsInput, manualApplication, manualPosting, monthParam,
-  postingStatus, publicApiKey, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
+  companySearch, postingStatus, publicApiKey, publicSettings, recommendInput, recommendView, searchInput, settingsPatch } from './validation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -66,14 +68,23 @@ export async function createApp(options = {}) {
     return logged;
   };
 
+  // JobSpy: the one inside the app (the desktop app says where it is) unless there is none or the user chose their own Python.
   let jobspy = null;
-  const jobspyCommand = () => repo.getSettings().jobspy.pythonCommand || (process.platform === 'win32' ? 'python' : 'python3');
+  const jobspyBuiltIn = builtInJobspy(options.jobspyDir ?? process.env.DAYJOB_JOBSPY_DIR);
+  const usesBuiltIn = () => Boolean(jobspyBuiltIn) && repo.getSettings().jobspy.runner !== 'own';
+  const jobspyCommand = () => (usesBuiltIn() ? jobspyBuiltIn.command : repo.getSettings().jobspy.pythonCommand || (process.platform === 'win32' ? 'python' : 'python3'));
   async function jobspyStatus(refresh = false) {
     const command = jobspyCommand();
-    if (!jobspy || refresh || jobspy.command !== command) jobspy = { command, ...(await (options.detectJobspy || detectJobspy)(command)) };
+    if (!jobspy || refresh || jobspy.command !== command) {
+      const builtIn = usesBuiltIn();
+      // The one inside the app was started when Dayjob was built, so opening Dayjob does not start Python just to
+      // ask its version. A check the user asks for (refresh) does start it.
+      jobspy = builtIn && !refresh ? { command, builtIn, available: true, version: jobspyBuiltIn.version }
+        : { command, builtIn, ...(await (options.detectJobspy || detectJobspy)(command)) };
+    }
     return jobspy;
   }
-  const bridge = () => (options.createBridge || createJobspyBridge)({ command: jobspyCommand() });
+  const bridge = () => (options.createBridge || createJobspyBridge)({ command: jobspyCommand(), builtIn: usesBuiltIn() });
   const runner = createSearchRunner({ repo, http: httpClient, bridge, now, log });
   const scorer = options.scorer || createScorer({ repo, providers: options.providers, log });
   const tracker = createTracker({ repo, http: httpClient, now, notify, log });
@@ -85,8 +96,11 @@ export async function createApp(options = {}) {
 
   async function sites(refresh = false) {
     const bridgeState = await jobspyStatus(refresh);
+    // builtIn: Dayjob carries a JobSpy; using: the one in use is that one.
     return SITES.map(site => ({ ...site, available: site.engine === 'native' || bridgeState.available,
-      ...(site.engine === 'jobspy' ? { detail: bridgeState.available ? `JobSpy ${bridgeState.version || ''}`.trim() : 'Needs Python with: pip install python-jobspy' } : {}) }));
+      ...(site.engine === 'jobspy' ? { builtIn: Boolean(jobspyBuiltIn), using: bridgeState.builtIn ? 'builtin' : 'own',
+        detail: bridgeState.available ? `JobSpy ${bridgeState.version || ''}`.trim()
+          : bridgeState.builtIn ? 'The JobSpy inside Dayjob did not start.' : 'Needs Python with: pip install python-jobspy' } : {}) }));
   }
   function schedulerState() {
     return { running: scheduler.running, stopping: scheduler.stopping, phase: scheduler.phase, nextRunAt: scheduler.nextRunAt(), lastDailyRun: repo.getMeta('lastDailyRun'),
@@ -115,6 +129,31 @@ export async function createApp(options = {}) {
     if (posting?.status !== 'saved' || !posting.resumeId || posting.score) return;
     scorer.score(postingId).catch(error => log(`[dayjob] scoring ${postingId}: ${error.message}`));
   }
+  // A company's own board, checked and put on the daily list. -> the company, how many jobs its board lists now
+  // (listed), how many of those the enabled searches keep (matching), and whether it was on the list already.
+  async function followCompany(input) {
+    const board = input.url ? parseCompanyBoard(input.url) : input.ats && input.slug ? { ats: input.ats, slug: input.slug } : null;
+    if (!board?.slug || !['greenhouse', 'lever', 'ashby'].includes(board.ats)) {
+      throw new HttpError(400, 'Paste a Greenhouse, Lever or Ashby careers link, for example https://jobs.lever.co/company.');
+    }
+    let listed = null;
+    let matching = null;
+    try {
+      const jobs = await fetchCompanyBoard({ ...board, name: input.name || board.slug }, { http: httpClient });
+      const searches = repo.listSearches().filter(search => search.enabled);
+      listed = jobs.length;
+      matching = jobs.filter(job => searches.some(search => companyJobMatches(job, search))).length;
+    } catch (error) {
+      if (error.status === 404) throw new HttpError(422, `No ${board.ats} job board named "${board.slug}" was found.`);
+      log(`[dayjob] company check ${board.ats}/${board.slug}: ${error.message}`);
+    }
+    const already = repo.listCompanies().some(company => company.ats === board.ats && company.slug === board.slug);
+    const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim().slice(0, 120) : board.slug;
+    return { ...repo.addCompany({ name, ...board }), listed, matching, already };
+  }
+  // The board a company keeps on Greenhouse, Lever or Ashby, looked for by its name or from a link (company-finder.mjs).
+  const findCompany = input => findCompanyBoards(input, { http: httpClient, log,
+    searches: repo.listSearches().filter(search => search.enabled), companies: repo.listCompanies() });
   function need(value, label) {
     if (!value) throw new HttpError(404, `${label} not found.`);
     return value;
@@ -278,20 +317,8 @@ export async function createApp(options = {}) {
       if (method === 'PATCH') return repo.saveSearch(searchInput(input, current), current.id);
       if (method === 'DELETE') return { ok: repo.deleteSearch(current.id) };
     }
-    if (pathname === '/api/companies' && method === 'POST') {
-      const board = input.url ? parseCompanyBoard(input.url) : input.ats && input.slug ? { ats: input.ats, slug: input.slug } : null;
-      if (!board?.slug || !['greenhouse', 'lever', 'ashby'].includes(board.ats)) {
-        throw new HttpError(400, 'Paste a Greenhouse, Lever or Ashby careers link, for example https://jobs.lever.co/company.');
-      }
-      let listed = null;
-      try { listed = (await fetchCompanyBoard({ ...board, name: input.name || board.slug }, { http: httpClient })).length; }
-      catch (error) {
-        if (error.status === 404) throw new HttpError(422, `No ${board.ats} job board named "${board.slug}" was found.`);
-        log(`[dayjob] company check ${board.ats}/${board.slug}: ${error.message}`);
-      }
-      const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim().slice(0, 120) : board.slug;
-      return [201, { ...repo.addCompany({ name, ...board }), listed }];
-    }
+    if (pathname === '/api/companies/find' && method === 'POST') return findCompany(companySearch(input));
+    if (pathname === '/api/companies' && method === 'POST') return [201, await followCompany(input)];
     match = pathname.match(/^\/api\/companies\/([^/]+)$/);
     if (match) {
       need(repo.listCompanies().find(company => company.id === match[1]), 'Company');
@@ -302,12 +329,14 @@ export async function createApp(options = {}) {
       if (method === 'DELETE') return { ok: repo.deleteCompany(match[1]) };
     }
     if (pathname === '/api/runs' && method === 'POST') {
-      const searchIds = Array.isArray(input.searchIds) ? input.searchIds.filter(id => typeof id === 'string').slice(0, 50) : undefined;
+      const ids = value => (Array.isArray(value) ? value.filter(id => typeof id === 'string').slice(0, 50) : undefined);
+      const searchIds = ids(input.searchIds);
+      const companyIds = ids(input.companyIds);
       if (!repo.listSearches().some(search => search.enabled) && !repo.listCompanies().some(company => company.enabled)) {
         throw new HttpError(409, 'Add a search or follow a company first.');
       }
       const already = scheduler.running;
-      scheduler.runNow({ searchIds }).catch(error => log(`[dayjob] run: ${error.message}`));
+      scheduler.runNow({ searchIds, companyIds }).catch(error => log(`[dayjob] run: ${error.message}`));
       return [202, { started: !already, scheduler: schedulerState() }];
     }
     // Stops the running search and waits a little for it to wind down, so the
@@ -480,6 +509,7 @@ export async function createApp(options = {}) {
   }
 
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, log, engines: options.assistantEngines,
+    companies: { find: findCompany, follow: followCompany },
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
     baseUrl: () => `http://127.0.0.1:${server.address().port}` });
 
@@ -580,6 +610,8 @@ export async function createApp(options = {}) {
   let listening = false;
   return {
     server, repo, scheduler, scorer, assistant, filename, trackApplied,
+    // Which JobSpy is in use and whether it starts: { command, builtIn, available, version }. refresh starts it to see.
+    jobspy: (refresh = false) => jobspyStatus(refresh),
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); }); });
       listening = true;
@@ -588,6 +620,9 @@ export async function createApp(options = {}) {
     },
     async close() {
       scheduler.stop();
+      // A search still going is stopped, as "click again to stop" does: what it found stays, and the Python that
+      // JobSpy runs in ends now instead of minutes later (it would keep an update from replacing Dayjob's files).
+      scheduler.cancel();
       assistant.close();
       // A request still running (a fetch or a scoring call can take minutes) or stuck halfway would hold the close
       // forever, since Node stops its request timeouts once the server closes. After a second every connection is dropped.

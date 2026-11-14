@@ -226,13 +226,24 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
     ? mutate(`/api/searches/${encodeURIComponent(searchId)}`, 'PATCH', input)
     : mutate('/api/searches', 'POST', { sites: ['linkedin', 'indeed'], ...input })));
 
-  tool('dayjob_follow_company', 'Follow a company\'s own careers board (Greenhouse, Lever or Ashby link). Its jobs that match the saved searches appear every day.', {
+  tool('dayjob_find_company_board', 'Find the job board a company keeps on Greenhouse, Lever or Ashby (the kinds Dayjob can follow) and see what is open on it now. Give the company\'s name, '
+    + 'or a link: to the board, to one of its jobs, or to the careers page on the company\'s own website, which Dayjob reads for the board it uses. Each board comes with how many jobs are open, '
+    + 'how many the user\'s enabled searches would keep (matchingSearches) and some of the jobs (with keywords, the ones whose title matches). A name can lead to another company\'s board: '
+    + 'check the jobs and the link before following. Changes nothing.', {
+    company: z.string().min(1).max(120).optional().describe('The company\'s name, e.g. "Scale AI".'),
+    url: z.string().min(3).max(2048).optional().describe('A board, job or careers-page link.'),
+    keywords: z.string().max(200).optional().describe('Job titles, comma-separated for any of them.'),
+  }, input => mutate('/api/companies/find', 'POST', input), { readOnlyHint: true, openWorldHint: true });
+
+  tool('dayjob_follow_company', 'Follow a company\'s own careers board (Greenhouse, Lever or Ashby link). Every fetch then reads all of its open jobs and keeps those that match an enabled saved search; '
+    + 'the result says how many match now (matching). dayjob_run_search with companyIds brings them in at once.', {
     url: z.string().min(3).max(2048).describe('e.g. https://jobs.lever.co/acme or https://job-boards.greenhouse.io/acme'),
     name: z.string().max(120).optional(),
   }, input => mutate('/api/companies', 'POST', input), { openWorldHint: true });
 
-  tool('dayjob_run_search', 'Start fetching new postings now (all enabled searches and followed companies, or only the given searches). Returns immediately; the run continues on the user\'s computer.', {
+  tool('dayjob_run_search', 'Start fetching new postings now (all enabled searches and followed companies, or only the given searches and followed companies). Returns immediately; the run continues on the user\'s computer.', {
     searchIds: z.array(id).max(50).optional(),
+    companyIds: z.array(id).max(50).optional().describe('Ids of followed companies; alone, only their boards are read.'),
   }, input => mutate('/api/runs', 'POST', input), { openWorldHint: true });
 
   tool('dayjob_list_notifications', 'List recent Dayjob notifications: daily results, follow-up reminders, closed postings and no-reply flags.', {

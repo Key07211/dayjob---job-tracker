@@ -34,9 +34,10 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 //
 // browser: the desktop app's Dayjob browser ({ run(action, input, context) }), which the applying tools work in;
 // without it (plain `npm start`) those tools are not offered.
-export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, onSettings = () => {}, now = () => new Date(), log = console.warn }) {
+// companies: { find, follow } from the app, which look a company's own job board up and put it on the daily list.
+export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, now = () => new Date(), log = console.warn }) {
   const memory = createMemory(repo, now);
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, onSettings, memory, applyMode: () => settings().apply });
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, companies, onSettings, memory, applyMode: () => settings().apply });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
   const available = engines || {

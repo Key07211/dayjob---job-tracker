@@ -43,10 +43,10 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
 
   // A stopped run keeps what it found and skips what is left: the rest of the
   // search, the scoring and the application check.
-  async function pipeline({ trigger, searchIds, track, signal }) {
+  async function pipeline({ trigger, searchIds, companyIds, track, signal }) {
     const settings = repo.getSettings();
     phase = 'search';
-    const { run, newIds } = await runner.run({ trigger, searchIds, signal });
+    const { run, newIds } = await runner.run({ trigger, searchIds, companyIds, signal });
     let scoring = { scored: 0, results: [] };
     const mode = settings.ai.scoreMode;
     if (signal.aborted) return { run, scoring: { scored: 0, failed: 0, reason: null }, tracking: null, cancelled: true };
@@ -111,7 +111,8 @@ export function createScheduler({ repo, runner, scorer, tracker, notify, now = (
     nextRunAt,
     tick,
     // Manual runs search and score; the daily run also updates applications.
-    runNow: ({ searchIds, track = !searchIds?.length } = {}) => start({ trigger: 'manual', searchIds, track }),
+    // searchIds, companyIds: only those searches and followed companies; such a part run leaves the applications alone.
+    runNow: ({ searchIds, companyIds, track = !searchIds?.length && !companyIds?.length } = {}) => start({ trigger: 'manual', searchIds, companyIds, track }),
     async track() {
       if (flight) await flight.catch(() => {});
       phase = 'track';

@@ -1,7 +1,8 @@
-import { BOARD_SCRAPERS, JOBSPY_SITES } from './scrapers/index.mjs';
+import { BOARD_SCRAPERS, JOBSPY_SITES, SITE_IDS } from './scrapers/index.mjs';
 import { fetchCompanyBoard } from './scrapers/company-boards.mjs';
 import { boardQuery, companyJobMatches, passesFilters } from './matching.mjs';
 import { postingId } from './normalize.mjs';
+import { sourcePlan } from './source-quota.mjs';
 
 const COMPANY_DELAY_MS = 800;
 
@@ -27,11 +28,14 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
   // Sources searched so far in the running search: each search on each site, then each company board.
   let progress = null;
 
-  async function searchOne(search, detail, totals, newIds, { http, signal }) {
-    const input = { keywords: boardQuery(search.keywords), location: search.location, distance: search.distance, hoursOld: search.hoursOld,
-      jobType: search.jobType, isRemote: search.isRemote, resultsWanted: search.resultsWanted, country: search.country };
+  // wanted: how many results this search asks of each of its boards in this run (source-quota.mjs). A board with 0 is left out.
+  async function searchOne(search, wanted, detail, totals, newIds, { http, signal }) {
+    const base = { keywords: boardQuery(search.keywords), location: search.location, distance: search.distance, hoursOld: search.hoursOld,
+      jobType: search.jobType, isRemote: search.isRemote, country: search.country };
     for (const site of search.sites) {
       if (signal?.aborted) return;
+      if (!wanted[site]) continue;
+      const input = { ...base, resultsWanted: wanted[site] };
       const source = `${search.name} · ${site}`;
       try {
         let result;
@@ -48,7 +52,7 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
         }
         totals.found += kept;
         totals.newCount += fresh;
-        detail.push({ source, found: kept, new: fresh, warnings: result.warnings || [] });
+        detail.push({ source, found: kept, new: fresh, asked: wanted[site], warnings: result.warnings || [] });
       } catch (error) {
         if (signal?.aborted) return;
         detail.push({ source, error: error.message, blocked: Boolean(error.blocked) });
@@ -58,8 +62,7 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
     repo.touchSearch(search.id);
   }
 
-  async function companies(searches, detail, totals, newIds, { http, signal }) {
-    const list = repo.listCompanies().filter(company => company.enabled);
+  async function companies(list, searches, detail, totals, newIds, { http, signal }) {
     for (const [index, company] of list.entries()) {
       if (signal?.aborted) return;
       if (index) { try { await http.sleep(COMPANY_DELAY_MS); } catch { return; } }
@@ -90,25 +93,31 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
     }
   }
 
-  async function execute({ trigger, searchIds, signal }) {
+  // searchIds, companyIds: only these searches and these followed companies; with neither, everything that is switched on.
+  async function execute({ trigger, searchIds, companyIds, signal }) {
     const http = stoppable(sharedHttp, signal);
     const runId = repo.startRun('search', trigger);
     const detail = [];
     const totals = { found: 0, newCount: 0 };
     const newIds = new Set();
-    let searches = repo.listSearches().filter(search => search.enabled);
-    if (searchIds?.length) searches = searches.filter(search => searchIds.includes(search.id));
-    const boards = searchIds?.length ? 0 : repo.listCompanies().filter(company => company.enabled).length;
-    progress = { done: 0, total: searches.reduce((sum, search) => sum + search.sites.length, 0) + boards };
+    const enabled = repo.listSearches().filter(search => search.enabled);
+    // Each board's number is divided among every enabled search, so a search run on its own asks for what it asks for in the daily run.
+    const plan = sourcePlan(repo.getSettings().sources, enabled, SITE_IDS);
+    const some = Boolean(searchIds?.length || companyIds?.length);
+    const searches = some ? enabled.filter(search => searchIds?.includes(search.id)) : enabled;
+    const boards = repo.listCompanies().filter(company => company.enabled && (!some || companyIds?.includes(company.id)));
+    const asking = search => search.sites.filter(site => plan.forSearch(search.id)[site]).length;
+    progress = { done: 0, total: searches.reduce((sum, search) => sum + asking(search), 0) + boards.length };
     try {
-      for (const search of searches) await searchOne(search, detail, totals, newIds, { http, signal });
-      if (!searchIds?.length) await companies(searches, detail, totals, newIds, { http, signal });
+      for (const search of searches) await searchOne(search, plan.forSearch(search.id), detail, totals, newIds, { http, signal });
+      // A company's jobs are kept when they match any enabled search, whichever searches this run asked the boards for.
+      await companies(boards, enabled, detail, totals, newIds, { http, signal });
     } catch (error) {
       if (!signal?.aborted) detail.push({ source: 'dayjob', error: error.message });
     }
     const failures = detail.filter(entry => entry.error).length;
     let status = !detail.length ? 'succeeded' : failures === detail.length ? 'failed' : failures ? 'partial' : 'succeeded';
-    if (!searches.length) detail.push({ source: 'dayjob', warning: 'No enabled searches yet.' });
+    if (!enabled.length) detail.push({ source: 'dayjob', warning: 'No enabled searches yet.' });
     // A stopped run counts as part done, and says so.
     if (signal?.aborted) {
       detail.push({ source: 'dayjob', warning: 'Stopped before it finished.', cancelled: true });
@@ -122,7 +131,7 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
     get active() { return Boolean(active); },
     get progress() { return active && progress ? { ...progress } : null; },
     run(options = {}) {
-      if (!active) active = execute({ trigger: options.trigger || 'manual', searchIds: options.searchIds, signal: options.signal }).finally(() => { active = null; progress = null; });
+      if (!active) active = execute({ trigger: options.trigger || 'manual', searchIds: options.searchIds, companyIds: options.companyIds, signal: options.signal }).finally(() => { active = null; progress = null; });
       return active;
     },
   };

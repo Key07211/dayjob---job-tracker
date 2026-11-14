@@ -357,8 +357,9 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   };
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 35);
+    assert.equal(tools.length, 36);
     assert.ok(tools.find(tool => tool.name === 'dayjob_list_postings').annotations.readOnlyHint);
+    assert.ok(tools.find(tool => tool.name === 'dayjob_find_company_board').annotations.readOnlyHint);
     const goals = await call('dayjob_set_goal', { metric: 'custom', name: 'Coffee chats', target: 8 });
     assert.deepEqual(goals.goals.map(goal => [goal.name, goal.target]), [['Coffee chats', 8]]);
     assert.match((await call('dayjob_set_goal', { metric: 'custom', target: 8 })).error, /Goal name is required/);

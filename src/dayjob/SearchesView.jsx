@@ -37,7 +37,8 @@ const EMPTY = { name: '', keywords: '', location: '', sites: ['linkedin', 'indee
   country: 'usa', titleInclude: '', excludeKeywords: '', enabled: true };
 
 // initial without an id is a draft (a suggestion) that is saved as a new search.
-function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
+// quota: the boards' numbers are set under Settings, so the search's own number is not used.
+function SearchForm({ initial, sites, countries, quota, onSaved, onCancel }) {
   const { t, lang } = useI18n();
   const existing = Boolean(initial?.id);
   const [form, setForm] = useState(() => initial ? { ...initial, jobType: initial.jobType || '', hoursOld: initial.hoursOld ?? '',
@@ -81,7 +82,8 @@ function SearchForm({ initial, sites, countries, onSaved, onCancel }) {
         </label>
         <label>{t('每个网站最多', 'Results per site')}
           <input type="number" min={1} max={200} value={form.resultsWanted} onChange={event => set('resultsWanted', event.target.value)} />
-          <small>{t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</small>
+          <small>{quota ? t('设置里的“每个来源抓多少”已经按来源定了数量，这个数现在不用。', 'Settings → “Results per source” sets the numbers by source now, so this one is not used.')
+            : t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</small>
         </label>
         <label>{t('Indeed 国家/地区', 'Indeed country')}
           <Select value={form.country} onChange={event => set('country', event.target.value)}>
@@ -524,7 +526,7 @@ export function SearchesView({ boot, reload, status, setView, refreshStatus }) {
         <div className="header-actions"><button className="button primary" onClick={() => (editing === 'new' ? leave(document.querySelector('.searches-page > .panel-form'), 'up', () => setEditing(null)) : setEditing('new'))}><Plus size={15} />{t('新建搜索', 'New search')}</button></div>
       </header>
       {editing ? (
-        <SearchForm initial={editing === 'new' ? null : editing} sites={boot.sites} countries={boot.countries}
+        <SearchForm initial={editing === 'new' ? null : editing} sites={boot.sites} countries={boot.countries} quota={boot.settings.sources.mode !== 'search'}
           onCancel={() => setEditing(null)} onSaved={async saved => { setEditing(null); cue('note'); await reload(); markArrived(saved.id); }} />
       ) : null}
       {error ? <p className="notice error">{error}</p> : null}

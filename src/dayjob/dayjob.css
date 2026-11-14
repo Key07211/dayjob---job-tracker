@@ -580,6 +580,22 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .option-row > span { min-width: 72px; font-size: 14px; }
 .option-row > small { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+/* Settings: how many results each job board is asked for in a run. */
+.source-quota { container: sourcequota / inline-size; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.source-quota .option-row > span { font-weight: 600; }
+.source-total { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+.source-total input, .source-list input { width: 92px; min-width: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.source-total span { color: var(--muted); font-size: 13px; }
+.source-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+.source-list > li { display: grid; grid-template-columns: minmax(96px, 150px) 92px minmax(0, 1fr); align-items: center; gap: 4px 12px; padding: 5px 12px; }
+.source-list > li + li { border-top: 1px solid var(--line); }
+.source-list label { font-size: 14px; color: var(--text); }
+.source-list span { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.source-list > li.idle label { color: var(--muted); }
+@container sourcequota (max-width: 440px) {
+  .source-list > li { grid-template-columns: minmax(0, 1fr) 92px; }
+  .source-list span { grid-column: 1 / -1; }
+}
 .memory-add { display: flex; flex-wrap: wrap; gap: 8px; }
 .memory-add > input { flex: 1 1 220px; min-width: 0; }
 .memory-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }

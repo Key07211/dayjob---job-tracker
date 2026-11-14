@@ -112,6 +112,12 @@ test('only what runs from this install, other than Dayjob and its helpers, is st
     { pid: 32, parent: 904, path: null, command: '' },
   ];
   assert.deepEqual(blockers(processes, { dir, pid: 10 }), [{ pid: 20, bridge: true }, { pid: 21, bridge: false }]);
+  // The Python inside Dayjob, left behind by a search, holds its files too; another Python on the computer does not.
+  const pythons = [
+    { pid: 40, parent: 10, path: `${dir}\\resources\\jobspy\\python.exe`, command: `"${dir}\\resources\\jobspy\\python.exe" -X utf8 -m jobspy analyst` },
+    { pid: 41, parent: 905, path: 'C:\\Python314\\python.exe', command: 'python -m jobspy analyst' },
+  ];
+  assert.deepEqual(blockers([...processes, ...pythons], { dir, pid: 10 }).map(item => item.pid), [20, 21, 40]);
 
   let running = [...processes];
   const killed = [];

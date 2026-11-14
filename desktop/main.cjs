@@ -781,13 +781,18 @@ async function runSmoke() {
   musicCheck.asked = soundRequests > asked;
   musicCheck.ok = musicCheck.ok && musicCheck.asked;
   timings.music = Date.now() - started;
+  // The JobSpy inside the app really starts (Python, pandas and all), asked the way a search asks it. A built
+  // Windows app must carry one; a run from the source folder has none.
+  const jobspy = await service.jobspy(true).then(({ builtIn, available, version }) => ({ builtIn, available, version }), error => ({ builtIn: false, available: false, error: error.message }));
+  jobspy.ok = !(app.isPackaged && process.platform === 'win32') || (jobspy.builtIn && jobspy.available);
+  timings.jobspy = Date.now() - started;
   // By default closing the window only hides it.
   window.close();
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && openingClosed && browserCheck.ok && updateCheck.ok && musicCheck.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, browser: browserCheck, update: updateCheck, music: musicCheck, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && openingClosed && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, english, englishTitle, languageSaved, openingClosed, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
@@ -803,6 +808,8 @@ async function boot() {
   const { createApp } = await import(pathToFileURL(path.join(app.getAppPath(), 'server', 'app.mjs')).href);
   service = await createApp({ dataDir, distDir: path.join(app.getAppPath(), 'dist'), notify: desktopNotification,
     allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
+    // The Python with JobSpy that the installed app carries beside app.asar (scripts/build-jobspy.mjs).
+    jobspyDir: app.isPackaged ? path.join(process.resourcesPath, 'jobspy') : undefined,
     browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
   language = service.repo.getSettings().language;
   origin = await service.listen(port);
