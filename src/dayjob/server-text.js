@@ -22,6 +22,7 @@ const EXACT = {
   'The resume file is larger than 8 MB.': '简历文件超过 8 MB。',
   'Almost no text was found in this resume. If it is a scanned image, export it as a text-based PDF or upload a .docx.': '简历里几乎读不到文字。如果是扫描图片，请导出为可以复制文字的 PDF，或上传 .docx。',
   'Posting not found.': '找不到这个岗位。',
+  'There is nothing to compact yet.': '还没有可以压缩的内容。',
   'A note is a line of text.': '一条记忆是一行文字。',
   'Write the note first.': '先写下要记住的内容。',
   'Passwords do not belong in the assistant\'s memory, which is sent to the model. Keep them in the password vault.': '密码不能放进助手的记忆：记忆会发给模型。密码请放在密码保管里。',

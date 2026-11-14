@@ -6,7 +6,8 @@ import { api, apiLines } from '../../api.js';
 // its place (and what is half typed) when it moves between the side of the window and the whole of it.
 //
 // form: closed | side (a pane at the right edge) | full (the whole page); open is true for the last two.
-// phase: idle | thinking | speaking | tool (the gramophone's four looks).
+// phase: idle | thinking | speaking | tool | compacting (the gramophone's four looks; compacting looks like thinking).
+// failure: what went wrong outside a reply, as text or as { code, message } when the pane has its own words for it.
 const FORMS = ['closed', 'side', 'full'];
 const saved = read();
 const firstForm = saved === 'open' ? 'side' : FORMS.includes(saved) ? saved : 'closed';
@@ -57,7 +58,12 @@ function handle(event) {
     effect({ tool: event.tool, changed: event.changed, applied: event.applied, ui: event.ui });
     // The assistant noted or dropped something: the list under Settings follows.
     if (event.ui?.memory) void assistant.refresh();
-  } else if (event.type === 'end') set({ conversation: event.conversation });
+  } else if (event.type === 'compacting') set({ phase: 'compacting' });
+  // The conversation was compacted: a marker takes its place among the turns, where the summary now stands in.
+  else if (event.type === 'compact') {
+    const conversation = state.conversation;
+    if (conversation) set({ conversation: { ...conversation, turns: [...conversation.turns.slice(0, event.index), event.turn, ...conversation.turns.slice(event.index)] } });
+  } else if (event.type === 'end') set({ conversation: event.conversation, ...(event.failure ? { failure: event.failure } : {}) });
 }
 
 export const assistant = {
@@ -103,6 +109,29 @@ export const assistant = {
     if (state.conversation?.kept) void assistant.refresh();
   },
   stop() { flight?.abort(); },
+  // Compacts the open conversation: the assistant writes a summary and goes on from it. focus: what the summary
+  // should keep an eye on. The turns stay on screen; a line among them marks where it happened.
+  async compact(focus = '') {
+    const id = state.conversation?.id;
+    if (!id || state.busy) return;
+    const controller = new AbortController();
+    flight = controller;
+    set({ busy: true, phase: 'compacting', failure: '' });
+    let ended = false;
+    try {
+      await apiLines(`/api/assistant/conversations/${id}/compact`, { body: { focus }, signal: controller.signal,
+        onEvent(event) { if (event.type === 'end') ended = true; handle(event); } });
+    } catch (failure) {
+      if (failure.name !== 'AbortError') set({ failure: failure.message });
+    }
+    flight = null;
+    set({ busy: false, phase: 'idle' });
+    // Stopped half way: nothing was compacted, and the conversation is asked for as it stands.
+    if (!ended) setTimeout(() => { if (!state.busy && state.conversation?.id === id) api(`/api/assistant/conversations/${id}`).then(conversation => { if (!state.busy && state.conversation?.id === id) set({ conversation }); }).catch(() => {}); }, 600);
+    if (state.conversation?.kept) void assistant.refresh();
+  },
+  // Something to tell the user that is not a reply.
+  fail(failure) { set({ failure }); },
   // 助手的记忆, as edited under Settings. Each call gives back the whole list.
   memory: {
     async add(text) { keepMemory(await api('/api/assistant/memory', { method: 'POST', body: { text } })); },

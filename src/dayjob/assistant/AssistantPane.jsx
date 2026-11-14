@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Archive, ArchiveRestore, ArrowUp, BookOpen, Check, ChevronRight, Globe, History, Maximize2, PanelRight, Pin, PinOff, Search, ShieldCheck, Square, SquarePen, Trash2, TriangleAlert, Undo2, X, Zap } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowUp, BookOpen, Check, ChevronRight, FoldVertical, Globe, History, Maximize2, PanelRight, Pin, PinOff, Search, ShieldCheck, Square, SquarePen, Trash2, TriangleAlert, Undo2, X, Zap } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { relativeDay } from '../format.js';
 import { Markdown } from '../Markdown.jsx';
@@ -39,8 +39,15 @@ const ERRORS = {
   'signed-out': ['Claude Code 还没有登录。在终端运行 claude，输入 /login 登录后再试。', 'Claude Code is not signed in. Run claude in a terminal and type /login, then try again.'],
   quiet: ['Claude Code 很久没有回应，这次先停下了。再发一次试试。', 'Claude Code stopped responding, so this reply was ended. Send it again.'],
   'mcp-failed': ['Claude Code 没能连上 Dayjob 的工具。再发一次试试。', 'Claude Code could not connect to Dayjob\'s tools. Send it again.'],
+  'context-full': ['这段对话太长，模型放不下了。再发一次：助手会从摘要接着来。', 'This conversation grew too long for the model. Send the message again: the assistant will go on from a summary.'],
+  'no-summary': ['助手这次没有写出摘要，上文没有压缩。再试一次。', 'The assistant did not write a summary, so nothing was compacted. Try again.'],
   internal: ['助手出了点问题，再试一次。', 'The assistant ran into a problem. Try again.'],
 };
+// "/compact", alone or followed by what the summary should keep an eye on, compacts the conversation, as in Claude Code.
+const COMPACT_COMMAND = /^\/compact(?:\s+([\s\S]*))?$/i;
+// The meter above the box shows once the conversation has reached this share of the size it is compacted at.
+const METER_FROM = 0.5;
+const thousands = tokens => (tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens));
 
 // One thing the assistant did. A change carries its undo; a lookup, or a step in the browser, is just a quiet line.
 // A cover letter it wrote can be read here.
@@ -194,6 +201,29 @@ function Reply({ turn, busy, openItem }) {
   );
 }
 
+// Where the conversation was compacted. What is above this line stays on screen for the user, but the assistant
+// now works from the summary it wrote, which can be read here.
+function Compacted({ turn }) {
+  const { t } = useI18n();
+  const [reading, setReading] = useState(false);
+  const sizes = turn.before && turn.after ? t(`${thousands(turn.before)} → ${thousands(turn.after)} tokens`, `${thousands(turn.before)} → ${thousands(turn.after)} tokens`)
+    : turn.before ? t(`压缩前 ${thousands(turn.before)} tokens`, `${thousands(turn.before)} tokens before`) : '';
+  return (
+    <div className="asst-compact">
+      <div className="asst-compact-line" role="separator" aria-label={t('上文已压缩', 'Conversation compacted')}>
+        <span title={sizes || undefined}><FoldVertical size={13} />{turn.trigger === 'manual' ? t('上文已压缩', 'Conversation compacted') : t('上文已自动压缩', 'Compacted automatically')}</span>
+        {turn.summary ? <button type="button" aria-expanded={reading} onClick={() => setReading(value => !value)}>{reading ? t('收起摘要', 'Hide summary') : t('看摘要', 'Read summary')}</button> : null}
+      </div>
+      {reading ? (
+        <div className="asst-compact-summary">
+          <small>{t('从这里起，助手按这份摘要接着聊；上面的内容还留在这里给你看，但不再逐字发给模型。', 'From here on the assistant works from this summary. What is above stays here for you to read, but is no longer sent to the model word for word.')}{sizes ? ` ${sizes}` : ''}</small>
+          <Markdown text={turn.summary} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // Delete asks once more: the first click turns the button into the question, and looking away takes it back.
 function DeleteButton({ id }) {
   const { t } = useI18n();
@@ -286,10 +316,19 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
     node.style.height = `${Math.min(node.scrollHeight, 132)}px`;
   }, [draft]);
 
+  function compact(focus = '') {
+    if (busy) return;
+    if (!conversation?.compactable) { assistant.fail(t('还没有可以压缩的内容。', 'There is nothing to compact yet.')); return; }
+    pinned.current = true;
+    setShowHistory(false);
+    void assistant.compact(focus);
+  }
   function send(text = draft) {
     if (busy || !text.trim()) return;
-    pinned.current = true;
+    const command = COMPACT_COMMAND.exec(text.trim());
     setDraft('');
+    if (command) { compact((command[1] || '').trim()); return; }
+    pinned.current = true;
     setShowHistory(false);
     void assistant.send(text);
   }
@@ -301,7 +340,13 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
   }
   const pick = id => { setShowHistory(false); pinned.current = true; void assistant.openKept(id); };
   const fresh = () => { setShowHistory(false); void assistant.reset(); };
-  const status = approval ? t('等你确认', 'Waiting for you') : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : '';
+  const status = approval ? t('等你确认', 'Waiting for you') : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…')
+    : phase === 'compacting' ? t('在压缩上文…', 'Compacting…') : '';
+  // How full the conversation is, against the size at which it is compacted by itself.
+  const context = conversation?.context;
+  const share = context?.limit ? Math.min(1, context.tokens / context.limit) : 0;
+  const compactTitle = context ? t(`压缩上文（现在约 ${thousands(context.tokens)} tokens）`, `Compact the conversation (about ${thousands(context.tokens)} tokens now)`) : t('压缩上文', 'Compact the conversation');
+  const failureText = failure?.code ? (ERRORS[failure.code] ? t(...ERRORS[failure.code]) : serverText(failure.message)) : serverText(failure);
   const starters = info?.browser ? [...STARTERS, APPLY_STARTER] : STARTERS;
 
   return (
@@ -315,12 +360,13 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
       ) : null}
       <div className="asst-main">
         <header className="asst-head">
-          <Gramophone key={full && !short ? 'full' : 'side'} phase={phase} scale={full && !short ? 3 : 2} strip label={t('助手留声机', 'Assistant gramophone')} />
+          <Gramophone key={full && !short ? 'full' : 'side'} phase={phase === 'compacting' ? 'thinking' : phase} scale={full && !short ? 3 : 2} strip label={t('助手留声机', 'Assistant gramophone')} />
           <div className="asst-title">
             <strong>{t('助手', 'Assistant')}</strong>
             <small aria-live="polite">{status}</small>
           </div>
           <button type="button" className="icon-button asst-new" title={t('新对话', 'New conversation')} aria-label={t('新对话', 'New conversation')} disabled={!turns.length} onClick={fresh}><SquarePen size={17} /></button>
+          <button type="button" className="icon-button asst-compact-now" title={compactTitle} aria-label={t('压缩上文', 'Compact the conversation')} disabled={busy || !conversation?.compactable} onClick={() => compact()}><FoldVertical size={17} /></button>
           <button type="button" className={`icon-button asst-history-toggle${showHistory ? ' on' : ''}`} title={t('保留的对话', 'Kept conversations')} aria-label={t('保留的对话', 'Kept conversations')} aria-expanded={showHistory}
             onClick={() => { setShowHistory(value => !value); if (!showHistory) void assistant.refresh(); }}><History size={17} />{keptCount ? <em>{keptCount}</em> : null}</button>
           {full
@@ -350,9 +396,9 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
           </div>
         ) : null}
         <div className="asst-scroll" ref={scroller} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }}>
-          {turns.length ? turns.map((turn, index) => (turn.role === 'user'
-            ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
-            : <Reply key={index} turn={turn} busy={busy} openItem={openItem} />)) : (
+          {turns.length ? turns.map((turn, index) => (turn.role === 'compact' ? <Compacted key={`compact-${turn.at}`} turn={turn} />
+            : turn.role === 'user' ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
+              : <Reply key={index} turn={turn} busy={busy} openItem={openItem} />)) : (
             <div className="asst-empty">
               <Gramophone key={short ? 'short' : 'tall'} scale={short ? 2 : 3} label={t('助手留声机', 'Assistant gramophone')} />
               <p>{info?.browser
@@ -366,18 +412,26 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
               </div>
             </div>
           )}
+          {phase === 'compacting' ? <p className="asst-note asst-compacting" role="status"><i className="asst-dots" aria-hidden="true"><b /><b /><b /></i>{t('正在把上文压缩成摘要…', 'Compacting the conversation into a summary…')}</p> : null}
           {approval ? <ConfirmCard key={approval.id} approval={approval} run={showRun ? run : null} /> : null}
         </div>
-        {failure ? <p className="notice error asst-failure" role="alert">{failure}<button type="button" className="icon-button" aria-label={t('关闭', 'Dismiss')} onClick={() => assistant.clearFailure()}><X size={14} /></button></p> : null}
+        {failure ? <p className="notice error asst-failure" role="alert">{failureText}<button type="button" className="icon-button" aria-label={t('关闭', 'Dismiss')} onClick={() => assistant.clearFailure()}><X size={14} /></button></p> : null}
         {engineState && !engineState.available ? (
           <p className="asst-engine-off"><TriangleAlert size={14} />
             {engine === 'claude-cli' ? t('没有找到 Claude Code。', 'Claude Code was not found.') : t('还没有 Anthropic API key。', 'There is no Anthropic API key yet.')}
             <button type="button" className="asst-link" onClick={() => openItem('settings', engine === 'claude-cli' ? 'assistant' : 'api-keys')}>{t('去设置', 'Open Settings')}</button>
           </p>
         ) : null}
+        {share >= METER_FROM && !busy ? (
+          <p className="asst-context">
+            <span className="asst-context-bar" aria-hidden="true"><i style={{ width: `${Math.round(share * 100)}%` }} /></span>
+            <span>{t(`上下文已用 ${Math.round(share * 100)}%，满了会自动压缩`, `Context ${Math.round(share * 100)}% full; it compacts by itself when full`)}</span>
+            <button type="button" className="asst-link" onClick={() => compact()}>{t('现在压缩', 'Compact now')}</button>
+          </p>
+        ) : null}
         {info?.browser ? <ApplySwitch mode={info.settings.apply} /> : null}
         <form className="asst-compose" onSubmit={event => { event.preventDefault(); send(); }}>
-          <textarea ref={field} rows={1} value={draft} maxLength={8000} placeholder={t('问点什么，或让它帮你做', 'Ask something, or hand it a job')} aria-label={t('给助手的消息', 'Message to the assistant')}
+          <textarea ref={field} rows={1} value={draft} maxLength={8000} placeholder={t('问点什么，或让它帮你做', 'Ask something, or hand it a job')} title={t('输入 /compact 可以压缩上文', 'Type /compact to compact the conversation')} aria-label={t('给助手的消息', 'Message to the assistant')}
             onChange={event => setDraft(event.target.value)} onKeyDown={onKeyDown} />
           {busy
             ? <button type="button" className="asst-send stop" title={t('停止', 'Stop')} aria-label={t('停止', 'Stop')} onClick={() => assistant.stop()}><Square size={14} /></button>
