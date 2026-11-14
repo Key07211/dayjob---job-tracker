@@ -1,10 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { GUIDE_VERSION } from './steps.js';
 
-// Whether the user guide is on the window, and whether this computer has seen it. The guide shows by itself once:
-// the first time Dayjob opens here, after the opening has played. After that it is only shown when asked for.
+// Whether a guide is on the window, which one, and whether this computer has seen the first one. That one (tour
+// 'app': the greeting and every page) shows by itself once: the first time Dayjob opens here, after the opening has
+// played. After that a guide is only shown when asked for. The other (tour 'settings') explains the Settings page
+// group by group; `at` is the group it starts at, and scrollY is how far down the window was when it was asked for
+// (the page is laid out differently while that guide is up, and takes over from there).
 const SEEN = 'dayjob-guide';
-let state = { on: false, auto: false };
+const OFF = { on: false, auto: false, tour: 'app', at: null, scrollY: 0 };
+let state = OFF;
 const listeners = new Set();
 const set = patch => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
 const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener); };
@@ -21,8 +25,8 @@ export const guide = {
   seen() { try { return Boolean(localStorage.getItem(SEEN)); } catch { return true; } },
   markSeen() { try { localStorage.setItem(SEEN, String(GUIDE_VERSION)); } catch { /* it is asked for by hand then */ } },
   // auto: it came by itself (the first time), not because the user asked.
-  start({ auto = false } = {}) { if (!state.on) set({ on: true, auto }); },
-  stop() { if (state.on) set({ on: false, auto: false }); },
+  start({ auto = false, tour = 'app', at = null } = {}) { if (!state.on) set({ on: true, auto, tour, at, scrollY: typeof window === 'undefined' ? 0 : window.scrollY }); },
+  stop() { if (state.on) set(OFF); },
   // The first time: starts once the window is in sight (a window opened to the tray waits until it is shown), a
   // moment after the opening has given way. Returns what cancels the wait.
   firstTime(delay = 0) {

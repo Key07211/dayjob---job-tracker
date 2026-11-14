@@ -10,6 +10,8 @@
 .guide-spot { position: fixed; border-radius: 14px; box-shadow: 0 0 0 200vmax var(--guide-shade); outline: 2px solid var(--green); pointer-events: none;
   transition: left 312ms cubic-bezier(.2, .8, .2, 1), top 312ms cubic-bezier(.2, .8, .2, 1), width 312ms cubic-bezier(.2, .8, .2, 1), height 312ms cubic-bezier(.2, .8, .2, 1); }
 .guide-spot.none { outline-color: transparent; }
+/* While the Settings page is on its way to the next group, the light rides with the group. */
+.guide.gliding .guide-spot { transition: none; }
 /* The gramophone has stepped out of its card. */
 .app-shell.guiding .assistant-card .gramophone { visibility: hidden; }
 
@@ -17,6 +19,23 @@
 .guide-card { position: fixed; left: 0; top: 0; width: min(392px, calc(100vw - 24px)); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
   background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--float-shadow); visibility: hidden; }
 .guide-card.intro { width: min(540px, calc(100vw - 24px)); }
+
+/* The Settings guide. The page gives up a column at the right of the window (as it does for the assistant's side
+   chat) and scrolls inside what is left; the card stands in that column. The browser and the chat, if they were
+   open beside the page, are out of the way until the guide ends. */
+.main.with-guide { padding: 0; height: 100vh; display: flex; overflow: hidden; }
+.main.with-guide .main-view { display: block; flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 28px 28px; }
+.main.with-guide > .browser-pane, .main.with-guide > .pane-resizer, .main.with-guide > .assistant-pane { display: none; }
+.guide-dock { flex: none; width: 404px; }
+@media (max-width: 1180px) {
+  .guide-dock { width: 356px; }
+  .guide-card.docked { width: 344px; }
+  .main.with-guide .main-view { padding-inline: 20px; }
+}
+/* The question mark beside a group's title on the Settings page (GuideHelp.jsx). */
+.guide-help { flex: none; margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); transition: color 156ms, background 156ms; }
+.guide-help:hover { color: var(--text); background: var(--soft); }
+.guide-help:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
 .guide-card.placed { visibility: visible; transition: left 312ms cubic-bezier(.2, .8, .2, 1), top 312ms cubic-bezier(.2, .8, .2, 1); }
 /* Its pointer, level with the middle of what is lit. */
 .guide-card.tailed::before { content: ""; position: absolute; left: -7px; top: calc(var(--tail, 40px) - 7px); width: 13px; height: 13px; background: var(--card);
@@ -31,7 +50,9 @@
 .guide-title small { font-size: 12px; font-weight: 600; color: var(--muted); }
 .guide-title h2 { font-size: 17px; line-height: 1.3; }
 .guide-card.intro .guide-title h2 { font-size: 20px; }
-.guide-head .icon-button { align-self: flex-start; margin-top: 2px; }
+.guide-head .icon-button, .guide-head .language-toggle { align-self: flex-start; margin-top: 2px; }
+.guide-head .language-toggle { margin-left: 0; border-color: var(--line-strong); color: var(--muted); }
+.guide-head .language-toggle:hover { border-color: var(--text); color: var(--text); }
 
 .guide-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 18px 12px; font-size: 14px; line-height: 1.65;
   animation: fade-in 234ms ease-out both; }
@@ -40,6 +61,11 @@
 .guide-can { list-style: none; margin: 2px 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
 .guide-can li { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; line-height: 1.5; }
 .guide-can li svg { flex: none; margin-top: 3px; color: var(--green); }
+/* What each setting in a group does: its name as the page writes it, then what it means. */
+.guide-terms { margin: 2px 0 0; display: flex; flex-direction: column; gap: 9px; }
+.guide-terms > div { display: flex; flex-direction: column; gap: 1px; padding-left: 10px; border-left: 2px solid var(--green); }
+.guide-terms dt { font-size: 13px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.guide-terms dd { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
 .guide-where { display: flex; flex-direction: column; gap: 7px; padding: 10px 12px 11px; border-radius: 12px; background: var(--soft); font-size: 12.5px; line-height: 1.5; }
 .guide-where strong { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .guide-where ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

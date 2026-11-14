@@ -26,26 +26,36 @@
 }
 
 /* ---------- its place in the sidebar ---------- */
-/* A card of its own above Notifications: the gramophone, what it is doing, and the two ways to open it. */
-.assistant-card { display: flex; flex-direction: column; gap: 7px; padding: 8px 9px 9px; border-radius: 14px; background: var(--side-card); border: 1.5px solid transparent;
+/* A card of its own above Notifications: the gramophone, what it is doing, and the two ways to open it. In a tall
+   window the gramophone is drawn twice the size (AssistantCard.jsx asks for it at the same height). */
+.assistant-card { display: flex; flex-direction: column; gap: 9px; padding: 10px; border-radius: 16px; background: var(--side-card); border: 1.5px solid transparent;
   transition: border-color 156ms; }
 .assistant-card.on { border-color: var(--acc); }
 .assistant-card.asking { border-color: var(--step-hi); }
-.assistant-card-face { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; border-radius: 8px; }
+.assistant-card-face { display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; border-radius: 8px; }
 .assistant-card-face:focus-visible { outline: 2px solid var(--side-text); outline-offset: 2px; }
-.assistant-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
-.assistant-card-text strong { font-size: 14px; color: var(--side-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* What it is doing just now; nothing at rest. */
-.assistant-card-text small { font-size: 12px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.assistant-card-text strong { font-size: 15.5px; color: var(--side-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What it is doing just now; nothing at rest. Beside the large gramophone it may take two lines. */
+.assistant-card-text small { font-size: 12px; color: var(--side-muted); overflow-wrap: anywhere; }
 .assistant-card-text small:empty { display: none; }
 .assistant-card-forms { display: flex; gap: 6px; }
-.assistant-card-forms button { flex: 1; min-width: 0; height: 26px; border-radius: 999px; border: 1.5px solid var(--side-hover); font-size: 12.5px; font-weight: 600; color: var(--side-text);
+.assistant-card-forms button { flex: 1; min-width: 0; height: 28px; border-radius: 999px; border: 1.5px solid var(--side-hover); font-size: 12.5px; font-weight: 600; color: var(--side-text);
   transition: background 156ms, border-color 156ms, color 156ms; }
 .assistant-card-forms button:hover { border-color: var(--side-text); }
 .assistant-card-forms button.active { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-/* Not a tall window: one block, the gramophone at the left; beside it one line (its name, or what it is doing
+/* Not a tall window: the small gramophone, its name beside it, the two buttons under them. */
+@media (max-height: 729px) {
+  .assistant-card { gap: 7px; padding: 8px 9px 9px; border-radius: 14px; }
+  .assistant-card-face { gap: 8px; }
+  .assistant-card-text { gap: 1px; }
+  .assistant-card-text strong { font-size: 14px; }
+  .assistant-card-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .assistant-card-forms button { height: 26px; }
+}
+/* A short window: one block, the gramophone at the left; beside it one line (its name, or what it is doing
    while it is doing something) and the two buttons under that line. */
-@media (max-height: 990px) {
+@media (max-height: 690px) {
   .assistant-card { position: relative; gap: 0; padding: 5px 8px 5px 6px; }
   .assistant-card-face { align-items: flex-start; min-height: 46px; }
   .assistant-card-face .gramophone { margin-top: 3px; }

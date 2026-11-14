@@ -14,6 +14,13 @@
 //   can     the intro's list of what the assistant does: { icon, text }
 //   where   where the settings for it are: { what: [中文, English], at: [中文, English], in?: page }. `at` names the
 //           place with the words the page itself uses; tests/guide.test.mjs checks each against the page's source.
+//   terms   the Settings guide's list of what the settings in a group do: { name: [中文, English], means: [...] }.
+//           `name` is the setting's own label on the page, checked the same way.
+//   note    a line under the buttons: [中文, English]
+//
+// There are two guides. guideSteps is the one of the first day: a greeting, then every page of Dayjob. settingsSteps
+// goes down the Settings page group by group and says in plain words what each setting does; it is asked for on
+// that page ("Explain settings", or the question mark beside a group's title, which starts it at that group).
 //
 // browser: whether this Dayjob has its own browser (the desktop app does; the page in a web browser does not).
 
@@ -134,23 +141,24 @@ export function guideSteps({ browser = true } = {}) {
         { text: ['从“每日抓取”到“JobSpy”这几项，改完要点“保存设置”才生效。', 'The cards from “Daily search” to “JobSpy” take effect once you click “Save settings”.'] },
       ],
       where: [
+        { what: ['哪一组设置看不懂', 'A group of settings you are not sure about'], at: ['点它标题右边的问号，或本页右上角的“讲解设置”，我一项一项讲', 'click the question mark beside its title, or “Explain settings” at the top right of this page, and I go through it'], in: 'settings' },
         { what: ['让电脑上的 Claude 也能用 Dayjob', 'Letting Claude on this computer use Dayjob'], at: ['设置 → 连接 Claude（MCP）', 'Settings → Connect Claude (MCP)'], in: 'settings' },
         { what: ['关窗口时退出还是留在托盘', 'Quit or stay in the tray when the window closes'], at: ['设置 → 关闭窗口时', 'Settings → Closing the window'], in: 'settings', desktop: true },
       ].filter(item => browser || !item.desktop),
     },
     {
-      id: 'deck', target: ['.sidebar-foot .week-bars', '.sidebar-foot .turntable'],
+      id: 'deck', target: ['.sidebar-foot .turntable'],
       title: ['唱片机', 'The record player'],
       say: [
         { text: ['点一下唱片，马上开始一次抓取；抓取中再点一下就停下，已经抓到的会留着。', 'Click the record to start a search now. Click it again while it runs to stop it; what it has found is kept.'] },
-        { text: ['它上面的七根小柱子，是这周每天投了几份。', 'The seven small bars above it are how many you applied to each day this week.'], when: '.sidebar-foot .week-bars' },
+        { text: ['唱片旁边那行小字，是下一次自动抓取的时间，或者正在抓取的进度。', 'The small line by the record is when the next daily search runs, or how far the one under way has come.'] },
       ],
       where: [
         { what: ['每天自动抓取的时间', 'The time of the daily search'], at: ['设置 → 每日抓取', 'Settings → Daily search'], in: 'settings' },
       ],
     },
     {
-      id: 'bell', target: ['.sidebar-foot > .nav-item'],
+      id: 'bell', target: ['.sidebar-foot [data-fx="bell"]'],
       title: ['通知', 'Notifications'],
       say: [
         { text: ['每天抓取的结果、分数高的新岗位、该跟进的投递、已经关闭的岗位，都会在这里告诉你。', 'The result of each day\'s search, new jobs that score high, applications due a follow-up and jobs that have closed are all reported here.'] },
@@ -189,6 +197,200 @@ export function guideSteps({ browser = true } = {}) {
   return steps;
 }
 
+// The Settings guide: one step for each group of settings on the page, top to bottom. A group is marked on the page
+// with data-guide="<id>" (on its card, or on each of its parts where several groups share a card), and that is what
+// the step lights. Groups the page does not show (the desktop app's own, in a web browser) are left out by Guide.jsx.
+const group = id => [`[data-guide="${id}"]`];
+
+export function settingsSteps({ browser = true } = {}) {
+  const steps = [
+    {
+      id: 'daily', target: group('daily'),
+      title: ['每日抓取', 'Daily search'],
+      say: [
+        { text: ['Dayjob 每天自己去招聘网站找一遍新岗位。这一组定它什么时候去、旧岗位留多久。', 'Each day Dayjob goes to the job sites by itself to look for new jobs. This group sets when it goes and how long old jobs are kept.'] },
+      ],
+      terms: [
+        { name: ['每天自动抓取', 'Search every day'], means: ['关掉后，只有你点侧边栏的唱片时才抓。', 'Off, a search runs only when you click the record in the sidebar.'] },
+        { name: ['时间', 'Time'], means: ['每天几点开始。那时电脑关着也不要紧，当天再打开 Dayjob 会补上。', 'When it starts each day. If the computer is off at that time, Dayjob catches up when it next opens that day.'] },
+        { name: ['岗位保留天数', 'Keep jobs (days)'], means: ['没收藏、没投递的岗位，过了这么多天自动清掉。', 'Jobs you neither saved nor applied to are cleared after this many days.'] },
+      ],
+      note: ['从这里到 JobSpy 这几组，改完要点它们下面的“保存设置”才生效。', 'The groups from here to JobSpy take effect once you click “Save settings” below them.'],
+    },
+    {
+      id: 'sources', target: group('sources'),
+      title: ['每个来源抓多少', 'Results per source'],
+      say: [
+        { text: ['来源指的是各个招聘网站。这里定每次抓取向每个网站最多要多少条结果。', 'A source is a job site. This sets how many results each site is asked for, at most, in one run.'] },
+      ],
+      terms: [
+        { name: ['按每个搜索', 'By each search'], means: ['每个搜索用它自己填的数，在“搜索与公司”里改。最省心。', 'Each search uses its own number, set under “Searches”. The simplest choice.'] },
+        { name: ['按个数', 'By number'], means: ['给每个网站定一个数，比如 LinkedIn 50 条、Indeed 20 条。0 就是不抓它。', 'Give each site a number of its own, say 50 from LinkedIn and 20 from Indeed. 0 leaves a site out.'] },
+        { name: ['按比例', 'By share'], means: ['只定一个总数，再按份数分：填 3 和 1，就是 75% 和 25%。', 'Set one total and split it by shares: 3 and 1 make 75% and 25%.'] },
+      ],
+    },
+    {
+      id: 'tracking', target: group('tracking'),
+      title: ['投递追踪', 'Application tracking'],
+      say: [
+        { text: ['投出去以后，Dayjob 替你盯着：该跟进了提醒你，太久没消息的标出来。', 'After you apply, Dayjob keeps watch for you: it reminds you to follow up and flags the applications that have gone quiet.'] },
+      ],
+      terms: [
+        { name: ['跟进提醒（天）', 'Follow-up reminder (days)'], means: ['投递或状态变化后过这么多天，通知你去问一声。填 0 就不提醒。', 'This many days after you apply or a status changes, a notification suggests you follow up. 0 turns it off.'] },
+        { name: ['无回音提示（天）', 'No-reply flag (days)'], means: ['一份投递停在“已投递”超过这么多天，就标成没有回音。', 'An application still at “Applied” after this many days is flagged as having no reply.'] },
+        { name: ['每天检查已投递和已收藏的岗位是否关闭', 'Check daily whether applied and saved jobs have closed'], means: ['每天去看一眼原帖，岗位下架了就告诉你。', 'Each day Dayjob looks at the original posting and tells you when it has been taken down.'] },
+      ],
+    },
+    {
+      id: 'notify', target: group('notify'),
+      title: ['通知', 'Notifications'],
+      say: [
+        { text: ['Dayjob 有消息时怎么告诉你，以及多少分的岗位值得单独提一句。', 'How Dayjob tells you its news, and which score makes a job worth a line of its own.'] },
+      ],
+      terms: [
+        { name: ['Windows 桌面通知', 'Windows desktop notifications'], means: ['开着，消息从屏幕右下角弹出来；关掉，就只在侧边栏的“通知”里看。', 'On, messages pop up at the corner of the screen. Off, you read them under “Notifications” in the sidebar.'] },
+        { name: ['高匹配分数线', 'Strong-match score'], means: ['AI 给每个岗位打 0 到 100 分。达到这个分数的新岗位，在每日汇总里单独列出来。', 'The AI scores every job from 0 to 100. New jobs at or above this score are listed by name in the daily summary.'] },
+      ],
+    },
+    {
+      id: 'jobspy', target: group('jobspy'),
+      title: ['JobSpy 抓取工具', 'JobSpy'],
+      say: [
+        { text: ['JobSpy 是替 Dayjob 去 Glassdoor、ZipRecruiter 和 Google Jobs 抓岗位的小工具。安装版自带，一般不用动。', 'JobSpy is a small tool that fetches jobs from Glassdoor, ZipRecruiter and Google Jobs for Dayjob. The installed app carries its own, so there is usually nothing to change.'] },
+      ],
+      terms: [
+        { name: ['Dayjob 自带的', 'The one inside Dayjob'], means: ['推荐。装好 Dayjob 就能用，不需要另外安装 Python。', 'Recommended. It works as soon as Dayjob is installed, with no Python to set up.'] },
+        { name: ['我自己的 Python', 'My own Python'], means: ['只有你自己装了 Python 和 JobSpy、想用自己那一份时才选。', 'Only if you installed Python and JobSpy yourself and want to use that copy.'] },
+        { name: ['Python 命令', 'Python command'], means: ['用自己的 Python 时，填启动它的命令，比如 python 或 py。', 'With your own Python, the command that starts it, such as python or py.'] },
+      ],
+    },
+    {
+      id: 'keys', target: group('keys'),
+      title: ['API key（密钥）', 'API key'],
+      say: [
+        { text: ['API key 是向 Claude 或 OpenAI 按用量付费的凭证。只有想用 API 来打分或让助手回答时才需要；用这台电脑上已登录的 Claude Code，就不用填。', 'An API key is what lets Dayjob use Claude or OpenAI and pay by use. You need one only to run scoring or the assistant on the API. With the Claude Code signed in on this computer, none is needed.'] },
+      ],
+      terms: [
+        { name: ['使用中', 'In use'], means: ['存了好几把时，每种服务只用标着“使用中”的那一把；点“用这个”换一把。', 'With several keys saved, each service uses the one marked “In use”. Click “Use this” to switch.'] },
+        { name: ['检查', 'Check'], means: ['问一下 Claude 这把 key 能不能用，不花钱。', 'Asks Claude whether the key works. It costs nothing.'] },
+        { name: ['工作区 ID', 'Workspace ID'], means: ['只有能用于所有工作区的 key 才要填，在 Claude Console 的 Workspaces 页能查到。', 'Needed only for a key that works in every workspace. It is on the Workspaces page of the Claude Console.'] },
+      ],
+    },
+    {
+      id: 'spend', target: group('spend'),
+      title: ['API 消费', 'API spending'],
+      say: [
+        { text: ['Dayjob 自己记的一本账：用 API key 打分和聊天，折成美元花了多少。走订阅的 Claude Code 不花这里的钱。', 'Dayjob\'s own tally of what scoring and chatting with your API keys cost, in US dollars. Claude Code on a subscription costs nothing here.'] },
+        { text: ['这些数只算 Dayjob 里的调用，同一把 key 在别处用掉的不在内，实际以服务商的账单为准。', 'The sums count only calls made in Dayjob, not what the same key spends elsewhere. The service\'s bill is what counts.'] },
+      ],
+      terms: [
+        { name: ['设置额度', 'Set allowance'], means: ['给一把 key 定一个预算。填了以后能看到还剩百分之几，快用完时发通知。', 'A budget for one key. With it you see what share is left, and a notification says when it runs low.'] },
+      ],
+    },
+    {
+      id: 'mcp', target: group('mcp'),
+      title: ['连接 Claude（MCP）', 'Connect Claude (MCP)'],
+      say: [
+        { text: ['MCP 是让别的 AI 程序使用 Dayjob 的接口。连上以后，在 Claude Code 或 Claude Desktop 里说一句话，Claude 就能查看和修改 Dayjob 里的岗位和投递。', 'MCP is how other AI apps use Dayjob. Once connected, Claude Code or Claude Desktop can look up and change the jobs and applications in Dayjob when you ask.'] },
+        { text: ['侧边栏里的助手用不着它，不连也照常工作。', 'The assistant in the sidebar does not need it and works without it.'] },
+      ],
+      terms: [
+        { name: ['连接到 Claude', 'Connect to Claude'], means: ['把 Dayjob 写进 Claude 的配置文件，改之前自动备份。', 'Writes Dayjob into Claude\'s config files, with a backup made first.'] },
+        { name: ['重新检查', 'Check again'], means: ['再看一眼现在连上了没有。', 'Looks again at whether it is connected.'] },
+      ],
+    },
+    {
+      id: 'assistant', target: group('assistant'),
+      title: ['助手', 'Assistant'],
+      say: [
+        { text: ['侧边栏那台留声机由谁来思考、用哪个模型，在这里定。', 'Who does the thinking for the gramophone in the sidebar, and with which model, is set here.'] },
+      ],
+      terms: [
+        { name: ['引擎', 'Engine'], means: ['Claude Code 用这台电脑上已登录的订阅，不需要 key；Claude API 用你的 API key，按用量计费。', 'Claude Code uses the subscription signed in on this computer and needs no key. The Claude API uses your API key and bills by use.'] },
+        { name: ['模型', 'Model'], means: ['用哪一款 Claude。越强的越慢、越贵；拿不准就留着默认的。', 'Which Claude model. Stronger ones are slower and cost more. Leave the default if unsure.'] },
+        ...(browser ? [{ name: ['替你投递', 'Applying for you'], means: ['“手动确认”是提交前先问你；“全权接管”是助手自己点提交。', '“Ask me first” asks before anything is sent. “Full takeover” lets the assistant click Submit itself.'] }] : []),
+      ],
+    },
+    {
+      id: 'memory', target: group('memory'),
+      title: ['助手的记忆', 'What the assistant keeps in mind'],
+      say: [
+        { text: ['把每次都一样的答案写在这里，比如需不需要签证担保。助手填申请表时照着答，不再每次问你。', 'Write down the answers that never change, such as whether you need visa sponsorship. The assistant uses them when it fills in forms and stops asking each time.'] },
+        { text: ['这些内容会随对话发给模型，所以不要写密码。', 'These notes go to the model with a conversation, so do not write passwords here.'] },
+      ],
+      terms: [
+        { name: ['记住', 'Remember'], means: ['把输入框里那一行存成一条记忆。在对话里让助手记住什么，它也会自己记到这里。', 'Saves the line in the box as a note. Tell the assistant to remember something in a chat and it adds a note here itself.'] },
+      ],
+    },
+    ...(browser ? [{
+      id: 'vault', target: group('vault'),
+      title: ['密码保管', 'Passwords'],
+      say: [
+        { text: ['招聘网站的账号和密码存在这里，只留在这台电脑上，由系统加密。在 Dayjob 浏览器里打开登录页时自动填好，不会交给任何 AI。', 'Your job-site accounts are kept here, on this computer only, encrypted by the system. They are filled in on login pages in the Dayjob browser and are never given to any AI.'] },
+      ],
+      terms: [
+        { name: ['设置开箱密码', 'Set a vault password'], means: ['给密码箱加一把锁：要在这里查看或修改密码，得先输入它。上了锁，浏览器照样自动填。', 'Puts a lock on the vault: you enter it before passwords can be seen or changed here. The browser still fills them in while it is locked.'] },
+        { name: ['从浏览器导入', 'Import from a browser'], means: ['把 Edge 或 Chrome 导出的密码文件一次导进来。', 'Brings in, all at once, the password file exported from Edge or Chrome.'] },
+      ],
+    }, {
+      id: 'browser', target: group('browser'),
+      title: ['Dayjob 浏览器', 'Dayjob browser'],
+      say: [
+        { text: ['Dayjob 自带的浏览器有它自己的一份登录状态，和 Chrome、Edge 互不相干。', 'Dayjob\'s own browser keeps its own sign-ins, apart from Chrome and Edge.'] },
+      ],
+      terms: [
+        { name: ['清除登录状态和缓存', 'Clear sign-ins and cache'], means: ['让里面所有网站都退出登录，并清空缓存。某个网站打不开或登录出错时可以试试；密码保管里的密码不受影响。', 'Signs you out of every site in it and empties the cache. Worth a try when a site will not load or a sign-in goes wrong. Passwords kept in the vault are not touched.'] },
+      ],
+    }, {
+      id: 'close', target: group('close'),
+      title: ['关闭窗口时', 'Closing the window'],
+      say: [
+        { text: ['点窗口右上角的关闭按钮时，Dayjob 是留在后台，还是完全退出。', 'Whether Dayjob stays in the background or quits when you close its window.'] },
+      ],
+      terms: [
+        { name: ['关闭窗口后继续在后台运行', 'Keep running in the tray'], means: ['开着：窗口关了，Dayjob 还在屏幕右下角的托盘里，按时抓取、发提醒。关掉：关窗口就是退出，错过的抓取等当天再打开时补上。',
+          'On: with the window closed, Dayjob stays in the tray at the corner of the screen, so the daily search and reminders still run. Off: closing the window quits it, and a missed search runs when you next open Dayjob that day.'] },
+      ],
+    }, {
+      id: 'updates', target: group('updates'),
+      title: ['更新', 'Updates'],
+      say: [
+        { text: ['有新版本时，侧边栏的“检查更新”会变成下载按钮；下载完点“重启并更新”，你的数据都会保留。', 'When a new version is out, “Check for updates” in the sidebar turns into a download button. Once it has downloaded, click “Restart to update”. Your data stays.'] },
+      ],
+      terms: [
+        { name: ['每天自动检查一次', 'Check once a day'], means: ['关掉后，只有你点“立即检查”时才检查。', 'Off, Dayjob looks for a new version only when you click “Check now”.'] },
+      ],
+    }] : []),
+    {
+      id: 'sound', target: group('sound'),
+      title: ['声音与音乐', 'Sound and music'],
+      say: [
+        { text: ['Dayjob 的提示音，和跟着音乐动的那些效果。全都可以关，不影响任何功能。', 'Dayjob\'s sounds, and the motion that follows your music. All of it can be turned off without losing anything.'] },
+      ],
+      terms: [
+        { name: ['提示音', 'Sounds'], means: ['落分、投递、开始抓取时响的一个短音。', 'A short note when a score lands, you apply or a search starts.'] },
+        { name: ['琴键音效', 'Key sounds'], means: ['按侧边栏的键时，用哪一套音色。', 'Which set of tones the sidebar keys play.'] },
+        { name: ['按键间隔', 'Key gap'], means: ['连着快点侧边栏时，这段时间里只响第一下。', 'When you click sidebar keys quickly, only the first one in this time sounds.'] },
+        ...(browser ? [{ name: ['跟随音乐', 'Follow music'], means: ['音乐软件放歌时，唱片机和页面顶上的声浪跟着动。声音只在本机分析，不录音。', 'While a music app plays, the record player and the wave at the top of each page move with it. The sound is analysed on this computer and never recorded.'] }] : []),
+      ],
+    },
+    {
+      id: 'look', target: group('look'),
+      title: ['语言、外观与数据', 'Language, look and data'],
+      say: [
+        { text: ['界面用什么语言、什么明暗，还有你的数据放在哪里。', 'The language and the look of the interface, and where your data is kept.'] },
+      ],
+      terms: [
+        { name: ['界面语言', 'Language'], means: browser ? ['界面用中文还是 English，通知和托盘菜单跟着换。', 'The interface in 中文 or English. Notifications and the tray menu follow it.'] : ['界面用中文还是 English，通知跟着换。', 'The interface in 中文 or English. Notifications follow it.'] },
+        { name: ['外观', 'Appearance'], means: ['“按时间”是白天浅色、晚上深色，到点自己换；也可以跟随系统，或者固定一种。', '“By the clock” is light by day and dark by night, changing by itself. Or follow the system, or keep one look.'] },
+        { name: ['打开动画', 'Opening'], means: ['打开 Dayjob 时那一小段像素动画，不想看可以关掉。', 'The short pixel animation when Dayjob opens. Turn it off if you would rather not see it.'] },
+        { name: ['数据库', 'Database'], means: ['你的岗位、投递和设置都存在这台电脑上的这个文件里。', 'Your jobs, applications and settings are kept in this file, on this computer.'] },
+      ],
+    },
+  ];
+  return steps;
+}
+
 const pick = (pair, lang) => (lang === 'en' ? pair[1] : pair[0]);
 
 // The paragraphs of a step that are said just now: `seen(selector)` tells whether an element is in sight, and
@@ -209,7 +411,8 @@ export function sayTime(text, lang) {
 const round = value => Math.round(value);
 
 // The lit box: the boxes of the step's targets joined into one, a few pixels larger, kept inside the window.
-// rects are { left, top, right, bottom }; boxes with no size (hidden parts) are left out. Null when nothing is left.
+// rects are { left, top, right, bottom }; boxes with no size (hidden parts) are left out. Null when nothing is left,
+// or when what is left lies outside the window.
 export function spotBox(rects, view, pad = 6) {
   const shown = rects.filter(rect => rect && rect.right - rect.left >= 1 && rect.bottom - rect.top >= 1);
   if (!shown.length) return null;
@@ -217,6 +420,8 @@ export function spotBox(rects, view, pad = 6) {
   const top = Math.max(0, Math.min(...shown.map(rect => rect.top)) - pad);
   const right = Math.min(view.width, Math.max(...shown.map(rect => rect.right)) + pad);
   const bottom = Math.min(view.height, Math.max(...shown.map(rect => rect.bottom)) + pad);
+  // Scrolled out of the window altogether: nothing is lit.
+  if (right - left < 1 || bottom - top < 1) return null;
   return { left: round(left), top: round(top), width: round(right - left), height: round(bottom - top) };
 }
 
@@ -236,4 +441,17 @@ export function placeCard({ spot, card, view, gap = 18, margin = 12 }) {
   const top = Math.min(maxTop, Math.max(margin, middle - Math.min(56, card.height / 2)));
   const beside = left >= spot.left + spot.width;
   return { left: round(left), top: round(top), tail: beside ? round(Math.min(card.height - 24, Math.max(24, middle - top))) : null };
+}
+
+// The Settings guide's card stands in the column kept free for it at the window's right (App makes the page
+// narrower meanwhile), its top level with the top of the lit group, so the two read side by side. `tail` points at
+// the group's title. With nothing lit (the group has been scrolled away) it keeps to the top of that column.
+export function dockCard({ spot, card, view, margin = 12 }) {
+  const left = Math.max(margin, view.width - margin - card.width);
+  const maxTop = Math.max(margin, view.height - margin - card.height);
+  if (!spot) return { left: round(left), top: margin, tail: null };
+  const top = Math.min(maxTop, Math.max(margin, spot.top));
+  const title = spot.top + Math.min(28, spot.height / 2);
+  const beside = left >= spot.left + spot.width;
+  return { left: round(left), top: round(top), tail: beside ? round(Math.min(card.height - 24, Math.max(24, title - top))) : null };
 }

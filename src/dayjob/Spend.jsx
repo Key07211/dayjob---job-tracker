@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useI18n } from '../i18n.jsx';
 import { formatDay, usd } from './format.js';
 import { Select } from './groove/Picker.jsx';
+import { GuideHelp } from './guide/GuideHelp.jsx';
 import { shake } from './groove/fx.js';
 
 // What the API keys have cost and how much each has left, by Dayjob's own count: every call's tokens at the list
@@ -135,16 +136,16 @@ export function Spend({ boot, reload, focused }) {
   const calls = count => t(`${count} 次调用`, `${count} ${count === 1 ? 'call' : 'calls'}`);
   const head = (
     <>
-      <h2><CircleDollarSign size={18} />{t('API 消费', 'API spending')}</h2>
+      <h2><CircleDollarSign size={18} />{t('API 消费', 'API spending')}<GuideHelp id="spend" /></h2>
       <p className="hint">{t('Dayjob 把每次打分和助手回答用掉的 token，按服务商的公开标价折成美元记下来。在每把 key 上填一个额度，就能看到还剩百分之几；剩得不多时会发通知。',
         'Dayjob turns the tokens of every score and every assistant reply into US dollars at the services\' list prices. Give a key an allowance to see what share of it is left; a notification says when it runs low.')}</p>
     </>
   );
   // The card is on the page from the start, so a link to it has somewhere to land before the sums arrive.
-  if (!spend) return <section className="card-section" id="api-spend" ref={card}>{head}</section>;
+  if (!spend) return <section className="card-section" id="api-spend" data-guide="spend" ref={card}>{head}</section>;
   const quiet = !spend.last30.calls;
   return (
-    <section className="card-section" id="api-spend" ref={card}>
+    <section className="card-section" id="api-spend" data-guide="spend" ref={card}>
       {head}
       {quiet && !spend.keys.length ? <p className="hint">{t('还没有用 API key 调用过。', 'No calls have been made with an API key yet.')}</p> : (
         <dl className="spend-stats">

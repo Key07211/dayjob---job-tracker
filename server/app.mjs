@@ -208,7 +208,7 @@ export async function createApp(options = {}) {
   async function get(pathname, url) {
     const params = url.searchParams;
     if (pathname === '/api/bootstrap') {
-      return { csrfToken, version: VERSION, dataFile: filename, serverTime: now().toISOString(), settings: publicSettings(repo.getSettings()),
+      return { csrfToken, version: VERSION, dataFile: filename, serverTime: now().toISOString(), settings: publicSettings(repo.getSettings()), languageChosen: repo.languageChosen(),
         stats: repo.stats(), searches: repo.listSearches(), companies: repo.listCompanies(), sites: await sites(), resumes: repo.listResumes(),
         scoring: await scorer.status(), scheduler: schedulerState(), runs: repo.listRuns(10), applicationStatuses: APPLICATION_STATUSES,
         countries: Object.keys(COUNTRIES) };
