@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, KeySquare, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
+import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, KeySquare, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
   ShieldAlert, Sun, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { AssistantSettings } from './assistant/AssistantSettings.jsx';
+import { guide } from './guide/store.js';
 import { Spend } from './Spend.jsx';
 import { SoundSettings } from './groove/SoundSettings.jsx';
 import { prefs, usePrefs } from './groove/prefs.js';
@@ -798,7 +799,10 @@ export function SettingsView({ boot, reload, update, focus }) {
 
   return (
     <section className="settings-page">
-      <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div></header>
+      <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div>
+        {/* The guide of the first day, again: the assistant shows what each page is for and where its settings are. */}
+        <div className="header-actions"><button type="button" className="button" title={t('让助手带你把 Dayjob 看一遍', 'Have the assistant show you around Dayjob')} onClick={() => guide.start()}><BookOpen size={15} />{t('用户指南', 'User guide')}</button></div>
+      </header>
       {/* One card under the other, as wide as the page. */}
       <form className="card-section" onSubmit={save}>
         <h2>{t('每日抓取', 'Daily search')}</h2>

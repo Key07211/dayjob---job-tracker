@@ -11,6 +11,7 @@ import { onAssistantWords } from './store.js';
 //           notes can drift along its top edge. It tells the header how tall and wide the gramophone is.
 //   live    the small one on the sidebar's card: it moves with the reply like the header's, inside its own frame.
 //   (none)  a still picture, for the empty conversation.
+//   voice   whose words it plays: by default the assistant's replies; the user guide gives it its own.
 //
 // The art is drawn at sprite size and enlarged by a whole number of screen pixels, so it stays sharp at any display
 // scaling; that is why its size on the page can differ a little from scale x sprite size.
@@ -39,7 +40,7 @@ const MAX_NOTES = 9;               // in the air at once
 const NOTE_GAP = 110;              // ms between two notes, so quick speech does not smear into a line
 const STRIP_TOP = 4, STRIP_BOTTOM = 15;   // the band the notes keep to, above the title
 
-function startStage(host, canvas, { scale, strip, live, phaseOf }) {
+function startStage(host, canvas, { scale, strip, live, voice, phaseOf }) {
   const ctx = canvas.getContext('2d');
   const buffer = document.createElement('canvas'), g = buffer.getContext('2d');
   const horn = createHorn();
@@ -131,7 +132,7 @@ function startStage(host, canvas, { scale, strip, live, phaseOf }) {
 
   palette();
   fit();
-  const offWords = strip || live ? onAssistantWords(text => { if (!reducedMotion()) { horn.hear(countTokens(text)); wake(); } }) : () => {};
+  const offWords = strip || live ? voice(text => { if (!reducedMotion()) { horn.hear(countTokens(text)); wake(); } }) : () => {};
   const onResize = () => fit();
   window.addEventListener('resize', onResize);
   const sizes = strip && 'ResizeObserver' in window ? new ResizeObserver(onResize) : null;
@@ -152,17 +153,17 @@ function startStage(host, canvas, { scale, strip, live, phaseOf }) {
   };
 }
 
-export function Gramophone({ phase = 'idle', scale = 2, strip = false, live = false, label }) {
+export function Gramophone({ phase = 'idle', scale = 2, strip = false, live = false, voice = onAssistantWords, label }) {
   const host = useRef(null);
   const canvas = useRef(null);
   const stage = useRef(null);
   const current = useRef(phase);
   current.current = phase;
   useEffect(() => {
-    stage.current = startStage(host.current, canvas.current, { scale, strip, live, phaseOf: () => current.current });
+    stage.current = startStage(host.current, canvas.current, { scale, strip, live, voice, phaseOf: () => current.current });
     stage.current.wake();
     return () => { stage.current.stop(); stage.current = null; };
-  }, [scale, strip, live]);
+  }, [scale, strip, live, voice]);
   useEffect(() => { stage.current?.wake(); }, [phase]);
   return (
     <span ref={host} className={`gramophone${strip ? ' strip' : ''}`} role="img" aria-label={label}>
