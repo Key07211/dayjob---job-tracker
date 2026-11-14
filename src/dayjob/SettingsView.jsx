@@ -845,7 +845,11 @@ export function SettingsView({ boot, reload, update, focus }) {
         <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available
           ? `${jobspy.detail}${jobspy.using === 'builtin' ? t('（Dayjob 自带）', ' (inside Dayjob)') : ''}${jobspy.builtIn && (form.runner === 'own') !== (jobspy.using === 'own') ? t('。点“保存设置”后改用所选的，并重新检测。', '. “Save settings” switches to your choice and checks it.') : ''}`
           : jobspy?.using === 'builtin' ? t('Dayjob 自带的 JobSpy 没能启动。重新安装 Dayjob 可以把它放回来；也可以先改用自己的 Python。', 'The JobSpy inside Dayjob did not start. Installing Dayjob again puts it back; or use your own Python meanwhile.')
-            : t('未检测到 JobSpy。装好后点“保存设置”会重新检测。', 'JobSpy was not found. Install it, then click “Save settings” to check again.')}</p>
+            : /No module named '?jobspy/i.test(jobspy?.reason || '')
+              ? t(`这个 Python 里没有装 JobSpy（${jobspy.reason}）。电脑上有几个 Python 时，JobSpy 要装进 Dayjob 用的这一个：${jobspy.command} -m pip install python-jobspy；或者把 Python 命令改成装了 JobSpy 的那个，比如 py。改好后点“保存设置”重新检测。`,
+                `This Python has no JobSpy in it (${jobspy.reason}). On a computer with several Pythons, JobSpy has to go into the one Dayjob runs: ${jobspy.command} -m pip install python-jobspy. Or change the Python command to the one that has it, py for example. Then click “Save settings” to check again.`)
+              : jobspy?.reason ? t(`未检测到 JobSpy（${jobspy.reason}）。装好后点“保存设置”会重新检测。`, `JobSpy was not found (${jobspy.reason}). Install it, then click “Save settings” to check again.`)
+                : t('未检测到 JobSpy。装好后点“保存设置”会重新检测。', 'JobSpy was not found. Install it, then click “Save settings” to check again.')}</p>
         {error ? <p className="notice error">{error}</p> : null}
         {message ? <p className="notice">{message}</p> : null}
         <div className="form-actions"><button className="button primary" type="submit"><SavedLabel saved={saved}>{t('保存设置', 'Save settings')}</SavedLabel></button></div>

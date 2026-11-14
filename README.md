@@ -420,7 +420,7 @@ Glassdoor、ZipRecruiter 和 Google Jobs 通过 Python 版 [JobSpy](https://gith
 pip install python-jobspy
 ```
 
-点“保存设置”后会重新检测。
+点“保存设置”后会重新检测。电脑上有几个 Python 时，要确认 JobSpy 装进的是这里填的那一个：没装时，设置里会写明问的是哪个 Python、它回答了什么（比如 `No module named jobspy`）。这时运行 `<那个 Python> -m pip install python-jobspy`，或者把 Python 命令改成装了 JobSpy 的那个（比如 `py`）。
 
 自带的这一份和电脑上别的 Python 互不相干：它只从自己的文件夹里加载模块，不读 `PYTHONPATH` 这类环境变量、注册表和装在用户目录里的包，卸载 Dayjob 时一起删除。它让安装包多出大约 25 MB，装好后多占大约 100 MB。
 
@@ -438,7 +438,7 @@ npm start
 
 - LinkedIn 和 Indeed 会限制频繁请求。Dayjob 每页之间随机等待几秒、遇到 429 会退避重试，被限制时这次抓取标为“部分完成”，其他来源照常。每天一次、每个搜索几十个结果通常没问题；不建议把间隔调得很短或一次抓几百个。
 - 检查岗位是否关闭时，当天搜索里还能看到的岗位直接算作开放，不再单独请求。有些网络打开 Indeed 的岗位页会被拒绝（HTTP 401），这时 Dayjob 无法判断 Indeed 岗位是否已关闭，只能靠它是否还出现在搜索里；其他来源照常检查。
-- Glassdoor、ZipRecruiter、Google Jobs 依赖 JobSpy 的实现，这几个网站也常常拒绝自动请求；某个来源被拒绝时，这次抓取的详情里会写明原因，其他来源照常。网站改版后可能需要更新 JobSpy（等 Dayjob 的新版本，或改用自己的 Python）。
+- Glassdoor、ZipRecruiter、Google Jobs 依赖 JobSpy 的实现，这几个网站也常常拒绝自动请求；某个来源被拒绝时，这次抓取的详情里会写明是这个网站没给结果（不是 Dayjob 或 JobSpy 没装好），其他来源照常。网站改版后可能需要更新 JobSpy（等 Dayjob 的新版本，或改用自己的 Python）。
 - 请遵守各网站的使用条款，只用于个人求职。
 
 检查各个来源在你的网络环境下是否正常：

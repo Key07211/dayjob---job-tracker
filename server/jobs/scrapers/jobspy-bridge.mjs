@@ -53,24 +53,48 @@ export function fromRecord(record) {
   });
 }
 
+// The last thing Python said: "C:\\Python312\\python.exe: No module named jobspy", or JobSpy's own "ERROR: jobspy.google: ...".
+const lastLine = text => String(text || '').trim().split(/\r?\n/).pop().trim().slice(0, 300);
+// A Python that starts but has no JobSpy in it: on a computer with several Pythons, JobSpy went into another one.
+export const noJobspyModule = text => /No module named '?jobspy/i.test(String(text || ''));
+
+// -> { available, version } and, when it is not there, reason: what the command answered, so Settings can say
+// which Python was asked and what it lacks.
 export function detectJobspy(command, spawn = nodeSpawn) {
   return new Promise(resolve => {
     let output = '';
+    let errors = '';
     let child;
+    const missing = reason => resolve({ available: false, version: null, ...(reason ? { reason } : {}) });
     try { child = spawn(command, [...PYTHON_ARGS, '--version'], { windowsHide: true, shell: false }); }
-    catch { resolve({ available: false, version: null }); return; }
+    catch (error) { missing(String(error.message || '').slice(0, 300)); return; }
     // Long enough for a first start, when the antivirus reads every file of Python on its way in.
     const timer = setTimeout(() => child.kill(), 30000);
     child.stdout?.on('data', chunk => { output += chunk; });
-    child.on('error', () => { clearTimeout(timer); resolve({ available: false, version: null }); });
-    child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? { available: true, version: output.trim().slice(0, 80) } : { available: false, version: null }); });
+    child.stderr?.on('data', chunk => { errors = (errors + chunk).slice(-4000); });
+    child.on('error', error => { clearTimeout(timer); missing(String(error.message || '').slice(0, 300)); });
+    child.on('close', code => { clearTimeout(timer); if (code === 0) resolve({ available: true, version: output.trim().slice(0, 80) }); else missing(lastLine(errors)); });
   });
+}
+
+const SITE_NAMES = { glassdoor: 'Glassdoor', zip_recruiter: 'ZipRecruiter', google: 'Google Jobs' };
+// Why a search came back with nothing, in words that say whose fault it is:
+//   the Python has no JobSpy            -> the same answer as a JobSpy that is not there
+//   JobSpy itself gave up on the site   -> the site turned it away or changed its pages; nothing in Dayjob is broken
+//   anything else                       -> what Python said
+export function searchFailure(site, stderr, code, missing) {
+  const last = lastLine(stderr);
+  if (noJobspyModule(stderr)) return missing(last);
+  const own = last.match(/^(?:ERROR|CRITICAL)\s*:\s*jobspy\.\w+\s*:\s*(.+)$/i);
+  if (own) return `JobSpy got no jobs from ${SITE_NAMES[site] || site} (${own[1]}). The site turned the request away or changed its pages; the other sources are not affected.`;
+  return `JobSpy ${site} failed: ${last || `exit ${code}`}`;
 }
 
 // builtIn: command is the JobSpy inside the app, so a failure to start is not answered with how to install one.
 export function createJobspyBridge({ command = 'python', builtIn = false, spawn = nodeSpawn, timeoutMs = 10 * 60 * 1000 } = {}) {
   const missing = detail => (builtIn ? `The JobSpy inside Dayjob did not start (${detail}). Installing Dayjob again puts it back.`
-    : `JobSpy is not available (${detail}). Install Python and run: pip install python-jobspy`);
+    : noJobspyModule(detail) ? `The Python that Dayjob runs has no JobSpy in it (${detail}). Run: ${command} -m pip install python-jobspy, or name the Python that has JobSpy under Settings, JobSpy.`
+      : `JobSpy is not available (${detail}). Install Python and run: pip install python-jobspy`);
   return {
     // A stopped run (signal) ends the Python process at once.
     async search(site, input, { log = () => {}, signal } = {}) {
@@ -96,8 +120,8 @@ export function createJobspyBridge({ command = 'python', builtIn = false, spawn 
             if (!line.trim()) continue;
             try { postings.push(fromRecord(JSON.parse(line))); } catch (error) { log(`jobspy ${site}: skipped a record (${error.message})`); }
           }
-          if (code !== 0 && !postings.length) reject(new ScrapeError(`JobSpy ${site} failed: ${stderr.trim().split('\n').pop() || `exit ${code}`}`));
-          else resolve({ postings, warnings: stderr.trim() ? [stderr.trim().split('\n').pop().slice(0, 300)] : [] });
+          if (code !== 0 && !postings.length) reject(new ScrapeError(searchFailure(site, stderr, code, missing)));
+          else resolve({ postings, warnings: stderr.trim() ? [lastLine(stderr)] : [] });
         });
       });
     },

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../server/app.mjs';
-import { builtInJobspy, createJobspyBridge, detectJobspy } from '../server/jobs/scrapers/jobspy-bridge.mjs';
+import { builtInJobspy, createJobspyBridge, detectJobspy, searchFailure } from '../server/jobs/scrapers/jobspy-bridge.mjs';
 import { settingsPatch } from '../server/validation.mjs';
 import { JOBSPY, PYTHON, dropped, pathFile, wantedFromPython } from '../scripts/build-jobspy.mjs';
 
@@ -125,6 +125,35 @@ test('JobSpy is asked for its version in UTF-8 mode, and a Python that cannot st
     { message: 'The JobSpy inside Dayjob did not start (spawn ENOENT). Installing Dayjob again puts it back.' });
   await assert.rejects(createJobspyBridge({ command: 'python', spawn: failing }).search('google', { keywords: 'a' }),
     { message: 'JobSpy is not available (spawn ENOENT). Install Python and run: pip install python-jobspy' });
+});
+
+// What happened on the PC this was written for: "python" was a Python 3.12 without JobSpy, while JobSpy sat in Python 3.14.
+test('a Python without JobSpy, and a site that turns JobSpy away, are told apart from a JobSpy that is broken', async t => {
+  const answering = (code, stderr, stdout = '') => () => {
+    const made = new EventEmitter(); made.stdout = new EventEmitter(); made.stderr = new EventEmitter(); made.kill = () => {};
+    setImmediate(() => { if (stdout) made.stdout.emit('data', stdout); if (stderr) made.stderr.emit('data', stderr); made.emit('close', code); });
+    return made;
+  };
+  const noModule = 'C:\\Tools\\python.exe: No module named jobspy\r\n';
+  assert.deepEqual(await detectJobspy('python', answering(1, noModule)), { available: false, version: null, reason: 'C:\\Tools\\python.exe: No module named jobspy' });
+  assert.deepEqual(await detectJobspy('python', answering(1, '')), { available: false, version: null });
+
+  const search = (stderr, options = {}) => createJobspyBridge({ command: 'python', spawn: answering(1, stderr), ...options }).search('zip_recruiter', { keywords: 'a' });
+  await assert.rejects(search(noModule), /: The Python that Dayjob runs has no JobSpy in it \(C:\\Tools\\python\.exe: No module named jobspy\)\. Run: python -m pip install python-jobspy, or name the Python that has JobSpy under Settings, JobSpy\.$/);
+  await assert.rejects(search('INFO: jobspy.ziprecruiter: page 1\nERROR: jobspy.ziprecruiter: no jobKeysMap in the page\n'),
+    /: JobSpy got no jobs from ZipRecruiter \(no jobKeysMap in the page\)\. The site turned the request away or changed its pages; the other sources are not affected\.$/);
+  await assert.rejects(search('Traceback (most recent call last):\nValueError: boom\n'), /: JobSpy zip_recruiter failed: ValueError: boom$/);
+  assert.equal(searchFailure('google', '', 3, () => 'unused'), 'JobSpy google failed: exit 3');
+  // A site that gave some jobs before it gave up is a result with a warning, not a failure.
+  const partly = await createJobspyBridge({ command: 'python', spawn: answering(1, 'ERROR: jobspy.google: no job data returned\n', '{"site":"google","title":"Analyst","company":"Acme","job_url":"https://example.com/1"}\n') }).search('google', { keywords: 'a' });
+  assert.equal(partly.postings.length, 1);
+  assert.deepEqual(partly.warnings, ['ERROR: jobspy.google: no job data returned']);
+
+  // Settings is told which Python was asked and what it answered.
+  const { app, boot } = await start({ detectJobspy: async () => ({ available: false, version: null, reason: 'C:\\Tools\\python.exe: No module named jobspy' }) });
+  t.after(() => app.close());
+  const site = boot.sites.find(entry => entry.id === 'glassdoor');
+  assert.deepEqual([site.available, site.using, site.reason, site.command], [false, 'own', 'C:\\Tools\\python.exe: No module named jobspy', process.platform === 'win32' ? 'python' : 'python3']);
 });
 
 test('what goes into the JobSpy folder: Python without its extras, exact packages, and nothing from outside', () => {

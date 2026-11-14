@@ -385,7 +385,7 @@ Glassdoor, ZipRecruiter and Google Jobs are fetched through the Python [JobSpy](
 pip install python-jobspy
 ```
 
-Save the settings to check it again.
+Save the settings to check it again. With several Pythons on the computer, make sure JobSpy went into the one named here: when it is missing, Settings says which Python was asked and what it answered (`No module named jobspy`, for example). Then run `<that Python> -m pip install python-jobspy`, or change the Python command to the one that has JobSpy (`py`, for example).
 
 The built-in copy keeps to itself: it loads modules from its own folder only, ignores `PYTHONPATH` and the other Python variables, the registry and the packages installed for your user, and is removed together with Dayjob. It adds about 25 MB to the download and about 100 MB once installed.
 
@@ -403,7 +403,7 @@ npm start
 
 - LinkedIn and Indeed limit frequent requests. Dayjob waits a few random seconds between pages and backs off on HTTP 429; when a site limits it, that run is marked partly succeeded and the other sources carry on. One run a day with a few dozen results per search is usually fine; avoid short intervals or hundreds of results at once.
 - When checking whether jobs have closed, a job that today's search still lists counts as open and is not requested again. Some networks are refused Indeed's job pages (HTTP 401); then Dayjob cannot tell whether an Indeed job has closed, only whether it still shows up in searches. Other sources are checked as usual.
-- Glassdoor, ZipRecruiter and Google Jobs rely on JobSpy, and these sites often turn automated requests away; when one does, the details of that run say why and the other sources carry on. JobSpy may need updating when those sites change (wait for a new Dayjob, or switch to your own Python).
+- Glassdoor, ZipRecruiter and Google Jobs rely on JobSpy, and these sites often turn automated requests away; when one does, the details of that run say that the site gave nothing (not that Dayjob or JobSpy is set up wrongly) and the other sources carry on. JobSpy may need updating when those sites change (wait for a new Dayjob, or switch to your own Python).
 - Follow each site's terms of use and use Dayjob for your own job search only.
 
 To check every source from your network:

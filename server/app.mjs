@@ -100,7 +100,9 @@ export async function createApp(options = {}) {
     return SITES.map(site => ({ ...site, available: site.engine === 'native' || bridgeState.available,
       ...(site.engine === 'jobspy' ? { builtIn: Boolean(jobspyBuiltIn), using: bridgeState.builtIn ? 'builtin' : 'own',
         detail: bridgeState.available ? `JobSpy ${bridgeState.version || ''}`.trim()
-          : bridgeState.builtIn ? 'The JobSpy inside Dayjob did not start.' : 'Needs Python with: pip install python-jobspy' } : {}) }));
+          : bridgeState.builtIn ? 'The JobSpy inside Dayjob did not start.' : 'Needs Python with: pip install python-jobspy',
+        // What the Python that was asked answered, and that Python: "C:\\Python312\\python.exe: No module named jobspy".
+        ...(!bridgeState.available && bridgeState.reason ? { reason: bridgeState.reason, command: bridgeState.command } : {}) } : {}) }));
   }
   function schedulerState() {
     return { running: scheduler.running, stopping: scheduler.stopping, phase: scheduler.phase, nextRunAt: scheduler.nextRunAt(), lastDailyRun: repo.getMeta('lastDailyRun'),
