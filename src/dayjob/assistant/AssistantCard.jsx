@@ -20,12 +20,12 @@ export function AssistantCard({ form, asking = false, onForm }) {
   const applying = run && run.turn >= turns.length - 3 && run.reached < APPLY_STEPS.indexOf('record') && (busy || asking);
   const state = asking ? t('等你确认', 'Waiting for you')
     : applying ? t(`正在投递 ${Math.min(run.reached + 2, APPLY_STEPS.length)}/${APPLY_STEPS.length}`, `Applying ${Math.min(run.reached + 2, APPLY_STEPS.length)}/${APPLY_STEPS.length}`)
-      : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : '';
+      : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : phase === 'compacting' ? t('在压缩上文…', 'Compacting…') : '';
   const toggle = wanted => onForm(form === wanted ? 'closed' : wanted);
   return (
     <section className={`assistant-card${form !== 'closed' ? ' on' : ''}${busy ? ' busy' : ''}${asking ? ' asking' : ''}${state ? ' stated' : ''}`} aria-label={t('助手', 'Assistant')}>
       <button type="button" className="assistant-card-face" title={form === 'closed' ? t('打开助手', 'Open the assistant') : undefined} onClick={() => { if (form === 'closed') onForm('side'); }}>
-        <Gramophone phase={form === 'closed' ? phase : 'idle'} scale={1} live={form === 'closed'} label={t('助手留声机', 'Assistant gramophone')} />
+        <Gramophone phase={form === 'closed' ? (phase === 'compacting' ? 'thinking' : phase) : 'idle'} scale={1} live={form === 'closed'} label={t('助手留声机', 'Assistant gramophone')} />
         <span className="assistant-card-text">
           <strong>{t('助手', 'Assistant')}</strong>
           <small aria-live="polite" title={applying && run.job ? run.job : undefined}>{state}</small>

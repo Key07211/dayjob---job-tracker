@@ -30,7 +30,7 @@ export function createConversationStore(db) {
   return {
     list() {
       return q('SELECT id, title, created_at, updated_at, archived_at, turns FROM assistant_conversations ORDER BY updated_at DESC').all()
-        .map(row => ({ id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null, turns: parse(row.turns).length }));
+        .map(row => ({ id: row.id, title: row.title, createdAt: row.created_at, updatedAt: row.updated_at, archivedAt: row.archived_at || null, turns: parse(row.turns).filter(turn => turn?.role !== 'compact').length }));
     },
     get(id) {
       const row = q('SELECT * FROM assistant_conversations WHERE id = ?').get(id);

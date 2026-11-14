@@ -621,7 +621,7 @@ test('one Claude Code process serves a conversation: it streams text once and is
   const outcome = await first.reply;
   assert.equal(first.heard.text, 'You said: hello', 'the whole message that follows the deltas is not shown twice');
   assert.ok(first.heard.rounds >= 1 && first.heard.thinking >= 1);
-  assert.deepEqual(outcome, { usage: { inputTokens: 12, outputTokens: 7, cacheReadTokens: 300, cacheWriteTokens: 40 }, model: 'claude-opus-5-5', rounds: 1 });
+  assert.deepEqual(outcome, { usage: { inputTokens: 12, outputTokens: 7, cacheReadTokens: 300, cacheWriteTokens: 40 }, model: 'claude-opus-5-5', rounds: 1, context: null });
 
   const [started] = spawned;
   assert.equal(started.command, 'claude');
@@ -656,7 +656,7 @@ test('Claude Code text that never came as deltas is still shown, and a typed mod
     say({ type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 3, output_tokens: 2 }, num_turns: 2 });
   });
   const { heard, reply } = sent('c1', 'hi', { model: 'claude-haiku-5-5' });
-  assert.deepEqual(await reply, { usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 }, model: 'claude-haiku-5-5', rounds: 2 });
+  assert.deepEqual(await reply, { usage: { inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 }, model: 'claude-haiku-5-5', rounds: 2, context: null });
   assert.equal(heard.text, 'Whole.');
   assert.deepEqual(spawned[0].args.slice(-2), ['--model', 'claude-haiku-5-5']);
   engine.closeAll();
@@ -810,7 +810,7 @@ test('the Claude API engine runs the tool loop itself and keeps the conversation
   ]);
   const first = sent('c1', 'what is new?');
   const outcome = await first.reply;
-  assert.deepEqual(outcome, { usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 1800, cacheWriteTokens: 100 }, model: 'claude-opus-5-5', rounds: 2 });
+  assert.deepEqual(outcome, { usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 1800, cacheWriteTokens: 100 }, model: 'claude-opus-5-5', rounds: 2, context: { tokens: 1070, limit: 167000 } });
   assert.equal(first.heard.text, 'Looking.Two jobs.');
   assert.equal(first.heard.rounds, 2);
   assert.deepEqual(first.heard.calls, [['list_postings', { status: 'new' }]]);

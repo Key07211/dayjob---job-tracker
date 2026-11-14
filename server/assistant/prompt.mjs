@@ -1,4 +1,5 @@
-// What both assistant engines are told, and how a conversation is handed to a fresh engine session.
+// What both assistant engines are told, how a conversation is handed to a fresh engine session, and how a long
+// one is compacted into a summary.
 
 // A failure the pane can explain in the user's language: code picks the text, message is the English fallback.
 export class AssistantError extends Error {
@@ -63,13 +64,30 @@ How to answer
 
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-// A conversation written out for an engine that has not seen it: one that was kept and reopened, or one whose
-// engine was restarted or switched. Long ones lose their oldest turns first.
-export function transcript(turns, max = 40000) {
-  const parts = turns.map(turn => (turn.role === 'user' ? `User: ${turn.text}` : [
-    ...(turn.tools || []).map(tool => `[tool ${tool.name} ${JSON.stringify(tool.input ?? {})} -> ${tool.ok ? tool.summary : `error: ${tool.error}`}${tool.undone ? ' (the user has undone this)' : ''}]`),
-    `Assistant: ${turn.text || '(no reply)'}${turn.stopped ? ' (the user stopped this reply)' : ''}${turn.error ? ' (this reply failed)' : ''}`,
-  ].join('\n')));
+// ---------- handing a conversation to an engine that has not seen it ----------
+
+// A cold handover longer than this (in characters) has its older part summarised first; the most recent turns,
+// up to RECENT_MAX, are handed over as they were said. The summariser itself reads up to SUMMARISE_MAX.
+export const HANDOVER_MAX = 40000;
+export const RECENT_MAX = 12000;
+export const SUMMARISE_MAX = 300000;
+export const SUMMARY_MAX = 60000;
+
+// A marker among the turns: the conversation was compacted here, and `summary` stands for everything before it.
+// (One without a summary only shows in the pane: Claude Code compacted and did not say what it wrote.)
+export const isMarker = turn => turn?.role === 'compact';
+export const lastSummary = turns => turns.findLastIndex(turn => isMarker(turn) && turn.summary);
+
+// One turn as an engine is told it.
+const written = turn => (turn.role === 'user' ? `User: ${turn.text}` : [
+  ...(turn.tools || []).map(tool => `[tool ${tool.name} ${JSON.stringify(tool.input ?? {})} -> ${tool.ok ? tool.summary : `error: ${tool.error}`}${tool.undone ? ' (the user has undone this)' : ''}]`),
+  `Assistant: ${turn.text || '(no reply)'}${turn.stopped ? ' (the user stopped this reply)' : ''}${turn.error ? ' (this reply failed)' : ''}`,
+].join('\n'));
+
+// Turns written out for an engine that has not seen them: a conversation that was kept and reopened, or one whose
+// engine was restarted or switched. Long ones lose their oldest turns first. after: these turns follow a summary.
+export function transcript(turns, max = HANDOVER_MAX, { after = false } = {}) {
+  const parts = turns.filter(turn => !isMarker(turn)).map(written);
   let size = parts.reduce((sum, part) => sum + part.length + 2, 0);
   let dropped = 0;
   while (parts.length > 2 && size > max) {
@@ -78,8 +96,87 @@ export function transcript(turns, max = 40000) {
   }
   if (!parts.length) return '';
   return ['<earlier_conversation>',
-    'This is your conversation with the user so far, kept by Dayjob. Tool results are shortened: call a tool again when you need current data.',
+    after ? 'These are the turns since that summary, kept by Dayjob as they were said. Tool results are shortened: call a tool again when you need current data.'
+      : 'This is your conversation with the user so far, kept by Dayjob. Tool results are shortened: call a tool again when you need current data.',
     ...(dropped ? [`(${dropped} older turns are left out.)`] : []), '', clip(parts.join('\n\n'), max), '</earlier_conversation>'].join('\n');
+}
+
+// The summary a compacted conversation goes on from, as the model is given it.
+export const summaryBlock = summary => ['<conversation_summary>',
+  'Dayjob compacted this conversation to free up room: the earlier turns were replaced by the summary below. What tools returned is gone with them: call a tool again when you need current data, and in the Dayjob browser read the page again (element refs from before no longer hold).',
+  '', summary, '</conversation_summary>'].join('\n');
+
+// What an engine without the conversation starts from: the latest summary, when the conversation was compacted,
+// and the turns after it; the whole conversation otherwise.
+export function handover(turns, max = HANDOVER_MAX) {
+  const at = lastSummary(turns);
+  if (at < 0) return transcript(turns, max);
+  return [summaryBlock(turns[at].summary), transcript(turns.slice(at + 1), max, { after: true })].filter(Boolean).join('\n\n');
+}
+
+// Where a conversation too long to hand over whole is cut: the turns before the index are summarised, the ones
+// from it on are handed over as they were said. A reply stays with the message it answers. null when it all fits.
+export function cutFor(turns, { max = HANDOVER_MAX, keep = RECENT_MAX } = {}) {
+  const from = lastSummary(turns) + 1;
+  const sizes = turns.map((turn, index) => (index < from || isMarker(turn) ? 0 : written(turn).length + 2));
+  if (sizes.reduce((sum, size) => sum + size, 0) <= max) return null;
+  let at = turns.length;
+  let kept = 0;
+  for (let index = turns.length - 1; index >= from; index -= 1) {
+    kept += sizes[index];
+    if (kept > keep) break;
+    if (turns[index].role === 'user') at = index;
+  }
+  return at > from ? at : null;
+}
+
+// ---------- compaction ----------
+
+// The request for a summary, modelled on Claude Code's: it is added to the conversation itself (so the model
+// summarises what it actually saw, tool results included), asks for text only, and lays out what has to survive.
+// focus: what the user asked the summary to keep an eye on ("/compact keep the salary answers").
+export function compactPrompt(focus = '') {
+  return `<dayjob_compact>
+This is a request from Dayjob, not a message from the user. The conversation has grown long, so Dayjob is going to replace it with a summary that you write now. From the next message on you will see that summary instead of everything above, and it must carry all you need to keep helping without the user repeating themselves.
+
+Reply with text only. Do not call any tool: you have everything you need above, and a tool call would be refused.
+
+Write the summary inside <summary></summary>, in the language the user writes in, with these parts:
+1. What the user wants: every request and intention so far, in order, with enough detail to act on.
+2. What the user said: each of the user's messages (word for word when short, closely otherwise), with their corrections and the way they want things done.
+3. Jobs, companies and applications that came up: each with its Dayjob id, company, title, score, status and what was decided about it. Keep the ids: a later message may only say "the second one".
+4. What you did in Dayjob: every change (what, on which item, and whether the user has undone it), searches created or changed, companies followed, notes kept or dropped from your memory, answers saved to the application profile.
+5. Applications in the Dayjob browser: for each one started, the posting, how far it got (opened, signed in, filled in, resume attached, questions answered, cover letter, sent, recorded), what the form still needs, what you asked the user and what they answered, and anything the user has to do themselves.
+6. Problems: what failed or was refused, and whether it was sorted out.
+7. Still open: what the user asked for that is not done, and questions you are waiting on.
+8. Where things stand: exactly what the latest messages were about, with the user's latest request in their own words, and the next step when the user has asked for one. Add nothing they did not ask for.
+
+Leave out raw tool output that can be fetched again, and never write down a password, a card number or a code.${focus ? `\n\nThe user asked that the summary pay special attention to this:\n${focus}` : ''}
+</dayjob_compact>`;
+}
+
+// The summary out of the model's reply: what is inside <summary>, or the whole reply when it used no tags and
+// is long enough to be one (a line of chat in answer to the request is not a summary).
+export function summaryOf(text) {
+  const tagged = [...String(text || '').matchAll(/<summary>([\s\S]*?)(?:<\/summary>|$)/g)].at(-1)?.[1];
+  const whole = String(text || '').replace(/<analysis>[\s\S]*?<\/analysis>/g, '').trim();
+  const summary = (tagged ?? (whole.length >= 200 ? whole : '')).trim();
+  return summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX)}…` : summary;
+}
+
+// What the model goes on from when its conversation was compacted while it was working: the summary, the notes
+// that stand for the whole conversation (how applications are sent, the memory), and the request it was on.
+export function carryOn(summary, { notes = '', request = '' } = {}) {
+  return [summaryBlock(summary), ...(notes ? [notes] : []),
+    ...(request ? [`Carry on with what you were doing from where it stopped, without recapping the summary and without asking the user to repeat themselves. The message you were answering:\n\n${request}`] : [])].join('\n\n');
+}
+
+// Roughly how many tokens a text takes: Chinese, Japanese and Korean characters count for more than Latin letters.
+// Only used to see a tool result coming before the API has counted it.
+export function estimateTokens(text) {
+  const value = String(text || '');
+  const wide = (value.match(/[⺀-鿿가-힯＀-￯]/g) || []).length;
+  return Math.ceil(wide * 1.5 + (value.length - wide) / 3.2);
 }
 
 // Things that happened in the app since the last message (an undo, a stopped reply), told to the model once.

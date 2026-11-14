@@ -4,7 +4,7 @@ import { CLAUDE_MODELS, PROVIDERS } from '../jobs/scoring/models.mjs';
 import { createApiEngine } from './engine-api.mjs';
 import { createCliEngine } from './engine-cli.mjs';
 import { handleMcp } from './mcp-http.mjs';
-import { AssistantError, SYSTEM_PROMPT, transcript, withNotes } from './prompt.mjs';
+import { AssistantError, SUMMARISE_MAX, SYSTEM_PROMPT, compactPrompt, cutFor, handover, isMarker, lastSummary, summaryOf, withNotes } from './prompt.mjs';
 import { createConversationStore } from './store.mjs';
 import { createMemory, MEMORY_EMPTY } from './memory.mjs';
 import { createTools } from './tools.mjs';
@@ -18,6 +18,7 @@ const MODE_NOTES = {
 };
 const MAX_LIVE = 8;
 const MAX_TEXT = 8000;
+const MAX_FOCUS = 1000;
 const RESULT_CAP = 60000;
 const SUMMARY_CAP = 1500;
 
@@ -31,6 +32,15 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // it away from the list of kept ones until it is taken back out. Each engine holds its own working copy
 // while it runs (a Claude Code process, or the message list for the Claude API); whenever that copy is missing
 // (a kept conversation reopened, the engine switched, the process gone) the turns kept here are handed over as text.
+//
+// A long conversation is compacted the way Claude Code does it: the model writes a summary of it, and from then on
+// the engine works from the summary and what came after. The turns stay in the pane; a marker among them
+// ({ role: 'compact', summary, trigger, at }) says where it happened and carries the summary. It happens
+// - when the user asks (the button in the pane, or "/compact" and what to keep an eye on),
+// - by itself when the engine's copy nears its limit (the Claude API engine does it between two requests, Claude
+//   Code does it in its own process; both report it here),
+// - by itself when a conversation with no engine copy is too long to hand over whole: the older turns are
+//   summarised once, instead of being left out.
 //
 // browser: the desktop app's Dayjob browser ({ run(action, input, context) }), which the applying tools work in;
 // without it (plain `npm start`) those tools are not offered.
@@ -108,15 +118,21 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   const stored = conversation => ({ id: conversation.id, title: conversation.title, createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
     archivedAt: conversation.archivedAt, turns: conversation.turns });
   const persist = conversation => { if (conversation.kept && conversation.turns.length) store.save(stored(conversation)); };
+  // Something to compact: an answered message since the last summary.
+  const compactable = conversation => conversation.turns.slice(lastSummary(conversation.turns) + 1).some(turn => turn.role === 'assistant' && (turn.text || turn.tools?.length));
+  const markerView = turn => ({ role: 'compact', at: turn.at, trigger: turn.trigger, summary: turn.summary || '', before: turn.before ?? null, after: turn.after ?? null });
   // What the pane gets: no tool inputs or results, and whether each change can still be undone. An applying tool
   // also says which step of the application it was (step), a few plain facts for the card that asks before sending
   // (facts: the job, the resume's name, how many fields), and, for a cover letter, the letter itself (detail).
   const toolView = (conversation, tool) => ({ id: tool.id, name: tool.name, tier: tool.tier, view: tool.view, ok: tool.ok, label: tool.label, error: tool.error, offset: tool.offset,
     undone: Boolean(tool.undone), undoable: Boolean(conversation.actions.get(tool.id) && !tool.undone),
     ...(tool.step ? { step: tool.step } : {}), ...(tool.facts ? { facts: tool.facts } : {}), ...(tool.detail ? { detail: tool.detail } : {}) });
+  // context: how large the engine's copy was at its last reply ({ tokens, limit }, limit being the size it is
+  // compacted at), or null when no engine holds the conversation.
   const view = conversation => ({ id: conversation.id, title: conversation.title, kept: conversation.kept, archivedAt: conversation.archivedAt || null,
     createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, busy: Boolean(conversation.flight),
-    turns: conversation.turns.map(turn => (turn.role === 'user' ? { role: 'user', text: turn.text, at: turn.at }
+    context: conversation.context || null, compactable: compactable(conversation),
+    turns: conversation.turns.map(turn => (isMarker(turn) ? markerView(turn) : turn.role === 'user' ? { role: 'user', text: turn.text, at: turn.at }
       : { role: 'assistant', text: turn.text, at: turn.at, engine: turn.engine, model: turn.model || null, stopped: Boolean(turn.stopped), error: turn.error || null, errorCode: turn.errorCode || null,
         usage: turn.usage || null, tools: turn.tools.map(tool => toolView(conversation, tool)) })) });
 
@@ -159,6 +175,89 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     return view(conversation);
   }
 
+  // ---------- the engine a conversation runs on, and compacting ----------
+  // The engine and model chosen in Settings. An engine's copy is dropped when the engine or its model was switched;
+  // the new one starts from the turns kept here.
+  function engage(conversation) {
+    const { engine: engineId, models, apply } = settings();
+    if (conversation.engine && (conversation.engine !== engineId || conversation.model !== models[engineId])) {
+      available[conversation.engine]?.close(conversation.id);
+      conversation.context = null;
+    }
+    conversation.engine = engineId;
+    conversation.model = models[engineId];
+    return { engineId, engine: available[engineId], model: models[engineId], apply };
+  }
+
+  // Has the model write a summary of the turns before `upto` and puts a marker with it there. An engine that holds
+  // the conversation is asked in the conversation itself, so it summarises all it saw; one that does not is given
+  // the turns kept here (and the summary before them). Either way the engine then lets go of the conversation, and
+  // the next message starts it from the summary. While this runs no tool may be used: conversation.live is not set.
+  async function compact(conversation, { trigger, focus = '', upto = conversation.turns.length, emit, signal, engineId, engine, model }) {
+    const live = engine.live(conversation.id);
+    const before = live ? conversation.context?.tokens ?? null : null;
+    emit({ type: 'compacting', trigger });
+    const started = Date.now();
+    let said = '';
+    let own = '';
+    let outcome;
+    try {
+      outcome = await engine.send({
+        id: conversation.id, system: SYSTEM_PROMPT, model, tools: tools.definitions(), signal, compacting: true,
+        text: live ? compactPrompt(focus) : `${handover(conversation.turns.slice(0, upto), SUMMARISE_MAX)}\n\n${compactPrompt(focus)}`,
+        callTool: async () => ({ ok: false, content: JSON.stringify({ error: 'Write the summary without using a tool.' }) }),
+        onRound() {}, onThinking() {}, onText(delta) { said += delta; }, onDiscard() { said = ''; },
+        // Claude Code may compact by itself just as the request arrives, and then answer something else: the
+        // summary it wrote covers the same conversation and is used when no other comes.
+        onCompacting() {},
+        onCompact(compacted) { if (compacted.summary) own = compacted.summary; },
+      });
+    } finally {
+      engine.close(conversation.id);
+      conversation.context = null;
+    }
+    try { repo.logUsage?.({ kind: 'assistant', provider: engineId, model: outcome.model, usage: outcome.usage, turns: outcome.rounds, durationMs: Date.now() - started }); } catch { /* optional */ }
+    const summary = summaryOf(said) || own;
+    if (!summary) throw new AssistantError('no-summary', 'The assistant did not write a summary. Try again.');
+    const marker = { role: 'compact', at: iso(), trigger, summary, engine: engineId, model: outcome.model || null, usage: outcome.usage || null, before, after: null, ...(focus ? { focus } : {}) };
+    conversation.turns.splice(upto, 0, marker);
+    emit({ type: 'compact', index: upto, turn: markerView(marker) });
+    return marker;
+  }
+
+  // Compacting because the user asked. Checked before anything is streamed, like a message.
+  function beginCompact(id, input) {
+    if (input.focus !== undefined && typeof input.focus !== 'string') throw new HttpError(400, 'focus must be text.');
+    const focus = (input.focus || '').trim();
+    if (focus.length > MAX_FOCUS) throw new HttpError(400, `What to keep an eye on can be up to ${MAX_FOCUS} characters.`);
+    const conversation = need(load(id));
+    if (conversation.flight) throw new HttpError(409, 'The assistant is still answering.');
+    if (!compactable(conversation)) throw new HttpError(409, 'There is nothing to compact yet.');
+    const controller = new AbortController();
+    conversation.flight = controller;
+    return { conversation, controller, run: emit => compactNow(conversation, focus, emit, controller) };
+  }
+
+  async function compactNow(conversation, focus, emit, controller) {
+    let failure = null;
+    try {
+      const { engineId, engine, model } = engage(conversation);
+      await compact(conversation, { trigger: 'manual', focus, emit, signal: controller.signal, engineId, engine, model });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const known = error instanceof AssistantError;
+        if (!known) log(`[dayjob] assistant: ${error.stack || error.message}`);
+        failure = { code: known ? error.code : 'internal', message: known ? error.message : 'The assistant ran into a problem. Try again.' };
+      }
+    } finally {
+      conversation.flight = null;
+      conversation.updatedAt = iso();
+      conversation.usedAt = Date.now();
+      try { persist(conversation); } catch (error) { log(`[dayjob] assistant: could not save the conversation: ${error.message}`); }
+    }
+    emit({ type: 'end', conversation: view(conversation), ...(failure ? { failure } : {}) });
+  }
+
   // ---------- a message and its reply ----------
   // Checks the message before any reply starts, so a bad request is an ordinary error and not half a stream.
   function begin({ conversationId, text }) {
@@ -173,37 +272,46 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
 
   async function reply(conversation, text, emit, controller) {
-    const { engine: engineId, models, apply } = settings();
-    const engine = available[engineId];
+    const { engineId, engine, model, apply } = engage(conversation);
     const at = iso();
-    const earlier = [...conversation.turns];
+    const earlier = conversation.turns.length;
     conversation.turns.push({ role: 'user', text, at });
     if (!conversation.title) conversation.title = titleOf(text);
     const turn = { role: 'assistant', text: '', tools: [], at, engine: engineId, model: null };
     conversation.turns.push(turn);
-    conversation.live = { turn, emit };
     emit({ type: 'start', conversation: { id: conversation.id, title: conversation.title, kept: conversation.kept }, engine: engineId });
-    // An engine's copy is dropped when the engine or its model was switched; the new one starts from the turns kept here.
-    if (conversation.engine && (conversation.engine !== engineId || conversation.model !== models[engineId])) available[conversation.engine]?.close(conversation.id);
-    conversation.engine = engineId;
-    conversation.model = models[engineId];
     // With the Dayjob browser at hand, each message says how the user wants applications sent just now.
     // The memory comes with the first message an engine session gets, and again whenever it has changed since.
     // An empty memory is only said once it has been emptied: the model has no notes to unlearn before that.
     const remembered = memory.note();
-    const handover = !engine.live(conversation.id);
+    const cold = !engine.live(conversation.id);
     const told = conversation.remembered ?? '';
-    const notes = [...conversation.notes.splice(0), ...(browser ? [MODE_NOTES[apply]] : []), ...(remembered ? (handover || told !== remembered ? [remembered] : []) : told ? [MEMORY_EMPTY] : [])];
+    const notes = [...conversation.notes.splice(0), ...(browser ? [MODE_NOTES[apply]] : []), ...(remembered ? (cold || told !== remembered ? [remembered] : []) : told ? [MEMORY_EMPTY] : [])];
     conversation.remembered = remembered;
     let message = withNotes(text, notes);
-    if (handover && earlier.length) message = `${transcript(earlier)}\n\n${message}`;
+    // What holds for the whole conversation, for an engine to say again when it compacts in the middle of a reply.
+    const standing = [...(browser ? [MODE_NOTES[apply]] : []), ...(remembered ? [remembered] : [])];
     // Text from separate rounds (before and after a tool) is set apart by a blank line.
     let mark = 0;
     let gap = false;
     const started = Date.now();
     try {
+      if (cold && earlier) {
+        // Too long to hand over whole: the older turns are summarised first, and stay summarised from then on.
+        // Should that not work, the conversation is handed over as before, without its oldest turns.
+        const cut = cutFor(conversation.turns.slice(0, earlier));
+        if (cut !== null) {
+          try { await compact(conversation, { trigger: 'auto', upto: cut, emit, signal: controller.signal, engineId, engine, model }); } catch (error) {
+            if (controller.signal.aborted) throw error;
+            if (!(error instanceof AssistantError)) log(`[dayjob] assistant: ${error.stack || error.message}`);
+          }
+        }
+        message = `${handover(conversation.turns.slice(0, conversation.turns.indexOf(turn) - 1))}\n\n${message}`;
+      }
+      conversation.live = { turn, emit };
       const outcome = await engine.send({
-        id: conversation.id, text: message, system: SYSTEM_PROMPT, model: models[engineId], tools: tools.definitions(), signal: controller.signal,
+        id: conversation.id, text: message, system: SYSTEM_PROMPT, model, tools: tools.definitions(), signal: controller.signal,
+        notes: standing.length ? withNotes('', standing).trim() : '',
         callTool: (name, input) => runTool(conversation, name, input),
         onRound() { mark = turn.text.length; gap = turn.text.length > 0; },
         onThinking() { emit({ type: 'thinking' }); },
@@ -214,9 +322,20 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
           emit({ type: 'text', delta: piece });
         },
         onDiscard() { turn.text = turn.text.slice(0, mark); emit({ type: 'rewind', text: turn.text }); },
+        onCompacting(trigger = 'auto') { emit({ type: 'compacting', trigger }); },
+        // The engine compacted its copy. The marker goes in front of the message being answered: what came before
+        // it is what the summary stands for. The memory is told again with the next message.
+        onCompact({ trigger = 'auto', summary = '', before = null, after = null }) {
+          const index = conversation.turns.indexOf(turn) - 1;
+          const marker = { role: 'compact', at: iso(), trigger, summary, engine: engineId, before, after };
+          conversation.turns.splice(index, 0, marker);
+          conversation.remembered = '';
+          emit({ type: 'compact', index, turn: markerView(marker) });
+        },
       });
       turn.model = outcome.model || null;
       turn.usage = outcome.usage || null;
+      conversation.context = outcome.context || null;
       // Counted with the rest of the AI usage where Dayjob records it.
       try { repo.logUsage?.({ kind: 'assistant', provider: engineId, model: outcome.model, usage: outcome.usage, turns: outcome.rounds, durationMs: Date.now() - started }); } catch { /* optional */ }
     } catch (error) {
@@ -234,6 +353,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     } finally {
       conversation.flight = null;
       conversation.live = null;
+      if (!engine.live(conversation.id)) conversation.context = null;
       conversation.updatedAt = iso();
       conversation.usedAt = Date.now();
       try { persist(conversation); } catch (error) { log(`[dayjob] assistant: could not save the conversation: ${error.message}`); }
@@ -251,8 +371,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
 
   // The reply as lines of JSON, one event each, written as they happen. Closing the request stops the reply.
-  async function stream(response, input) {
-    const { controller, run } = begin(input);
+  async function stream(response, { controller, run }) {
     let finished = false;
     response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
     response.on('close', () => { if (!finished) controller.abort(); });
@@ -285,7 +404,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   async function http({ request, response, pathname, method, authorize }) {
     if (pathname === '/api/assistant/mcp') return mcp(request, response);
     if (request.headers['x-dayjob-client'] === 'mcp') throw new HttpError(403, 'The in-app assistant is used from the Dayjob window only.');
-    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/archive|\/close)?$/);
+    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/archive|\/close|\/compact)?$/);
     if (method === 'GET') {
       if (pathname === '/api/assistant') return respond(response, 200, await state());
       if (match && !match[2]) return respond(response, 200, view(need(load(match[1]))));
@@ -293,7 +412,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     }
     authorize();
     const input = await readJson(request);
-    if (pathname === '/api/assistant/chat' && method === 'POST') return stream(response, input);
+    if (pathname === '/api/assistant/chat' && method === 'POST') return stream(response, begin(input));
     if (pathname === '/api/assistant/settings' && method === 'PATCH') return respond(response, 200, saveSettings(input));
     // 助手的记忆: the user's own notes for the assistant, read and edited under Settings.
     if (pathname === '/api/assistant/memory' && method === 'POST') { memory.add(input.text, 'user'); return respond(response, 201, { memory: memory.list() }); }
@@ -304,6 +423,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       if (typeof input.actionId !== 'string') throw new HttpError(400, 'actionId is required.');
       return respond(response, 200, await undo(match[1], input.actionId));
     }
+    // Compacting on request: streamed like a reply (compacting, compact, end), since the summary takes a while.
+    if (match && method === 'POST' && match[2] === '/compact') return stream(response, beginCompact(match[1], input));
     if (match && method === 'POST' && match[2] === '/keep') {
       if (typeof input.keep !== 'boolean') throw new HttpError(400, 'keep must be true or false.');
       const conversation = need(load(match[1]));
