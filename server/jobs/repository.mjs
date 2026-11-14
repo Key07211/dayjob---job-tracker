@@ -76,9 +76,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   const q = sql => db.prepare(sql);
 
   // ---------- settings ----------
+  const storedSettings = () => json(q("SELECT value FROM settings WHERE key = 'app'").get()?.value, {});
+  // False until a language has been picked. A first launch then takes the system's language and saves it.
+  const languageChosen = () => typeof storedSettings().language === 'string';
   function getSettings() {
-    const row = q("SELECT value FROM settings WHERE key = 'app'").get();
-    const stored = json(row?.value, {});
+    const stored = storedSettings();
     // Up to 0.2.0 scoring was an on/off switch; off now means "only when I ask".
     if (stored.ai && typeof stored.ai === 'object') {
       if (stored.ai.scoreMode === undefined && stored.ai.autoScore === false) stored.ai.scoreMode = 'manual';
@@ -102,9 +104,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     return settings;
   }
   // The keys are stored once, in apiKeys; ai.apiKey, ai.workspace and ai.openaiApiKey are read from there.
-  function saveSettings(settings) {
+  function saveSettings(settings, { keepLanguage = true } = {}) {
     const { apiKey, openaiApiKey, workspace, ...ai } = settings.ai || {};
-    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ ...settings, ai }));
+    const { language, ...rest } = settings;
+    q("INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+      .run(JSON.stringify({ ...(keepLanguage ? { language } : {}), ...rest, ai }));
     return getSettings();
   }
   function updateSettings(patch) {
@@ -113,7 +117,8 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     for (const [field, service] of [['apiKey', 'anthropic'], ['openaiApiKey', 'openai']]) {
       if (patch.ai && Object.hasOwn(patch.ai, field)) apiKeys = withKeyInUse(apiKeys, service, patch.ai[field]);
     }
-    return saveSettings(merge(current, { ...patch, apiKeys }));
+    // The default language is not written down before someone picks one, or saving any other setting would count as picking it.
+    return saveSettings(merge(current, { ...patch, apiKeys }), { keepLanguage: languageChosen() || typeof patch.language === 'string' });
   }
 
   // ---------- API keys ----------
@@ -730,7 +735,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   }
 
   return {
-    getSettings, updateSettings, saveSettings, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
+    getSettings, updateSettings, saveSettings, languageChosen, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,

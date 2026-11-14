@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, CheckCircle2, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, KeySquare, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
+import { BookOpen, CheckCircle2, CircleHelp, ChevronDown, ChevronUp, Clock3, Download, Eye, EyeOff, FileUp, FolderOpen, Globe, KeyRound, KeySquare, LampDesk, Link2, LoaderCircle, Lock, LockOpen, Monitor, Pencil, Plus, Power, RefreshCw, Search,
   ShieldAlert, Sun, Trash2, X } from 'lucide-react';
 import { api } from '../api.js';
 import { LanguageSwitch, useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { AssistantSettings } from './assistant/AssistantSettings.jsx';
 import { guide } from './guide/store.js';
+import { GuideHelp } from './guide/GuideHelp.jsx';
 import { Spend } from './Spend.jsx';
 import { SoundSettings } from './groove/SoundSettings.jsx';
 import { prefs, usePrefs } from './groove/prefs.js';
@@ -33,8 +34,8 @@ function ClaudeConnection() {
   useEffect(() => { desktop?.getClaudeStatus().then(setStatus).catch(() => {}); }, []);
   if (!desktop) {
     return (
-      <section className="card-section">
-        <h2><Link2 size={18} />{t('连接 Claude（MCP）', 'Connect Claude (MCP)')}</h2>
+      <section className="card-section" data-guide="mcp">
+        <h2><Link2 size={18} />{t('连接 Claude（MCP）', 'Connect Claude (MCP)')}<GuideHelp id="mcp" /></h2>
         <p className="hint">{t('在桌面版里可以一键连接。源码运行时，在终端执行：', 'The desktop app connects in one click. When running from source, run this in a terminal:')}</p>
         <pre className="code">{`claude mcp add dayjob -s user -e DAYJOB_URL=http://127.0.0.1:4318 -- node <${t('Dayjob 文件夹', 'Dayjob folder')}>/integrations/mcp-server.mjs`}</pre>
       </section>
@@ -51,8 +52,8 @@ function ClaudeConnection() {
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
   return (
-    <section className="card-section">
-      <h2><Link2 size={18} />{t('连接 Claude（MCP）', 'Connect Claude (MCP)')}</h2>
+    <section className="card-section" data-guide="mcp">
+      <h2><Link2 size={18} />{t('连接 Claude（MCP）', 'Connect Claude (MCP)')}<GuideHelp id="mcp" /></h2>
       <p className="hint">{t('连接后，在 Claude Code 或 Claude Desktop 里可以说“看看今天高匹配的岗位”“对照我的简历分析这个岗位”“根据 Gmail 更新我的投递状态”。Claude 需要 Dayjob 保持运行。',
         'Once connected, ask Claude Code or Claude Desktop things like “show today\'s strong matches”, “analyse this job against my resume” or “update my applications from Gmail”. Dayjob needs to be running.')}</p>
       <p className={`status-line ${status?.state === 'ready' ? 'ok' : 'off'}`}>
@@ -223,8 +224,8 @@ function ApiKeys({ boot, reload }) {
   }
   const done = async change => { await reload(); if (change?.check) void check(change.id); };
   return (
-    <section className="card-section" id="api-keys">
-      <h2><KeySquare size={18} />API key</h2>
+    <section className="card-section" id="api-keys" data-guide="keys">
+      <h2><KeySquare size={18} />API key<GuideHelp id="keys" /></h2>
       <p className="hint">{t('给 Claude API 和 OpenAI API 用的 key，可以存多个，点加号添加；每种服务用标着“使用中”的那一个。key 平时不显示，点眼睛才显示。只保存在这台电脑的 Dayjob 数据库里。',
         'Keys for the Claude API and the OpenAI API. Keep several and add one with the plus button; each service uses the one marked "In use". A key stays hidden until you click the eye. They are stored only in the Dayjob database on this computer.')}</p>
       {keys.length || drafts.length ? (
@@ -252,8 +253,8 @@ function BrowserData() {
     try { await desktop.browser.clearData(); setState('done'); } catch { setState('error'); }
   }
   return (
-    <section className="card-section">
-      <h2><Globe size={18} />{t('Dayjob 浏览器', 'Dayjob browser')}</h2>
+    <section className="card-section" data-guide="browser">
+      <h2><Globe size={18} />{t('Dayjob 浏览器', 'Dayjob browser')}<GuideHelp id="browser" /></h2>
       <p className="hint">{t('浏览器里的登录状态和 Cookie 只保存在这台电脑的 Dayjob 数据里，和 Chrome、Edge 分开。连接 Claude 后，Claude 能在里面打开和阅读网页、填写表单；提交或发送之前会先请你在 Dayjob 里确认，密码和文件上传不会交给 Claude。浏览器工具栏里可以随时关掉“允许 Claude 使用”。',
         'Sign-ins and cookies in the browser stay in Dayjob\'s data on this computer, separate from Chrome and Edge. With Claude connected, Claude can open and read pages there and fill in forms; before anything is submitted or sent it asks you in Dayjob, and it never gets passwords or file uploads. Turn off “Let Claude use it” in the browser toolbar at any time.')}</p>
       <div className="form-actions">
@@ -543,8 +544,8 @@ function PasswordVault() {
   const words = query.trim().toLowerCase();
   const matching = (data?.entries || []).filter(entry => !words || entry.site.includes(words) || entry.username.toLowerCase().includes(words));
   return (
-    <section className="card-section" id="vault">
-      <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}</h2>
+    <section className="card-section" id="vault" data-guide="vault">
+      <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}<GuideHelp id="vault" /></h2>
       <p className="hint">{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。可以从 Edge、Chrome 导出的 CSV 一次导入。',
         'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. A CSV exported from Edge or Chrome imports them all at once.')}</p>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
@@ -624,8 +625,8 @@ function Background({ boot, reload }) {
     catch (failure) { setError(serverText(failure.message)); }
   }
   return (
-    <section className="card-section">
-      <h2><Power size={18} />{t('关闭窗口时', 'Closing the window')}</h2>
+    <section className="card-section" data-guide="close">
+      <h2><Power size={18} />{t('关闭窗口时', 'Closing the window')}<GuideHelp id="close" /></h2>
       <p className="hint">{t('开着这一项，关掉窗口后 Dayjob 留在任务栏右下角的托盘里，按时做每日抓取、发提醒，Claude 也能随时通过 MCP 使用它；要完全退出，在托盘图标的菜单里点“退出 Dayjob”。关掉这一项，关窗口就完全退出，不在后台运行；错过的每日抓取会在当天下次打开 Dayjob 时补上。',
         'With this on, closing the window leaves Dayjob in the tray at the bottom right of the taskbar, so the daily search and reminders still run and Claude can use it through MCP at any time; to quit completely, choose “Quit Dayjob” from the tray icon\'s menu. With it off, closing the window quits Dayjob and nothing keeps running; a daily search it missed runs when you next open Dayjob that day.')}</p>
       <div className="form-grid">
@@ -652,8 +653,8 @@ function Updates({ boot, reload, update }) {
   }
   const text = update.status === 'available' ? t(`有新版本 v${update.latest}`, `Version ${update.latest} is available`) : t(...(UPDATE_STATES[update.status] || [update.status, update.status]));
   return (
-    <section className="card-section">
-      <h2><Download size={18} />{t('更新', 'Updates')}</h2>
+    <section className="card-section" data-guide="updates">
+      <h2><Download size={18} />{t('更新', 'Updates')}<GuideHelp id="updates" /></h2>
       <p className="hint">{t('从 GitHub Releases 检查新版本。有新版本时，左侧栏的“检查更新”会变成圆形下载按钮；下载完点“重启并更新”，数据会保留。',
         'Dayjob looks for new versions on GitHub Releases. When one is out, “Check for updates” in the sidebar turns into a round download button; once downloaded, click “Restart to update”. Your data stays.')}</p>
       <p className={`status-line ${update.status === 'error' || update.problem ? 'off' : 'ok'}`}>
@@ -719,7 +720,7 @@ function SourceQuota({ value, onChange, sites, searches }) {
     return parts.join(' · ');
   }
   return (
-    <div className="source-quota" id="source-quota">
+    <div className="source-quota" id="source-quota" data-guide="sources">
       <div className="option-row">
         <span>{t('每个来源抓多少', 'Results per source')}</span>
         <div className="segmented">
@@ -801,34 +802,38 @@ export function SettingsView({ boot, reload, update, focus }) {
     <section className="settings-page">
       <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div>
         {/* The guide of the first day, again: the assistant shows what each page is for and where its settings are. */}
-        <div className="header-actions"><button type="button" className="button" title={t('让助手带你把 Dayjob 看一遍', 'Have the assistant show you around Dayjob')} onClick={() => guide.start()}><BookOpen size={15} />{t('用户指南', 'User guide')}</button></div>
+        <div className="header-actions">
+          {/* The Settings guide: what each group of settings on this page does, in plain words. */}
+          <button type="button" className="button" title={t('让助手一组一组讲清楚这些设置管什么', 'Have the assistant say what each group of settings does')} onClick={() => guide.start({ tour: 'settings' })}><CircleHelp size={15} />{t('讲解设置', 'Explain settings')}</button>
+          <button type="button" className="button" title={t('让助手带你把 Dayjob 看一遍', 'Have the assistant show you around Dayjob')} onClick={() => guide.start()}><BookOpen size={15} />{t('用户指南', 'User guide')}</button>
+        </div>
       </header>
       {/* One card under the other, as wide as the page. */}
       <form className="card-section" onSubmit={save}>
-        <h2>{t('每日抓取', 'Daily search')}</h2>
-        <div className="form-grid">
+        <h2 data-guide="daily">{t('每日抓取', 'Daily search')}<GuideHelp id="daily" /></h2>
+        <div className="form-grid" data-guide="daily">
           <label className="check-line"><input type="checkbox" checked={form.scheduleEnabled} onChange={event => set('scheduleEnabled', event.target.checked)} />{t('每天自动抓取', 'Search every day')}</label>
           <label>{t('时间', 'Time')}<TimeField value={form.time} onChange={event => set('time', event.target.value)} /><small>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</small></label>
           <label>{t('岗位保留天数', 'Keep jobs (days)')}<input type="number" min={7} max={365} value={form.retentionDays} onChange={event => set('retentionDays', event.target.value)} /><small>{t('未收藏、未投递的旧岗位到期清理。', 'Old jobs you did not save or apply to are cleared after this.')}</small></label>
         </div>
         <SourceQuota value={form.sources} onChange={value => set('sources', value)} sites={sites} searches={boot.searches} />
-        <h2>{t('投递追踪', 'Application tracking')}</h2>
-        <div className="form-grid">
+        <h2 data-guide="tracking">{t('投递追踪', 'Application tracking')}<GuideHelp id="tracking" /></h2>
+        <div className="form-grid" data-guide="tracking">
           <label>{t('跟进提醒（天）', 'Follow-up reminder (days)')}<input type="number" min={0} max={90} value={form.followUpDays} onChange={event => set('followUpDays', event.target.value)} /><small>{t('投递或状态变化后多少天提醒你跟进；0 为关闭。', 'Days after applying or a status change before Dayjob reminds you; 0 turns it off.')}</small></label>
           <label>{t('无回音提示（天）', 'No-reply flag (days)')}<input type="number" min={0} max={180} value={form.ghostDays} onChange={event => set('ghostDays', event.target.value)} /><small>{t('“已投递”状态超过这么多天没有变化时提示。', 'Flag an application still at “Applied” after this many days.')}</small></label>
           <label className="check-line"><input type="checkbox" checked={form.checkClosed} onChange={event => set('checkClosed', event.target.checked)} />{t('每天检查已投递和已收藏的岗位是否关闭', 'Check daily whether applied and saved jobs have closed')}</label>
         </div>
-        <h2>{t('通知', 'Notifications')}</h2>
-        <div className="form-grid">
+        <h2 data-guide="notify">{t('通知', 'Notifications')}<GuideHelp id="notify" /></h2>
+        <div className="form-grid" data-guide="notify">
           <label className="check-line"><input type="checkbox" checked={form.desktop} onChange={event => set('desktop', event.target.checked)} />{t('Windows 桌面通知', 'Windows desktop notifications')}</label>
           <label>{t('高匹配分数线', 'Strong-match score')}<input type="number" min={0} max={100} value={form.minScore} onChange={event => set('minScore', event.target.value)} /><small>{t('每日汇总里单独列出高于这个分数的新岗位。', 'The daily summary lists new jobs scoring at least this.')}</small></label>
         </div>
-        <h2>{jobspy?.builtIn ? 'JobSpy' : t('JobSpy（可选）', 'JobSpy (optional)')}</h2>
+        <h2 data-guide="jobspy">{jobspy?.builtIn ? 'JobSpy' : t('JobSpy（可选）', 'JobSpy (optional)')}<GuideHelp id="jobspy" /></h2>
         {jobspy?.builtIn ? (
           <>
-            <p className="hint">{t('Glassdoor、ZipRecruiter、Google Jobs 通过 JobSpy 抓取。Dayjob 自带 JobSpy，装好就能用，不需要另外安装 Python。LinkedIn、Indeed 和公司招聘页不经过它。',
+            <p className="hint" data-guide="jobspy">{t('Glassdoor、ZipRecruiter、Google Jobs 通过 JobSpy 抓取。Dayjob 自带 JobSpy，装好就能用，不需要另外安装 Python。LinkedIn、Indeed 和公司招聘页不经过它。',
               'Glassdoor, ZipRecruiter and Google Jobs are fetched through JobSpy. Dayjob carries its own, ready to use: no Python to install. LinkedIn, Indeed and company boards do not go through it.')}</p>
-            <div className="option-row">
+            <div className="option-row" data-guide="jobspy">
               <span>{t('用哪一个', 'Which one')}</span>
               <div className="segmented">
                 <button type="button" className={form.runner === 'own' ? '' : 'active'} onClick={() => set('runner', 'builtin')}>{t('Dayjob 自带的', 'The one inside Dayjob')}</button>
@@ -838,15 +843,15 @@ export function SettingsView({ boot, reload, update, focus }) {
             </div>
           </>
         ) : (
-          <p className="hint">{t('Glassdoor、ZipRecruiter、Google Jobs 需要 Python 版 JobSpy：安装 Python 后运行 ', 'Glassdoor, ZipRecruiter and Google Jobs need the Python JobSpy: install Python, then run ')}<code>pip install python-jobspy</code>
+          <p className="hint" data-guide="jobspy">{t('Glassdoor、ZipRecruiter、Google Jobs 需要 Python 版 JobSpy：安装 Python 后运行 ', 'Glassdoor, ZipRecruiter and Google Jobs need the Python JobSpy: install Python, then run ')}<code>pip install python-jobspy</code>
             {t('。LinkedIn、Indeed 和公司招聘页不需要。Windows 安装版自带 JobSpy，不用装。', '. LinkedIn, Indeed and company boards do not need it. The installed Windows app carries its own.')}</p>
         )}
         {!jobspy?.builtIn || form.runner === 'own' ? (
-          <div className="form-grid">
+          <div className="form-grid" data-guide="jobspy">
             <label>{t('Python 命令', 'Python command')}<input value={form.pythonCommand} onChange={event => set('pythonCommand', event.target.value)} maxLength={1024} placeholder="python" /></label>
           </div>
         ) : null}
-        <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available
+        <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`} data-guide="jobspy">{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available
           ? `${jobspy.detail}${jobspy.using === 'builtin' ? t('（Dayjob 自带）', ' (inside Dayjob)') : ''}${jobspy.builtIn && (form.runner === 'own') !== (jobspy.using === 'own') ? t('。点“保存设置”后改用所选的，并重新检测。', '. “Save settings” switches to your choice and checks it.') : ''}`
           : jobspy?.using === 'builtin' ? t('Dayjob 自带的 JobSpy 没能启动。重新安装 Dayjob 可以把它放回来；也可以先改用自己的 Python。', 'The JobSpy inside Dayjob did not start. Installing Dayjob again puts it back; or use your own Python meanwhile.')
             : /No module named '?jobspy/i.test(jobspy?.reason || '')
@@ -867,8 +872,8 @@ export function SettingsView({ boot, reload, update, focus }) {
       <Background boot={boot} reload={reload} />
       <Updates boot={boot} reload={reload} update={update} />
       <SoundSettings />
-      <section className="card-section">
-        <h2>{t('语言、外观与数据', 'Language, look and data')}</h2>
+      <section className="card-section" data-guide="look">
+        <h2>{t('语言、外观与数据', 'Language, look and data')}<GuideHelp id="look" /></h2>
         <div className="option-row">
           <span>{t('界面语言', 'Language')}</span>
           <LanguageSwitch />

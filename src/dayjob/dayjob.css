@@ -173,7 +173,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 
 /* ---------- feed ---------- */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
-.search-input { flex: 1 1 220px; }
+.search-input { flex: 1 1 220px; min-width: 0; }
 /* With room, every filter is in the row. In a narrow view only the search box is, and 筛选 opens the rest. */
 .filters-toggle { display: none; }
 .filters-toggle b { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--amb); color: var(--text); font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
@@ -201,7 +201,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .logo.large { width: 52px; height: 52px; border-radius: 12px; font-size: 20px; }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.row-main strong { font-size: 14.5px; font-weight: 700; line-height: 1.35; }
+.row-main strong { font-size: 14.5px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .row-company { color: var(--text); font-size: 13px; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .tag-new { color: var(--green); font-weight: 600; }
@@ -248,7 +248,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .banner.ghost { background: var(--soft); border: 1px solid var(--line); }
 .apply-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .apply-form label, .form-grid label, .panel-form > label, .follow-up label, .notes { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); }
-.apply-form .grow, .grow { flex: 1 1 220px; }
+.apply-form .grow, .grow { flex: 1 1 220px; min-width: 0; }
 .apply-form .hint { flex-basis: 100%; }
 .form-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .apply-form .form-actions { margin-left: auto; }
@@ -257,13 +257,14 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .score-card.empty { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; color: var(--muted); }
 .score-card:not(.empty) { border-color: transparent; background: var(--soft); border-radius: 18px; }
 .score-card.strong { box-shadow: inset 0 0 0 2px var(--good); }
-.score-head { display: flex; align-items: center; gap: 14px; }
-.score-head > div:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
+/* In a narrow column the verdict and who scored it go under the number, where they keep a readable width. */
+.score-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.score-head > div:nth-child(2) { flex: 1 1 130px; min-width: 0; display: flex; flex-direction: column; }
 .score-head span { font-size: 12px; color: var(--muted); }
 .score-number { font-family: var(--mono); font-size: 52px; font-weight: 700; letter-spacing: -0.02em; line-height: .9; }
 .score-number small { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0; }
 .score-summary { line-height: 1.6; font-size: 14px; }
-.score-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.score-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 14px; }
 .score-card h4, .keywords h4 { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
 .score-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; line-height: 1.5; }
 .keywords div { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -288,7 +289,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .funnel-step strong { font-size: 22px; line-height: 1.3; }
 .funnel-step small { font-size: 12px; color: var(--green); }
 .funnel-step.muted strong { color: var(--muted); }
-.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
 .tabs button { padding: 8px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .tabs button em { font-style: normal; font-size: 12px; }
 .tabs button.active { color: var(--green); border-bottom-color: var(--green); font-weight: 600; }
@@ -304,7 +305,8 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .status-chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; background: var(--card); }
 .status-chip:hover:not(:disabled) { border-color: var(--line-strong); }
 .status-chip.active { background: var(--green); border-color: var(--green); color: var(--on-green); font-weight: 600; }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }
+/* A column's smallest width is never more than the room there is: min(…, 100%) here and wherever a grid names one. */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 12px 16px; }
 .form-grid small, .panel-form small { color: var(--muted); font-size: 12px; }
 .follow-up { display: flex; gap: 12px; flex-wrap: wrap; }
 .notes textarea { resize: vertical; min-height: 80px; color: var(--text); }
@@ -342,17 +344,19 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .site-picker label small { color: var(--muted); font-size: 11.5px; }
 .site-picker label.unavailable { opacity: 0.75; }
 .search-list, .company-list, .resume-list, .run-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+/* Rows wrap before anything in them is squeezed: the name keeps a readable width and the buttons go to a line below it. */
 .search-list li, .company-list li, .resume-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.search-list li, .company-list li { flex-wrap: wrap; }
 .search-list li:first-child, .company-list li:first-child, .resume-list li:first-child { border-top: 0; }
 .search-list li.disabled, .company-list li.disabled { opacity: 0.6; }
-.search-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.search-main { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
 .search-main > span { font-size: 13.5px; color: var(--muted); }
 .search-main small { font-size: 12px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.search-actions { display: flex; align-items: center; gap: 4px; }
-.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-right: 6px; }
+.search-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-right: 6px; white-space: nowrap; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
-.inline-form input { flex: 1 1 320px; }
+.inline-form input { flex: 1 1 320px; min-width: 0; }
 .inline-form input.narrow { flex: 0 1 180px; }
 .suggestions .inline-form { margin-bottom: 4px; }
 .suggestions .notice svg { vertical-align: -2px; margin-right: 6px; }
@@ -365,8 +369,10 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .suggestion-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-top: 10px; }
 .suggestion-closed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .company-list li > .added-tag, .added-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 13px; white-space: nowrap; }
-.company-list li strong { min-width: 120px; }
-.company-list li > span { flex: 1; color: var(--muted); font-size: 13px; }
+.company-list li strong { min-width: min(120px, 100%); overflow-wrap: anywhere; }
+.company-list li > span { flex: 1 1 110px; min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
+.company-list li > .switch { margin-left: auto; }
+.company-list li > .icon-button, .company-list li > .button { flex: none; }
 .resume-list li { align-items: flex-start; }
 .resume-list li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .resume-list li span { font-size: 12.5px; color: var(--muted); }
@@ -383,12 +389,12 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .status-line { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
 .status-line.ok { color: var(--green); }
 .status-line.off { color: var(--orange); }
-.choice-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.choice-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; }
 .choice-row label { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; cursor: pointer; }
 .choice-row label input { grid-row: span 2; margin-top: 3px; }
 .choice-row label span { font-size: 13px; color: var(--muted); }
 .choice-row label.selected { border-color: var(--green); background: color-mix(in srgb, var(--green-soft) 40%, var(--card)); }
-.choice-row.three { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.choice-row.three { grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); }
 .choice-title { font-size: 14px; font-weight: 600; }
 .usage-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; font-size: 13.5px; line-height: 1.5; }
 .usage-list dt { color: var(--muted); }
@@ -414,9 +420,10 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .run-status.failed { color: var(--red); }
 .run-status.cancelled { color: var(--muted); }
 .run-detail { list-style: none; margin: 6px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
-.run-detail li { display: flex; gap: 10px; }
-.run-detail li span { min-width: 180px; color: var(--muted); }
-.run-detail em { font-style: normal; }
+/* What a source found stands beside its name, or under it when the column is too narrow for both. */
+.run-detail li { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.run-detail li span { min-width: min(180px, 100%); color: var(--muted); }
+.run-detail em { flex: 1 1 130px; min-width: 0; overflow-wrap: anywhere; font-style: normal; }
 .run-detail li.error em { color: var(--red); }
 .run-detail li.warning em { color: var(--orange); }
 
@@ -572,6 +579,11 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
   .funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .timeline li { grid-template-columns: 96px minmax(0, 1fr) auto; }
 }
+/* In a very narrow column the time goes above what happened. */
+@container view (max-width: 400px) {
+  .timeline li { grid-template-columns: minmax(0, 1fr) auto; }
+  .timeline li time { grid-column: 1 / -1; }
+}
 
 /* Language */
 .language-toggle { margin-left: auto; min-width: 30px; height: 26px; padding: 0 7px; border-radius: 7px; border: 1px solid var(--line); background: var(--card);
@@ -580,6 +592,8 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .option-row > span { min-width: 72px; font-size: 14px; }
 .option-row > small { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+/* The assistant's ask-first / takeover switch sits in a row here too, and gives way like the others. */
+.option-row > .asst-mode { flex: 0 1 auto; min-width: 0; margin: 0; }
 /* Settings: how many results each job board is asked for in a run. */
 .source-quota { container: sourcequota / inline-size; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .source-quota .option-row > span { font-weight: 600; }
@@ -830,7 +844,7 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 /* A Claude key that works in every workspace: the workspace it runs in, and what the API said about the key. */
 .key-extra { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .key-extra label { display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.key-extra label input { flex: 1 1 200px; }
+.key-extra label input { flex: 1 1 200px; min-width: 0; }
 .key-extra label .picker { flex: 0 1 auto; min-width: 150px; }
 .key-extra .hint { flex: 1 1 100%; margin: 0; font-size: 12.5px; }
 .key-check { grid-column: 1 / -1; flex-basis: 100%; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--muted); }
@@ -932,6 +946,16 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .vault-bar .link { display: inline-flex; align-items: center; gap: 4px; margin-left: 0; font-size: 13px; }
 .link.danger { color: var(--red); }
 .vault-list.with-secrets li { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto auto auto; }
+/* In a narrow column a password takes lines of its own (the site, the user name, the password while shown), so each
+   can be read whole; when it was last filled and the two buttons share the last line. */
+.vault-list { container: vaultlist / inline-size; }
+@container vaultlist (max-width: 520px) {
+  .vault-list li, .vault-list.with-secrets li { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 0 10px; padding-block: 10px 4px; }
+  .vault-list li > svg { grid-column: 1; grid-row: 1; }
+  .vault-site, .vault-user, .vault-pass { grid-column: 2 / -1; }
+  .vault-site { grid-row: 1; }
+  .vault-list small { grid-column: 2; }
+}
 .vault-pass { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text); user-select: all; }
 .vault-import { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--green-soft); }
 .vault-import-head { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; }

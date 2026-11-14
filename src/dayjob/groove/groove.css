@@ -1,4 +1,4 @@
-/* ---------- Daily Groove: the sidebar's keys, record player, week bars and metronome, and the motion that follows the music ---------- */
+/* ---------- Daily Groove: the sidebar's keys, record player and metronome, and the motion that follows the music ---------- */
 :root {
   --acc: #F9D77E;
   --on-acc: #1E2B38;
@@ -152,31 +152,6 @@
 .bkey { position: absolute; left: 0; top: 0; width: 34px; height: 22px; margin-top: -11.5px; border-radius: 0 6px 6px 0; background: var(--key-black);
   box-shadow: inset -4px 0 0 rgb(255 255 255 / 8%); pointer-events: none; z-index: 2; }
 
-/* 08 · this week's applications, one bar a day; today's bar bounces when you apply. */
-.week-bars { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 10px; border-radius: 16px; background: var(--side-card); }
-.week-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; }
-.week-head span { font-family: var(--mono); font-size: 11.5px; color: var(--side-muted); }
-.bars { display: flex; align-items: flex-end; gap: 7px; height: 46px; }
-.bar { flex: 1; min-width: 0; border-radius: 6px 6px 3px 3px; background: var(--step-mid); transform-origin: bottom; transition: height 312ms cubic-bezier(.2, .8, .2, 1); }
-.bar.today { background: var(--good); }
-.bar.future { background: transparent; border: 1.5px dashed var(--line-strong); }
-.bar.bump { animation: bar-bump 312ms cubic-bezier(.2, .9, .3, 1.4); }
-@keyframes bar-bump { from { transform: scaleY(.8); } to { transform: none; } }
-.bars.breathe .bar { animation: bar-breathe 625ms cubic-bezier(.45, 0, .55, 1) infinite alternate; }
-.bars.breathe .bar:nth-child(2) { animation-delay: -78ms; }
-.bars.breathe .bar:nth-child(3) { animation-delay: -156ms; }
-.bars.breathe .bar:nth-child(4) { animation-delay: -234ms; }
-.bars.breathe .bar:nth-child(5) { animation-delay: -312ms; }
-.bars.breathe .bar:nth-child(6) { animation-delay: -390ms; }
-.bars.breathe .bar:nth-child(7) { animation-delay: -468ms; }
-@keyframes bar-breathe { from { transform: scaleY(.88); } to { transform: none; } }
-.bar-days { display: flex; gap: 7px; font-size: 10.5px; color: var(--side-muted); text-align: center; }
-.bar-days span { flex: 1; min-width: 0; }
-.bar-days .today { color: var(--side-text); font-weight: 600; }
-.plus { position: absolute; top: 50px; margin-left: -10px; font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--side-hi); pointer-events: none;
-  animation: plus-up 625ms cubic-bezier(.2, .8, .2, 1) forwards; }
-@keyframes plus-up { 0% { opacity: 0; transform: translateY(6px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-22px); } }
-
 /* 01 · the record player: the arm drops in ¾ beat; the record spins up and coasts down over a beat (WAAPI in Turntable.jsx). */
 .turntable { position: relative; display: flex; flex-direction: column; gap: 8px; }
 .deck-box { position: relative; align-self: center; width: 204px; height: 180px; zoom: .92; }
@@ -227,13 +202,15 @@
 .deck-text span { font-size: 12px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deck-text.dim { opacity: .5; }
 
-/* Shorter windows: the keys get a little shorter, then the small record replaces the deck, then the week bars go.
-   The steps are where the sidebar (eight keys, the update line, the assistant's card, notifications, the week and
-   the deck) would stop fitting; the assistant's card folds to one block at the first of them (assistant.css). */
-@media (max-height: 990px) {
+/* Shorter windows. The sidebar holds eight keys, the update line, the assistant's card, notifications and the deck;
+   what gives way first is what matters least to the assistant, which keeps its large card as long as it can:
+   the keys get a little shorter, then the small record replaces the deck, then the assistant's card takes its
+   smaller forms (assistant.css), and last the keys and the gaps tighten once more. Each step is where the sidebar
+   would stop fitting. */
+@media (max-height: 909px) {
   .pkey { height: 40px; }
 }
-@media (max-height: 917px) {
+@media (max-height: 879px) {
   .deck-box { display: none; }
   .minirec { display: block; }
   .turntable { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--side-card); }
@@ -241,10 +218,7 @@
   .deck-text strong { font-size: 13px; }
   .deck-text span { font-size: 11.5px; }
 }
-@media (max-height: 771px) {
-  .week-bars { display: none; }
-}
-@media (max-height: 680px) {
+@media (max-height: 690px) {
   .pkey { height: 36px; }
   .sidebar { gap: 12px; padding-top: 16px; }
   .sidebar-foot { gap: 6px; }
@@ -303,8 +277,8 @@
 @keyframes hint-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .pkey, .tonearm, .rim circle, .bar, .toggle, .toggle > i, .deck-text { transition: none; }
-  .wave-hint, .wordmark > span, .beat-loader .mk-bar, .deck-pop, .plus, .rp, .bar.bump, .bars.breathe .bar, .posting-item.leaving { animation: none; }
+  .pkey, .tonearm, .rim circle, .toggle, .toggle > i, .deck-text { transition: none; }
+  .wave-hint, .wordmark > span, .beat-loader .mk-bar, .deck-pop, .rp, .posting-item.leaving { animation: none; }
 }
 
 /* The theme turning: the new one sweeps over the page with a soft edge, night falling from the top like dusk and

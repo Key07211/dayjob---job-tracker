@@ -144,6 +144,23 @@ test('settings and searches are validated; the API key never comes back', async 
   } finally { await app.close(); }
 });
 
+test('no language counts as picked until one is saved; saving other settings does not pick the default', async () => {
+  const { app, call, boot } = await start();
+  try {
+    // Nothing picked yet: the window then speaks the system's language (src/i18n.jsx) and saves it.
+    assert.deepEqual([boot.languageChosen, boot.settings.language], [false, 'zh']);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { schedule: { time: '07:05' } } })).status, 200);
+    assert.equal((await call('/api/bootstrap')).body.languageChosen, false);
+    assert.equal(app.repo.languageChosen(), false);
+    // Picked, by the first launch or with the switch, it stays through later saves.
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { language: 'en' } })).body.language, 'en');
+    assert.equal((await call('/api/bootstrap')).body.languageChosen, true);
+    assert.equal((await call('/api/settings', { method: 'PATCH', body: { schedule: { time: '08:00' } } })).body.language, 'en');
+    const again = (await call('/api/bootstrap')).body;
+    assert.deepEqual([again.languageChosen, again.settings.language], [true, 'en']);
+  } finally { await app.close(); }
+});
+
 test('several API keys can be kept; one per service is in use, and a key comes back only when asked to be shown', async () => {
   let asked = null;
   const createClient = options => { asked = options.apiKey; return { beta: { messages: { create: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"score":70,"verdict":"good","summary":"ok","strengths":[],"gaps":[],"missing_keywords":[]}' }] }) } } }; };

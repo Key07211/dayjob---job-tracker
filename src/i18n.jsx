@@ -1,12 +1,25 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { languageFor } from './language.js';
 
 // Interface copy only: job postings, resumes and AI analyses stay as written.
 // Same shape as Daylight's i18n so the two can merge: t('中文', 'English').
 const STORAGE_KEY = 'dayjob-language';
 const TITLES = { zh: 'Dayjob · 求职追踪', en: 'Dayjob · Job tracker' };
 
+// The system's language: Chinese on a Chinese system, English on any other. In the desktop app the page's
+// language is the one Windows is displayed in.
+export function systemLanguage() {
+  try { return languageFor(navigator.language); } catch { return 'zh'; }
+}
+
+// The language picked on this computer. Before one has been, Dayjob speaks the system's (the first launch, and
+// with it the user guide); main.jsx saves that as the choice once the first data is here.
 function stored() {
-  try { return localStorage.getItem(STORAGE_KEY) === 'en' ? 'en' : 'zh'; } catch { return 'zh'; }
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'en' || saved === 'zh') return saved;
+  } catch { /* The system's language, below. */ }
+  return systemLanguage();
 }
 
 let current = stored();
