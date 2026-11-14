@@ -2,8 +2,8 @@
 # build that does not open: the unpacked app, the Setup installer (with
 # -Install, installed silently for this user) and the portable app each run
 # the desktop smoke test (which also fills in and submits a local job form in
-# the Dayjob browser), and the Claude MCP bridge answers from inside the
-# packaged app. The installed app also finds, downloads and verifies an update
+# the Dayjob browser, and starts the JobSpy inside the app), and the Claude MCP
+# bridge answers from inside the packaged app. The installed app also finds, downloads and verifies an update
 # from a local copy of the files the release publishes for automatic updates.
 #   npm run package:win
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Version 0.1.0 [-Install]
@@ -29,8 +29,9 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   if (-not (Test-Path -LiteralPath $result)) { throw "$Name smoke test wrote no report (exit code $($process.ExitCode))" }
   # UTF-8 explicitly: Windows PowerShell 5.1 would read it in the system code page.
   $report = Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
-  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} update={6} closeKeepsRunning={7} version={8} executable={9}" -f
-    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok, $report.closeKeepsRunning, $report.version, $report.executable)
+  Write-Output ("{0}: ok={1} rendererLoaded={2} english={3} languageSaved={4} browser={5} update={6} jobspy={7} closeKeepsRunning={8} version={9} executable={10}" -f
+    $Name, $report.ok, $report.rendererLoaded, $report.english, $report.languageSaved, $report.browser.ok, $report.update.ok,
+    $(if ($report.jobspy.builtIn -and $report.jobspy.available) { "built in $($report.jobspy.version)" } else { 'missing' }), $report.closeKeepsRunning, $report.version, $report.executable)
   if ($report.timings) { Write-Output "${Name} timings (ms since the window loaded): $($report.timings | ConvertTo-Json -Compress)" }
   if ($report.error) { Write-Output "${Name} error: $($report.error)" }
   foreach ($line in @($report.log)) { if ($line) { Write-Output "${Name} renderer: $line" } }
@@ -44,6 +45,30 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   if ($env:DAYJOB_SMOKE_UPDATE_FEED -and $report.update.downloaded -ne $true) { throw "$Name did not download the test update" }
   if (-not $report.ok) { throw "$Name smoke test failed" }
   if ($report.version -cne $Version) { throw "$Name reports version $($report.version), expected $Version" }
+  # Every released file carries a JobSpy that starts, so Glassdoor, ZipRecruiter and Google Jobs need no setup.
+  if (-not ($report.jobspy.builtIn -and $report.jobspy.available)) { throw "${Name}: the JobSpy inside the app did not start ($($report.jobspy | ConvertTo-Json -Compress))" }
+}
+
+# The Python inside the app, started on its own: it is the JobSpy the build pinned, and it loads everything from
+# its own folder, whatever Python this computer has.
+function Test-Jobspy([string]$Exe) {
+  $dir = Join-Path (Split-Path -Parent $Exe) 'resources\jobspy'
+  $python = Join-Path $dir 'python.exe'
+  if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "The JobSpy inside the app is missing: $python" }
+  $made = Get-Content -LiteralPath (Join-Path $dir 'runtime.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+  $env:PYTHONPATH = 'C:\dayjob-verify-must-be-ignored'
+  try {
+    $version = (& $python -X utf8 -m jobspy --version | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "python -m jobspy --version exited with $LASTEXITCODE" }
+    if ($version -cne $made.jobspy) { throw "The JobSpy inside the app says it is '$version', not $($made.jobspy)" }
+    $paths = (& $python -c "import sys, jobspy, pandas, numpy, curl_cffi, bs4, markdownify, pydantic, requests; print('|'.join(p for p in sys.path if p))" | Out-String).Trim().Split('|')
+    if ($LASTEXITCODE -ne 0) { throw 'The JobSpy inside the app could not load its packages' }
+    $outside = @($paths | Where-Object { -not ([IO.Path]::GetFullPath($_)).StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) })
+    if ($outside.Count) { throw "The Python inside the app also looks outside its folder: $($outside -join ', ')" }
+  } finally { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+  $count = @(Get-ChildItem -LiteralPath $dir -Recurse -File).Count
+  $megabytes = [Math]::Round((Get-ChildItem -LiteralPath $dir -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB)
+  Write-Output "JobSpy inside the app: $version on Python $($made.python), $count files, $megabytes MB, loads only from its own folder"
 }
 
 # What Claude Code and Claude Desktop run after "Connect Claude": the app's own
@@ -94,6 +119,7 @@ function Test-UpdateFiles {
 try {
   Test-UpdateFiles
   $unpacked = Join-Path $release 'win-unpacked\Dayjob.exe'
+  Test-Jobspy $unpacked
   Invoke-Smoke 'unpacked' $unpacked
   Test-McpBridge $unpacked
 

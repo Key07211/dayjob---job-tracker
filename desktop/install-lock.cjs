@@ -4,23 +4,26 @@ const { execFile } = require('node:child_process');
 // The installer replaces the files in Dayjob's folder, so nothing may still be
 // running from there when it starts. Besides Dayjob itself (which quits for the
 // update), that is usually the MCP bridge: Claude Code runs it as Dayjob.exe
-// from this folder, and it stays running as long as Claude does. The silent
-// installer then gives up without a word, so Dayjob stops those processes
-// first, and says so when it cannot.
+// from this folder, and it stays running as long as Claude does. The other is
+// the Python inside Dayjob (resources\\jobspy), which a search that was still
+// going leaves behind for a few minutes. The silent installer then gives up
+// without a word, so Dayjob stops those processes first, and says so when it
+// cannot.
 
 const inside = (dir, file) => typeof file === 'string' && file.toLowerCase().startsWith(`${dir.toLowerCase().replace(/[\\/]+$/, '')}${path.win32.sep}`);
 
-// Dayjob.exe processes from this install other than this Dayjob and its own
-// helpers (renderer, GPU and the like: started by it, with a --type switch).
+// What runs from this install other than this Dayjob and its own helpers
+// (renderer, GPU and the like: started by it, with a --type switch).
 const helper = (item, pid) => item.parent === pid && /(^|\s)--type=/.test(item.command || '');
 function blockers(processes, { dir, pid }) {
   return processes.filter(item => item.pid !== pid && !helper(item, pid) && inside(dir, item.path))
     .map(item => ({ pid: item.pid, bridge: /[\\/]integrations[\\/]mcp-server\.mjs/i.test(item.command || '') }));
 }
 
-// Every Dayjob.exe on the computer, with its path and command line (Windows).
-function listProcesses(exe = 'Dayjob.exe') {
-  const script = `Get-CimInstance Win32_Process -Filter "Name='${exe.replace(/'/g, "''")}'" | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`;
+// Every Dayjob.exe and Python on the computer, with its path and command line (Windows).
+function listProcesses(names = ['Dayjob.exe', 'python.exe', 'pythonw.exe']) {
+  const filter = names.map(name => `Name='${name.replace(/'/g, "''")}'`).join(' OR ');
+  const script = `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`;
   return new Promise((resolve, reject) => {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 20000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
       if (error) return reject(error);

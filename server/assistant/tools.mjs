@@ -62,7 +62,7 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, now = () => new Date(), browser = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
@@ -351,16 +351,17 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     },
     {
       name: 'run_search', tier: 'undoable', view: 'home',
-      description: 'Start fetching new postings now, for every enabled search and followed company or only the given searches. It returns at once and the search carries on for a few minutes '
+      description: 'Start fetching new postings now: for every enabled search and followed company, or only for the given searches and the given followed companies '
+        + '(companyIds alone reads just those companies\' boards, which takes seconds). It returns at once and the search carries on, for a few minutes when it is a full one '
         + '(get_status shows progress); new postings are then scored according to the scoring mode. The user can stop it.',
-      shape: { searchIds: z.array(id).max(50).optional() },
+      shape: { searchIds: z.array(id).max(50).optional(), companyIds: z.array(id).max(50).optional().describe('Ids of followed companies, from list_searches or follow_company.') },
       label: (input, result) => (result.started ? ['开始抓取岗位', 'Started a search'] : ['抓取已经在进行', 'A search was already running']),
       run(input) {
         if (!repo.listSearches().some(search => search.enabled) && !repo.listCompanies().some(company => company.enabled)) {
           throw new HttpError(409, 'Add a search or follow a company first.');
         }
         if (scheduler.running) return { result: { started: false, alreadyRunning: true } };
-        const flight = scheduler.runNow({ searchIds: input.searchIds?.length ? input.searchIds : undefined });
+        const flight = scheduler.runNow({ searchIds: input.searchIds?.length ? input.searchIds : undefined, companyIds: input.companyIds?.length ? input.companyIds : undefined });
         flight.catch(() => {});
         // Undo stops this run, keeping what it has found; a later run is not touched.
         return { result: { started: true }, changed: true, undo() { if (scheduler.running) scheduler.cancel(); } };
@@ -576,6 +577,56 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
+  // ---------- companies' own job boards ----------
+  const sameBoard = (company, board) => company.ats === board.ats && company.slug.toLowerCase() === board.slug.toLowerCase();
+  const companyTools = !companies ? [] : [
+    {
+      name: 'find_company_board', tier: 'read', view: 'searches',
+      description: 'Find the job board a company keeps on Greenhouse, Lever or Ashby (the kinds Dayjob can follow every day) and see what is open on it now. Give the company\'s name, '
+        + 'or a link: to the board, to one of its job postings, or to the careers page on the company\'s own website, which Dayjob reads for the board it uses. Each board comes with '
+        + 'its ats and slug (for follow_company), how many jobs are open, how many of them the user\'s enabled searches would keep (matchingSearches), and some of the jobs: with '
+        + 'keywords (job titles, comma-separated for any of them), the ones whose title matches. A name can lead to another company\'s board of the same name: check the jobs and '
+        + 'the link before following. It changes nothing.',
+      shape: {
+        company: z.string().min(1).max(120).optional().describe('The company\'s name, for example "Scale AI".'),
+        url: z.string().min(3).max(2048).optional().describe('A board, job or careers-page link, for example https://jobs.lever.co/acme or https://acme.com/careers.'),
+        keywords: z.string().max(200).optional().describe('Show the open jobs whose title has one of these, for example "data analyst, data scientist".'),
+      },
+      label: (input, result) => (result.boards.length
+        ? [`找到招聘页：${short(result.boards.map(board => board.name).join('、'), 50)}`, `Found the job board: ${short(result.boards.map(board => board.name).join(', '), 50)}`]
+        : [`没找到 ${short(input.company || siteOf(input.url) || '', 40)} 的招聘页`, `Found no job board for ${short(input.company || siteOf(input.url) || 'it', 40)}`]),
+      async run(input) {
+        if (!input.company && !input.url) throw new HttpError(400, 'Give the company\'s name, or a link to its careers page, its job board or one of its jobs.');
+        return { result: await companies.find({ ...input, limit: 8 }) };
+      },
+    },
+    {
+      name: 'follow_company', tier: 'undoable', view: 'searches',
+      description: 'Put a company\'s job board on the daily fetch list, by the ats and slug that find_company_board gave. From then on every fetch reads all of its open jobs and keeps '
+        + 'the ones that match one of the enabled searches (title keywords, location, job type), and Dayjob knows when one of them closes. The result says how many match now '
+        + '(matching): when it is 0, nothing will arrive from this company until a saved search covers the roles the user wants. The jobs arrive with the next fetch; '
+        + 'run_search with companyIds brings them in at once.',
+      shape: {
+        ats: z.enum(['greenhouse', 'lever', 'ashby']),
+        slug: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).max(100).describe('The board\'s id, such as "acme" in jobs.lever.co/acme.'),
+        name: z.string().max(120).optional().describe('The company\'s name as the user should see it.'),
+      },
+      label: (input, result) => (result.already ? [`已经在关注 ${short(result.name, 40)}`, `Already following ${short(result.name, 40)}`]
+        : [`关注了 ${short(result.name, 40)} 的招聘页`, `Following ${short(result.name, 40)}'s job board`]),
+      async run(input) {
+        const before = repo.listCompanies().find(company => sameBoard(company, input)) || null;
+        const company = await companies.follow(before ? { ats: before.ats, slug: before.slug } : input);
+        const card = { id: company.id, name: company.name, ats: company.ats, slug: company.slug, enabled: true, open: company.listed, matching: company.matching };
+        if (before?.enabled) return { result: { ...card, already: true } };
+        // A company the user had paused is switched back on; undo pauses it again.
+        if (before) {
+          repo.setCompanyEnabled(before.id, true);
+          return { result: card, changed: true, undo() { repo.setCompanyEnabled(before.id, false); } };
+        }
+        return { result: card, changed: true, undo() { repo.deleteCompany(company.id); } };
+      },
+    },
+  ];
   // ---------- the assistant's memory ----------
   const memoryTools = !memory ? [] : [
     {
@@ -607,7 +658,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
-  tools.push(...profileTools, ...memoryTools, ...browserTools);
+  tools.push(...companyTools, ...profileTools, ...memoryTools, ...browserTools);
 
   const byName = new Map(tools.map(tool => [tool.name, { ...tool, schema: z.strictObject(tool.shape) }]));
   return {

@@ -17,6 +17,7 @@ import { ViewDate } from './ViewDate.jsx';
 import { updateProblem } from './UpdateButton.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { Select, TimeField } from './groove/Picker.jsx';
+import { COUNT_MAX, SEARCH_LIMIT, SHARE_MAX, TOTAL_MAX, countOf, shareOf, sourcePlan, totalOf } from '../../server/jobs/source-quota.mjs';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
@@ -686,13 +687,84 @@ function HoldNote({ hold }) {
   );
 }
 
+const SOURCE_MODES = [['search', '按每个搜索', 'By each search'], ['count', '按个数', 'By number'], ['share', '按比例', 'By share']];
+const wholeNumber = (value, max) => Math.min(max, Math.max(0, Math.round(Number(value)) || 0));
+// What the form holds for the boards' numbers, as the whole numbers that are saved.
+const sourceNumbers = (value, siteIds) => ({ mode: value.mode, total: Math.max(1, wholeNumber(value.total, TOTAL_MAX)),
+  counts: Object.fromEntries(siteIds.map(site => [site, wholeNumber(value.counts[site], COUNT_MAX)])),
+  shares: Object.fromEntries(siteIds.map(site => [site, wholeNumber(value.shares[site], SHARE_MAX)])) });
+
+// How many results each job board is asked for in one run: as each search says, a number per board, or a share of one total.
+function SourceQuota({ value, onChange, sites, searches }) {
+  const { t } = useI18n();
+  const siteIds = sites.map(site => site.id);
+  const enabled = searches.filter(search => search.enabled);
+  const plan = sourcePlan(sourceNumbers(value, siteIds), enabled, siteIds);
+  const set = patch => onChange({ ...value, ...patch });
+  const field = value.mode === 'count' ? 'counts' : 'shares';
+  function note(site) {
+    const row = plan.sites[site.id];
+    if (!row.searches) return t('没有启用的搜索勾选它', 'No enabled search ticks it');
+    if (!site.available) return t('需要 JobSpy，现在抓不了', 'Needs JobSpy, which is not there');
+    if (!row.asked) return t('不抓', 'Left out');
+    const parts = [];
+    if (value.mode === 'share') parts.push(`${row.percent}%`, t(`${row.asked} 条`, `${row.asked} results`));
+    if (row.searches > 1) {
+      const low = Math.floor(row.asked / row.searches);
+      const each = row.asked % row.searches ? `${low}–${low + 1}` : `${low}`;
+      parts.push(t(`${row.searches} 个搜索平分，每个 ${each} 条`, `shared by ${row.searches} searches, ${each} each`));
+    }
+    if (row.asked < row.wanted) parts.push(t(`一个搜索最多 ${SEARCH_LIMIT} 条，实际 ${row.asked} 条`, `a search asks for ${SEARCH_LIMIT} at most: ${row.asked} in all`));
+    return parts.join(' · ');
+  }
+  return (
+    <div className="source-quota" id="source-quota">
+      <div className="option-row">
+        <span>{t('每个来源抓多少', 'Results per source')}</span>
+        <div className="segmented">
+          {SOURCE_MODES.map(([mode, zh, en]) => <button key={mode} type="button" className={value.mode === mode ? 'active' : ''} onClick={() => set({ mode })}>{t(zh, en)}</button>)}
+        </div>
+        <small>{value.mode === 'search' ? t('每个搜索用它自己的“每个网站最多”，在“搜索与公司”里改。', 'Each search uses its own “Results per site”, set under Searches.')
+          : value.mode === 'count' ? t('每次抓取向每个来源最多要多少条。0 就是不抓这个来源。', 'The most each source is asked for in one run. 0 leaves the source out.')
+            : t('定一个总数，再按比例分给各个来源。数字越大分得越多，比如 3 和 1 就是 75% 和 25%；0 就是不抓。', 'Set one total, shared between the sources. A larger number gets more: 3 and 1 make 75% and 25%; 0 leaves the source out.')}</small>
+      </div>
+      {value.mode === 'share' ? (
+        <label className="source-total">{t('每次一共', 'In all, per run')}
+          <input type="number" min={1} max={TOTAL_MAX} value={value.total} onChange={event => set({ total: event.target.value })} />
+          <span>{t('条', 'results')}</span>
+        </label>
+      ) : null}
+      {value.mode !== 'search' ? (
+        <ul className="source-list">
+          {sites.map(site => (
+            <li key={site.id} className={plan.sites[site.id].searches && site.available ? '' : 'idle'}>
+              <label htmlFor={`source-${site.id}`}>{site.label}</label>
+              <input id={`source-${site.id}`} type="number" min={0} max={value.mode === 'count' ? COUNT_MAX : SHARE_MAX} value={value[field][site.id]}
+                onChange={event => set({ [field]: { ...value[field], [site.id]: event.target.value } })} />
+              <span>{note(site)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="hint">{enabled.length
+        ? t(`这样每次抓取最多向招聘网站要 ${plan.total} 条；重复的和被筛选条件挡掉的不会进列表，所以实际会少一些。`, `A run then asks the job sites for ${plan.total} results at most; duplicates and jobs your filters turn away are left out, so fewer arrive.`)
+        : t('还没有启用的搜索。', 'There is no enabled search yet.')}
+        {value.mode !== 'search' ? t('几个搜索勾了同一个来源时，这个来源的数平均分给它们。', ' When several searches tick the same source, they share its number evenly.') : ''}
+        {t('关注的公司招聘页不算在内，每次都把在招的岗位全部看一遍。', ' Followed company boards are not counted: every open job on them is read each time.')}</p>
+    </div>
+  );
+}
+
 export function SettingsView({ boot, reload, update, focus }) {
   const { t } = useI18n();
   const settings = boot.settings;
   const [form, setForm] = useState({ scheduleEnabled: settings.schedule.enabled, time: settings.schedule.time,
     followUpDays: settings.tracking.followUpDays, ghostDays: settings.tracking.ghostDays, checkClosed: settings.tracking.checkClosed,
-    desktop: settings.notifications.desktop, minScore: settings.notifications.minScore, pythonCommand: settings.jobspy.pythonCommand,
-    retentionDays: settings.retentionDays });
+    desktop: settings.notifications.desktop, minScore: settings.notifications.minScore, pythonCommand: settings.jobspy.pythonCommand, runner: settings.jobspy.runner,
+    retentionDays: settings.retentionDays,
+    sources: { mode: settings.sources.mode, total: totalOf(settings.sources),
+      counts: Object.fromEntries(boot.sites.map(site => [site.id, countOf(settings.sources, site.id)])),
+      shares: Object.fromEntries(boot.sites.map(site => [site.id, shareOf(settings.sources, site.id)])) } });
   const look = useThemeSettings();
   const groove = usePrefs();
   const [sites, setSites] = useState(boot.sites);
@@ -711,9 +783,10 @@ export function SettingsView({ boot, reload, update, focus }) {
     try {
       await api('/api/settings', { method: 'PATCH', body: {
         schedule: { enabled: form.scheduleEnabled, time: form.time },
+        sources: sourceNumbers(form.sources, sites.map(site => site.id)),
         tracking: { followUpDays: Number(form.followUpDays), ghostDays: Number(form.ghostDays), checkClosed: form.checkClosed },
         notifications: { desktop: form.desktop, minScore: Number(form.minScore) },
-        jobspy: { pythonCommand: form.pythonCommand },
+        jobspy: { runner: form.runner, pythonCommand: form.pythonCommand },
         retentionDays: Number(form.retentionDays),
       } });
       await reload();
@@ -726,9 +799,7 @@ export function SettingsView({ boot, reload, update, focus }) {
   return (
     <section className="settings-page">
       <header className="view-header"><ListenWave /><div className="title-block"><ViewDate /><h1>{t('设置', 'Settings')}</h1></div></header>
-      {/* One column, or two side by side in a wide window: the first holds the searching, the keys and what they cost. */}
-      <div className="page-columns">
-      <div className="page-column">
+      {/* One card under the other, as wide as the page. */}
       <form className="card-section" onSubmit={save}>
         <h2>{t('每日抓取', 'Daily search')}</h2>
         <div className="form-grid">
@@ -736,6 +807,7 @@ export function SettingsView({ boot, reload, update, focus }) {
           <label>{t('时间', 'Time')}<TimeField value={form.time} onChange={event => set('time', event.target.value)} /><small>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</small></label>
           <label>{t('岗位保留天数', 'Keep jobs (days)')}<input type="number" min={7} max={365} value={form.retentionDays} onChange={event => set('retentionDays', event.target.value)} /><small>{t('未收藏、未投递的旧岗位到期清理。', 'Old jobs you did not save or apply to are cleared after this.')}</small></label>
         </div>
+        <SourceQuota value={form.sources} onChange={value => set('sources', value)} sites={sites} searches={boot.searches} />
         <h2>{t('投递追踪', 'Application tracking')}</h2>
         <div className="form-grid">
           <label>{t('跟进提醒（天）', 'Follow-up reminder (days)')}<input type="number" min={0} max={90} value={form.followUpDays} onChange={event => set('followUpDays', event.target.value)} /><small>{t('投递或状态变化后多少天提醒你跟进；0 为关闭。', 'Days after applying or a status change before Dayjob reminds you; 0 turns it off.')}</small></label>
@@ -747,13 +819,37 @@ export function SettingsView({ boot, reload, update, focus }) {
           <label className="check-line"><input type="checkbox" checked={form.desktop} onChange={event => set('desktop', event.target.checked)} />{t('Windows 桌面通知', 'Windows desktop notifications')}</label>
           <label>{t('高匹配分数线', 'Strong-match score')}<input type="number" min={0} max={100} value={form.minScore} onChange={event => set('minScore', event.target.value)} /><small>{t('每日汇总里单独列出高于这个分数的新岗位。', 'The daily summary lists new jobs scoring at least this.')}</small></label>
         </div>
-        <h2>{t('JobSpy（可选）', 'JobSpy (optional)')}</h2>
-        <p className="hint">{t('Glassdoor、ZipRecruiter、Google Jobs 需要 Python 版 JobSpy：安装 Python 后运行 ', 'Glassdoor, ZipRecruiter and Google Jobs need the Python JobSpy: install Python, then run ')}<code>pip install python-jobspy</code>
-          {t('。LinkedIn、Indeed 和公司招聘页不需要。', '. LinkedIn, Indeed and company boards do not need it.')}</p>
-        <div className="form-grid">
-          <label>{t('Python 命令', 'Python command')}<input value={form.pythonCommand} onChange={event => set('pythonCommand', event.target.value)} maxLength={1024} placeholder="python" /></label>
-        </div>
-        <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available ? jobspy.detail : t('未检测到 JobSpy。装好后点“保存设置”会重新检测。', 'JobSpy was not found. Install it, then click “Save settings” to check again.')}</p>
+        <h2>{jobspy?.builtIn ? 'JobSpy' : t('JobSpy（可选）', 'JobSpy (optional)')}</h2>
+        {jobspy?.builtIn ? (
+          <>
+            <p className="hint">{t('Glassdoor、ZipRecruiter、Google Jobs 通过 JobSpy 抓取。Dayjob 自带 JobSpy，装好就能用，不需要另外安装 Python。LinkedIn、Indeed 和公司招聘页不经过它。',
+              'Glassdoor, ZipRecruiter and Google Jobs are fetched through JobSpy. Dayjob carries its own, ready to use: no Python to install. LinkedIn, Indeed and company boards do not go through it.')}</p>
+            <div className="option-row">
+              <span>{t('用哪一个', 'Which one')}</span>
+              <div className="segmented">
+                <button type="button" className={form.runner === 'own' ? '' : 'active'} onClick={() => set('runner', 'builtin')}>{t('Dayjob 自带的', 'The one inside Dayjob')}</button>
+                <button type="button" className={form.runner === 'own' ? 'active' : ''} onClick={() => set('runner', 'own')}>{t('我自己的 Python', 'My own Python')}</button>
+              </div>
+              {form.runner === 'own' ? <small>{t('你的 Python 里要先装好 JobSpy：', 'Your Python needs JobSpy first: ')}<code>pip install python-jobspy</code></small> : null}
+            </div>
+          </>
+        ) : (
+          <p className="hint">{t('Glassdoor、ZipRecruiter、Google Jobs 需要 Python 版 JobSpy：安装 Python 后运行 ', 'Glassdoor, ZipRecruiter and Google Jobs need the Python JobSpy: install Python, then run ')}<code>pip install python-jobspy</code>
+            {t('。LinkedIn、Indeed 和公司招聘页不需要。Windows 安装版自带 JobSpy，不用装。', '. LinkedIn, Indeed and company boards do not need it. The installed Windows app carries its own.')}</p>
+        )}
+        {!jobspy?.builtIn || form.runner === 'own' ? (
+          <div className="form-grid">
+            <label>{t('Python 命令', 'Python command')}<input value={form.pythonCommand} onChange={event => set('pythonCommand', event.target.value)} maxLength={1024} placeholder="python" /></label>
+          </div>
+        ) : null}
+        <p className={`status-line ${jobspy?.available ? 'ok' : 'off'}`}>{jobspy?.available ? <CheckCircle2 size={15} /> : null}{jobspy?.available
+          ? `${jobspy.detail}${jobspy.using === 'builtin' ? t('（Dayjob 自带）', ' (inside Dayjob)') : ''}${jobspy.builtIn && (form.runner === 'own') !== (jobspy.using === 'own') ? t('。点“保存设置”后改用所选的，并重新检测。', '. “Save settings” switches to your choice and checks it.') : ''}`
+          : jobspy?.using === 'builtin' ? t('Dayjob 自带的 JobSpy 没能启动。重新安装 Dayjob 可以把它放回来；也可以先改用自己的 Python。', 'The JobSpy inside Dayjob did not start. Installing Dayjob again puts it back; or use your own Python meanwhile.')
+            : /No module named '?jobspy/i.test(jobspy?.reason || '')
+              ? t(`这个 Python 里没有装 JobSpy（${jobspy.reason}）。电脑上有几个 Python 时，JobSpy 要装进 Dayjob 用的这一个：${jobspy.command} -m pip install python-jobspy；或者把 Python 命令改成装了 JobSpy 的那个，比如 py。改好后点“保存设置”重新检测。`,
+                `This Python has no JobSpy in it (${jobspy.reason}). On a computer with several Pythons, JobSpy has to go into the one Dayjob runs: ${jobspy.command} -m pip install python-jobspy. Or change the Python command to the one that has it, py for example. Then click “Save settings” to check again.`)
+              : jobspy?.reason ? t(`未检测到 JobSpy（${jobspy.reason}）。装好后点“保存设置”会重新检测。`, `JobSpy was not found (${jobspy.reason}). Install it, then click “Save settings” to check again.`)
+                : t('未检测到 JobSpy。装好后点“保存设置”会重新检测。', 'JobSpy was not found. Install it, then click “Save settings” to check again.')}</p>
         {error ? <p className="notice error">{error}</p> : null}
         {message ? <p className="notice">{message}</p> : null}
         <div className="form-actions"><button className="button primary" type="submit"><SavedLabel saved={saved}>{t('保存设置', 'Save settings')}</SavedLabel></button></div>
@@ -761,8 +857,6 @@ export function SettingsView({ boot, reload, update, focus }) {
       <ApiKeys boot={boot} reload={reload} />
       <Spend boot={boot} reload={reload} focused={focus === 'api-spend'} />
       <ClaudeConnection />
-      </div>
-      <div className="page-column">
       <AssistantSettings hasKey={boot.settings.ai.hasApiKey} focus={focus} />
       <PasswordVault />
       <BrowserData />
@@ -801,8 +895,6 @@ export function SettingsView({ boot, reload, update, focus }) {
         {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
         {info?.portable ? <p className="hint">{t('便携版不会写入 Claude 配置；安装版才能稳定连接 MCP。', 'The portable version does not write Claude\'s config; install Dayjob for a lasting MCP connection.')}</p> : null}
       </section>
-      </div>
-      </div>
     </section>
   );
 }

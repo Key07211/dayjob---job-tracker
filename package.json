@@ -1,6 +1,6 @@
 {
   "name": "dayjob",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "private": true,
   "type": "module",
   "description": "Dayjob · 本地岗位抓取、AI 简历匹配与投递追踪",
@@ -16,7 +16,8 @@
     "desktop": "electron .",
     "desktop:preview": "npm run build && electron .",
     "live-check": "node scripts/live-check.mjs",
-    "package:win": "npm run build && electron-builder --win nsis portable --x64"
+    "jobspy:build": "node scripts/build-jobspy.mjs",
+    "package:win": "npm run build && npm run jobspy:build && electron-builder --win nsis portable --x64"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.0.0",
@@ -57,6 +58,12 @@
       "integrations/mcp-server.mjs",
       "THIRD_PARTY_NOTICES.md",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/jobspy",
+        "to": "jobspy"
+      }
     ],
     "win": {
       "executableName": "Dayjob",

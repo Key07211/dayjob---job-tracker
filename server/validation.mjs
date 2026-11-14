@@ -9,6 +9,7 @@ import { posting } from './jobs/normalize.mjs';
 import { GOAL_METRICS, MAX_GOALS } from './jobs/goals.mjs';
 import { APPLICANT_FIELDS, EDUCATION_FIELDS, EXPERIENCE_FIELDS, LINK_FIELDS, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from './jobs/applicant.mjs';
 import { EFFORTS, PROVIDER_IDS } from './jobs/scoring/models.mjs';
+import { COUNT_MAX, SHARE_MAX, SOURCE_MODES, TOTAL_MAX } from './jobs/source-quota.mjs';
 
 export const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
 
@@ -120,6 +121,19 @@ export function settingsPatch(input) {
     enabled: item => boolean(item, 'Daily search'),
     time: item => (/^([01]?\d|2[0-3]):[0-5]\d$/.test(item || '') ? item.padStart(5, '0') : fail('Time must look like 08:30.')),
   }));
+  // A whole number for each job board named; boards left out keep theirs.
+  const perSite = (value, label, max) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object of site: number.`);
+    const unknown = Object.keys(value).find(site => !SITE_IDS.includes(site));
+    if (unknown) fail(`${label}: unknown site ${unknown}. Sites are: ${SITE_IDS.join(', ')}.`);
+    return Object.fromEntries(Object.entries(value).map(([site, number]) => [site, integer(number, `${label} (${site})`, 0, max)]));
+  };
+  section('sources', value => pick(value, {
+    mode: item => oneOf(item, SOURCE_MODES, 'Results per source'),
+    total: item => integer(item, 'Results per run', 1, TOTAL_MAX),
+    counts: item => perSite(item, 'Results per source', COUNT_MAX),
+    shares: item => perSite(item, 'Share per source', SHARE_MAX),
+  }));
   section('ai', value => pick(value, {
     provider: item => oneOf(item, PROVIDER_IDS, 'AI provider'),
     claudeCommand: item => text(item, 'Claude Code path', { max: 1024, optional: true }),
@@ -151,7 +165,10 @@ export function settingsPatch(input) {
     desktop: item => boolean(item, 'Desktop notifications'),
     minScore: item => integer(item, 'High-match score', 0, 100),
   }));
-  section('jobspy', value => pick(value, { pythonCommand: item => text(item, 'Python command', { max: 1024, optional: true }) }));
+  section('jobspy', value => pick(value, {
+    runner: item => oneOf(item, ['builtin', 'own'], 'JobSpy'),
+    pythonCommand: item => text(item, 'Python command', { max: 1024, optional: true }),
+  }));
   section('applicant', value => pick(value, {
     ...Object.fromEntries(Object.entries(APPLICANT_FIELDS).map(([key, rule]) => [key, item => {
       if (!Array.isArray(rule)) return LINK_FIELDS.includes(key) ? profileLink(item, LINK_LABELS[key]) : text(item, key, { max: rule, optional: true });
@@ -216,6 +233,15 @@ export function publicSettings(settings) {
   return { ...settings, apiKeys: (settings.apiKeys || []).map(publicApiKey),
     ai: { ...ai, hasApiKey: Boolean(apiKey), apiKeyFromEnv: !apiKey && Boolean(process.env.ANTHROPIC_API_KEY),
       hasOpenaiApiKey: Boolean(openaiApiKey), openaiKeyFromEnv: !openaiApiKey && Boolean(process.env.OPENAI_API_KEY) } };
+}
+
+// What to look a company's job board up by: its name, a link, or both; keywords pick the jobs shown.
+export function companySearch(input) {
+  const company = text(input.company, 'Company', { max: 120, optional: true });
+  const url = text(input.url, 'Link', { max: 2048, optional: true });
+  if (!company && !url) fail('Give the company\'s name, or a link to its careers page, its job board or one of its jobs.');
+  return { company, url, keywords: text(input.keywords, 'Keywords', { max: 200, optional: true }),
+    limit: has(input, 'limit') ? integer(input.limit, 'Limit', 1, 25) : 8 };
 }
 
 export function recommendInput(input) {

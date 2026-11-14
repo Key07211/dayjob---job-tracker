@@ -5,6 +5,7 @@ import { rankResumes, resumeTerms } from './keywords.mjs';
 import { splitCompanyId } from './scrapers/company-boards.mjs';
 import { DEFAULT_APPLICANT, migrateApplicant } from './applicant.mjs';
 import { costOf, KEY_SERVICE, METERED, PRICES_AS_OF } from './scoring/prices.mjs';
+import { DEFAULT_SOURCES } from './source-quota.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -21,11 +22,14 @@ export const MAX_API_KEYS = 12;
 export const DEFAULT_SETTINGS = {
   language: 'zh',
   schedule: { enabled: true, time: '08:30' },
+  // How many results each board is asked for in a run (source-quota.mjs).
+  sources: DEFAULT_SOURCES,
   // effort '' is the model's own default.
   ai: { provider: 'claude-cli', claudeCommand: '', codexCommand: '', model: '', apiKey: '', openaiApiKey: '', scoreMode: 'auto', language: 'zh', maxPerRun: 40, effort: '' },
   tracking: { followUpDays: 7, ghostDays: 21, checkClosed: true },
   notifications: { desktop: true, minScore: 75 },
-  jobspy: { pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
+  // runner 'builtin': the JobSpy inside the app when there is one; 'own': always the user's Python (pythonCommand).
+  jobspy: { runner: 'builtin', pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
   updates: { autoCheck: true },
   desktop: { closeToTray: true },
   applicant: DEFAULT_APPLICANT,

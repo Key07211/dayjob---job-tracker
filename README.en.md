@@ -20,8 +20,8 @@ Day and night each have their own colours: pale blue and warm yellow by day, bro
 
 | Feature | What it does |
 | --- | --- |
-| Daily search | Runs every saved search at a set time (08:30 by default). If the computer was off, Dayjob catches up the next time it opens that day. "Search now" runs it any time. |
-| Sources | LinkedIn and Indeed, requested directly the way JobSpy does it (no Python needed). Greenhouse, Lever and Ashby company boards through their official public JSON. Glassdoor, ZipRecruiter and Google Jobs through the optional Python JobSpy. |
+| Daily search | Runs every saved search at a set time (08:30 by default). If the computer was off, Dayjob catches up the next time it opens that day. "Search now" runs it any time. How many results each source is asked for can be set in Settings, by number or by share; see [Results per source](#results-per-source). |
+| Sources | LinkedIn and Indeed, requested directly the way JobSpy does it. Greenhouse, Lever and Ashby company boards through their official public JSON. Glassdoor, ZipRecruiter and Google Jobs through the Python JobSpy, which the Windows installer and the portable app carry inside them: they work straight away, with no Python to install. |
 | Job details | Title, company, location, remote, pay, job type and level, the full description, and the dates: **posted / opened**, first found by Dayjob, last seen in a search, last checked open. |
 | Filters | Each search has keywords (comma-separated means any of them), location, a posted-within window, job type, remote only and words to exclude. The same job on several boards is merged. |
 | AI scoring | Upload up to 3 PDF, Word or text resumes (one for data roles and one for software roles, say). Each job is scored 0–100 against the resume that shares the most keywords with it, with strengths, gaps and keywords you could add. It uses your signed-in Claude Code (`claude -p`, no API key) by default, or Codex signed in with your ChatGPT account, or your own Anthropic or OpenAI API key; you pick the model and the reasoning effort. Pause scoring at any time and resume later; remove every job under 60 in one click. |
@@ -34,8 +34,8 @@ Day and night each have their own colours: pale blue and warm yellow by day, bro
 | Monthly goals | Set monthly targets for applications, interviews / OAs and goals of your own (practice problems, say); Dayjob splits them into weekly tasks and charts this week, the month so far and every week on Home. |
 | Built-in browser | The desktop app has its own browser (Browser in the sidebar). It opens on the right, beside Home, Applications or any other page; drag it wider or let it fill the window. It has tabs, and its sign-ins stay on this computer. The assistant panel next to it shows where the job stands in Dayjob, with one click to add it to Dayjob or mark it applied. |
 | Autofill / auto-submit | Fill in your name, email, phone, links and common answers once under Resume & AI → Application profile (it can read them from your resume). On an application form, click **Autofill** and Dayjob fills each empty box by its question, then lists the required fields still yours to fill in. With **Auto-submit** on, it submits as soon as every required field is filled (for this session of Dayjob only). |
-| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), read or set monthly goals and read the Home statistics, with 34 tools. |
-| Assistant | A pixel gramophone with a place of its own in the sidebar, opened as a small chat at the right of the window or as a full page. Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change can be undone in one click. It can also apply for you in the Dayjob browser: open the application page, have the vault sign in, fill in the form, attach the resume that fits and write the cover letter. It asks before sending unless you switch it to full takeover beside the chat box. It answers radio buttons and checkboxes, and answers that are the same every time ("Protected veteran: I am not one") go into **what the assistant keeps in mind**, so it stops asking. Once an application is sent, Dayjob records it under Applications by itself. Passwords and resume files never go to the model. Conversations are not saved unless you keep or archive one. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
+| Claude MCP | Claude Code and Claude Desktop can read jobs and your resume, write back their own analysis, update applications, use the Dayjob browser (autofill included), find a company's job board from its name or its own careers page and follow it, read or set monthly goals and read the Home statistics, with 36 tools. |
+| Assistant | A pixel gramophone with a place of its own in the sidebar, opened as a small chat at the right of the window or as a full page. Ask it in a sentence to look up jobs and applications, save a job, record an application, change a search or start one; every change can be undone in one click. Give it a company name or the careers page on the company's own site and it finds that company's board on Greenhouse, Lever or Ashby and puts it on the daily search. It can also apply for you in the Dayjob browser: open the application page, have the vault sign in, fill in the form, attach the resume that fits and write the cover letter. It asks before sending unless you switch it to full takeover beside the chat box. It answers radio buttons and checkboxes, and answers that are the same every time ("Protected veteran: I am not one") go into **what the assistant keeps in mind**, so it stops asking. Once an application is sent, Dayjob records it under Applications by itself. Passwords and resume files never go to the model. Conversations are not saved unless you keep or archive one. It runs on your local Claude Code or on the Claude API. See [Assistant](#assistant). |
 | Automatic updates | The installed app checks GitHub Releases for a new version once a day (you can turn this off in Settings), and "Check for updates" in the sidebar checks any time. When one is out it turns into a round download button; once downloaded, click "Restart to update". |
 | Day / night | Follows the clock by default (day at 07:00, night at 19:00; change the hours under Settings → Appearance). When the theme changes, the new colours sweep down the page at nightfall and up at daybreak. Next to the time at the top of every page is a day / night switch: click it and the sun rolls over into a moon, the clouds sink and the stars come out one by one. In clock mode a theme picked this way holds until the next change on the clock, then the clock takes over again. Dropdowns, calendars and time pickers follow the theme too. |
 | Opening | When Dayjob opens it plays a pixel opening of about two and a half seconds. There are three, one is picked at random each time, and never the one that played last. Gramophone: the assistant's pixel gramophone is cranked up and plays, notes fly from its horn, and "dayjob" is typed out letter by letter. Wave: sheets fly in from every side and stand up as a row of bars that pulse on the beat. Briefcase: four sheets fly into the briefcase, the meter bars and the record player appear, and it becomes Dayjob's icon. Each has day and night colours. At the end the picture breaks up a pixel at a time from the corners inwards and the page shows through; if the data is slow it holds for whole beats. Click or press any key to skip; it does not play when the window comes back from the tray. Turn it off under Settings → Appearance; it never plays when Windows asks for reduced motion. |
@@ -86,7 +86,7 @@ A resume is stored as two things: its extracted text (for scoring and matching) 
 ## First steps
 
 1. **Resume & AI**: upload your resume (up to 3), then click **Read from my resume** under **Application profile** below and fill in what it missed; autofill uses it. To score with Claude Code, install it, run `claude` in a terminal and type `/login`. If it is not signed in, the Resume & AI page says so; click "Check again" after signing in.
-2. **Searches**: click **Ask the AI** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted.
+2. **Searches**: click **Ask the AI** and add the searches and companies you like from its suggestions, or add a search yourself, for example keywords `data scientist, machine learning engineer`, location `San Francisco Bay Area`, sources LinkedIn and Indeed, posted in the past 3 days. To follow a company, paste its careers link (`boards.greenhouse.io/…`, `jobs.lever.co/…`, `jobs.ashbyhq.com/…`); every open job there that matches a search's keywords and location is kept, however long ago it was posted. Without a link, tell the [assistant](#finding-a-companys-job-board) the company's name and it finds the board.
 3. Click **Search now** at the bottom left. By default jobs are scored when the search finishes; to save Claude allowance, switch Resume & AI to score only the jobs you save, or only when you ask.
 4. Browse **Today**, save jobs or mark them not interested. To apply, click "Company apply page" in a job's details; it opens in the browser on the right, where **Autofill** fills in the application form. After applying, click **I applied** (or **Mark applied** in the browser's assistant panel); everything after that happens in **Applications**.
 5. Come back to **Home** for the overall picture: how much you have applied, what needs a follow-up and which strong matches are still waiting.
@@ -206,12 +206,31 @@ It is a pixel gramophone: still when nothing is happening; its record turns whil
 > The replies in these screenshots come from a stand-in model made for the demo, not from Claude; the jobs, the resume and the careers site are made-up demo data.
 
 - **Look things up**: today's best-scoring new jobs, the fit analysis of one job, which applications need a follow-up, how far you are from this week's goal, what your resume says.
-- **Make changes**: save a job or mark it not interested, record an application (when you say you applied, or after it sent one for you), update an application's status and notes, create or change a search, start a search, keep an answer you just gave in the application profile, or bring a page or a single job in front of you.
+- **Make changes**: save a job or mark it not interested, record an application (when you say you applied, or after it sent one for you), update an application's status and notes, create or change a search, find a company's job board and follow it (see [Finding a company's job board](#finding-a-companys-job-board)), start a search, keep an answer you just gave in the application profile, or bring a page or a single job in front of you.
 - **Apply**: send an application for you in the Dayjob browser; see [Applying for you](#applying-for-you) below.
 
 Each thing it does leaves a small line in the reply saying what it was. A line for a change carries **Undo**, which puts things back in one click. If you have changed the same item yourself since, the undo is refused so your own edit is never overwritten. A note also flies from the gramophone's horn to that page's key in the sidebar.
 
-A few things it cannot do, on purpose: it cannot see a password, and never types a password, a card number or a one-time code itself (the vault signs in on this computer); it never gets a resume file; it cannot delete jobs, applications or searches, change settings, or change a resume (it can read one and suggest wording). What it does on a web page (a click, a field, a submit) has no undo.
+A few things it cannot do, on purpose: it cannot see a password, and never types a password, a card number or a one-time code itself (the vault signs in on this computer); it never gets a resume file; it cannot delete jobs, applications, searches or followed companies, change settings, or change a resume (it can read one and suggest wording). What it does on a web page (a click, a field, a submit) has no undo.
+
+### Finding a company's job board
+
+Say "Put Stripe's job board on my daily search", or "Find a few companies hiring data analysts and follow them", and the assistant:
+
+1. **Finds it**: from a company name alone it tries the addresses such a company usually has on Greenhouse, Lever and Ashby; from a link to the careers page on the company's own site (or to one of its jobs) it reads that page and sees whose board the company uses. It tells you how many jobs are open and how many of them match the searches you already have.
+2. **Follows it**: the board joins the companies under Searches, and every daily run reads it from then on. The line in the conversation carries **Undo**. A board you already follow is not added twice, and one you paused is switched back on.
+3. If you like, it then fetches that one company right away, so its jobs are in Today.
+
+Asked for a kind of job, it first makes sure a saved search covers it (and creates one if not), then looks for companies; in the desktop app it can also search the web for public boards in the Dayjob browser.
+
+Things to know:
+
+- Only companies that hire through Greenhouse, Lever or Ashby can be followed. For one on Workday, SmartRecruiters, iCIMS or a system of its own, the assistant offers a saved search with the company's name instead, which finds its jobs on LinkedIn and Indeed.
+- A search by name guesses the address, so now and then it lands on another company of the same name. The assistant tells you the company name and a few jobs it found; say so if they look wrong, or give it the careers link.
+- Of a followed company's jobs, only those that match one of your enabled searches (keywords, location) are kept.
+- It reads public web pages only: an address on this computer or the local network is refused.
+
+Pasting a board link under **Searches** works as before, and Claude outside Dayjob can do the same through MCP (`dayjob_find_company_board`, `dayjob_follow_company`).
 
 ### Applying for you
 
@@ -297,7 +316,8 @@ Dayjob needs to be running. Then try:
 | `dayjob_set_posting_status` / `dayjob_add_posting` | Save or dismiss a job, add one by hand |
 | `dayjob_mark_applied` / `dayjob_add_application` | Mark a job as applied, add an application made elsewhere |
 | `dayjob_list_applications` / `dayjob_get_application` / `dayjob_update_application` | Read and update stages, notes and follow-up dates |
-| `dayjob_list_searches` / `dayjob_save_search` / `dayjob_follow_company` / `dayjob_run_search` | Manage searches, follow companies, search now |
+| `dayjob_list_searches` / `dayjob_save_search` / `dayjob_run_search` | Manage searches, search now (all of them, or only the given searches or companies) |
+| `dayjob_find_company_board` / `dayjob_follow_company` | Find a company's board on Greenhouse, Lever or Ashby from its name, a board link or the careers page on its own site (how many jobs are open, how many match the saved searches); follow it, so every daily run reads it |
 | `dayjob_list_notifications` | Recent reminders |
 | `dayjob_get_goals` / `dayjob_set_goal` / `dayjob_log_goal_progress` | Read monthly goals and weekly tasks, set a goal, log a custom goal |
 | `dayjob_get_dashboard` | Read the Home statistics (weekly applications, the funnel, reply rate, results by board, applications that need a follow-up…), handy for a weekly review with Claude |
@@ -355,21 +375,35 @@ When an application is sent in the Dayjob browser, whether you clicked Submit yo
 
 It goes by the words on the page, so some sites will not be recognized (no confirmation after sending, or an unusual one): click **Mark applied** there as before.
 
-## JobSpy (optional)
+## JobSpy
 
-Glassdoor, ZipRecruiter and Google Jobs need the Python [JobSpy](https://github.com/speedyapply/JobSpy):
+Glassdoor, ZipRecruiter and Google Jobs are fetched through the Python [JobSpy](https://github.com/speedyapply/JobSpy). **The Windows installer and the portable app carry their own**: a Python 3.12 that only Dayjob uses, with JobSpy 1.4.1 in it. It works as soon as Dayjob is installed, with no Python on the computer. LinkedIn, Indeed and company boards do not go through it.
+
+**Settings → JobSpy** shows its version and whether it runs. To use a Python of your own instead (one with a newer JobSpy, say), pick **My own Python** there, give the Python command (`python` on Windows by default) and install JobSpy into that Python first:
 
 ```bash
 pip install python-jobspy
 ```
 
-Then check the Python command under **Settings → JobSpy** (`python` on Windows by default) and save to detect it again. LinkedIn, Indeed and company boards do not need Python.
+Save the settings to check it again. With several Pythons on the computer, make sure JobSpy went into the one named here: when it is missing, Settings says which Python was asked and what it answered (`No module named jobspy`, for example). Then run `<that Python> -m pip install python-jobspy`, or change the Python command to the one that has JobSpy (`py`, for example).
+
+The built-in copy keeps to itself: it loads modules from its own folder only, ignores `PYTHONPATH` and the other Python variables, the registry and the packages installed for your user, and is removed together with Dayjob. It adds about 25 MB to the download and about 100 MB once installed.
+
+Run from source, Dayjob has no built-in copy and uses your own Python (the `pip install` above). To try the built-in one from source on Windows, put it together in `build/jobspy` and tell Dayjob where it is (in Command Prompt):
+
+```bash
+npm run jobspy:build
+set DAYJOB_JOBSPY_DIR=%cd%\build\jobspy
+npm start
+```
+
+`npm run jobspy:build` (which `npm run package:win` runs first) downloads the Python Software Foundation's Python from nuget.org and, from PyPI, the 22 packages listed in `scripts/jobspy-requirements.txt`, each with an exact version and SHA-256 hashes; one file that does not match stops the build. On Windows it also starts the result once and checks that it loads from its own folder only. To move to a newer JobSpy, change that file and the versions in `scripts/build-jobspy.mjs`.
 
 ## About scraping
 
 - LinkedIn and Indeed limit frequent requests. Dayjob waits a few random seconds between pages and backs off on HTTP 429; when a site limits it, that run is marked partly succeeded and the other sources carry on. One run a day with a few dozen results per search is usually fine; avoid short intervals or hundreds of results at once.
 - When checking whether jobs have closed, a job that today's search still lists counts as open and is not requested again. Some networks are refused Indeed's job pages (HTTP 401); then Dayjob cannot tell whether an Indeed job has closed, only whether it still shows up in searches. Other sources are checked as usual.
-- Glassdoor, ZipRecruiter and Google Jobs rely on JobSpy, which may need updating when those sites change.
+- Glassdoor, ZipRecruiter and Google Jobs rely on JobSpy, and these sites often turn automated requests away; when one does, the details of that run say that the site gave nothing (not that Dayjob or JobSpy is set up wrongly) and the other sources carry on. JobSpy may need updating when those sites change (wait for a new Dayjob, or switch to your own Python).
 - Follow each site's terms of use and use Dayjob for your own job search only.
 
 To check every source from your network:
@@ -378,7 +412,7 @@ To check every source from your network:
 npm run live-check                          # LinkedIn, Indeed, Greenhouse, Lever, Ashby
 npm run live-check -- --pipeline            # plus a full run into a temporary database
 npm run live-check -- --score resume.pdf    # plus one Claude Code score
-npm run live-check -- --jobspy              # plus the Python JobSpy
+npm run live-check -- --jobspy              # plus the JobSpy in your own Python
 ```
 
 ## Tests
@@ -389,7 +423,7 @@ npm test
 
 The tests never touch a real site: scrapers read saved pages (`tests/fixtures/`), scoring uses fake providers and MCP an in-memory connection.
 
-The desktop smoke test (`electron . --smoke-test <result.json>`, run on every Windows build) also opens a local application form in the built-in browser (part of it inside an iframe from another origin), autofills it and checks every value, checks that a second run leaves the filled answers alone, checks that Claude clicking Submit asks the user first, and that with auto-submit on, Autofill submits the form and recognizes the "application received" page, after which the application is recorded by itself (as are one you submit by hand and one the page does not name, which is asked about). It also answers a page of questions with choices, clicking radio buttons drawn four different ways and a checkbox and checking that the form really received each answer, and checks that an ordinary text box is not taken for a password or a code while a real one-time-code box is still refused. For the installed app it also serves a pretend "9.9.9" release from this computer, checks that the sidebar shows the round download button, then clicks it and downloads and verifies the installer (without installing it).
+The desktop smoke test (`electron . --smoke-test <result.json>`, run on every Windows build) also opens a local application form in the built-in browser (part of it inside an iframe from another origin), autofills it and checks every value, checks that a second run leaves the filled answers alone, checks that Claude clicking Submit asks the user first, and that with auto-submit on, Autofill submits the form and recognizes the "application received" page, after which the application is recorded by itself (as are one you submit by hand and one the page does not name, which is asked about). It also answers a page of questions with choices, clicking radio buttons drawn four different ways and a checkbox and checking that the form really received each answer, and checks that an ordinary text box is not taken for a password or a code while a real one-time-code box is still refused. All three Windows builds also start the JobSpy inside them once, checking its version and that it loads from its own folder only. For the installed app it also serves a pretend "9.9.9" release from this computer, checks that the sidebar shows the round download button, then clicks it and downloads and verifies the installer (without installing it).
 
 To try the interface without scraping, generate made-up data:
 
@@ -400,7 +434,7 @@ DAYJOB_DATA_DIR=./demo-data npm start
 
 ## Releasing
 
-For every pull request and every push to main, GitHub Actions runs the tests on Windows, builds the installer and the portable app, and starts each form (unpacked, silently installed and portable), including the packaged Claude MCP connection.
+For every pull request and every push to main, GitHub Actions runs the tests on Windows, puts the built-in JobSpy together, builds the installer and the portable app, and starts each form (unpacked, silently installed and portable), including the packaged Claude MCP connection.
 
 To release, change `version` in `package.json` (for example to `0.2.0`) and merge to main. If that version has not been released yet, the workflow publishes the files it just verified as release `v0.2.0`. There is no tag to push, and releases are never published by hand on GitHub.
 
@@ -413,4 +447,4 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-windows-build.ps1 -Versi
 
 ## License notes
 
-The scrapers follow [JobSpy](https://github.com/speedyapply/JobSpy) (MIT); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The scrapers follow [JobSpy](https://github.com/speedyapply/JobSpy) (MIT). The Windows builds carry Python, JobSpy and the packages it uses, each under its own license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

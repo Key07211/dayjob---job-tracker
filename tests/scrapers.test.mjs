@@ -176,7 +176,7 @@ test('company job ids split even when slugs contain dashes', async () => {
 
 test('JobSpy bridge arguments and records', async () => {
   const args = bridgeArgs('glassdoor', { keywords: 'data scientist', location: 'Austin, TX', hoursOld: 48, isRemote: true, resultsWanted: 15, country: 'usa' });
-  assert.deepEqual(args.slice(0, 3), ['-m', 'jobspy', 'data scientist']);
+  assert.deepEqual(args.slice(0, 5), ['-X', 'utf8', '-m', 'jobspy', 'data scientist'], 'Python prints UTF-8 whatever the Windows code page');
   assert.ok(args.includes('--remote') && args.includes('--hours-old') && args.includes('glassdoor'));
   const item = fromRecord({ site: 'glassdoor', id: 'gd-123', title: 'Data Scientist', company: 'Initech', job_url: 'https://www.glassdoor.com/job-listing/123',
     location: 'Austin, TX', min_amount: 100000, max_amount: 130000, interval: 'yearly', currency: 'USD', date_posted: '2026-10-19', is_remote: false, job_type: 'fulltime' });
