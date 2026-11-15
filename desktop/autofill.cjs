@@ -3,11 +3,15 @@
 // user's application profile happens here, outside the page, and each frame
 // is sent only the values for its own matched fields.
 
+const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
+
 // Runs in the page: in an isolated world for the top frame (which also reaches
 // same-site frames and open shadow roots), and in other sites' frames directly,
 // under a name chosen for each run so the page cannot stand in for it.
-function installAutofill(name) {
+// makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
+function installAutofill(name, makeHidden) {
   if (globalThis[name]) return globalThis[name];
+  const hidden = makeHidden();
   let registry = [];
   let uploads = [];
   const clean = (value, max = 200) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -31,7 +35,7 @@ function installAutofill(name) {
     return found;
   }
   function visible(element) {
-    if (element.type === 'hidden' || element.closest('[aria-hidden="true"], [inert]')) return false;
+    if (element.type === 'hidden' || hidden(element)) return false;
     if (!element.checkVisibility?.({ visibilityProperty: true })) {
       // Custom radios and checkboxes hide the input and show its label.
       const label = element.labels?.[0];
@@ -667,7 +671,7 @@ function acceptsFile(accept, { name = '', mime = '' }) {
 
 // The code that runs one step in a frame.
 function autofillScript(name, method, args) {
-  return `(${installAutofill.toString()})(${JSON.stringify(name)}).${method}(${args === undefined ? '' : JSON.stringify(args)})`;
+  return `(${installAutofill.toString()})(${JSON.stringify(name)}, ${HIDDEN_SOURCE}).${method}(${args === undefined ? '' : JSON.stringify(args)})`;
 }
 
 module.exports = { autofillScript, planFill, keyFor, optionFor, pickFileField, acceptsFile };

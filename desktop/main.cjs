@@ -359,6 +359,20 @@ fieldset{border:0;margin:14px 0;padding:0}.opt{position:relative;display:block;w
 <p><label>Verification code <input name="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label></p>
 <button type="button">Save answers</button></form></body></html>`;
 
+// A form the way Meta Careers builds it: the box that holds the whole page is marked aria-hidden="true" ("not for
+// screen readers") although no dialog is open and every field is in plain view. Inside it, a field kept for robots
+// in a small box of its own, marked the same way and pushed off the page. The Review button opens a real dialog over
+// the page.
+const MARKED_HIDDEN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Marked Co</title>
+<style>html,body{margin:0;height:100%}#scrollview{height:100vh;overflow-y:auto}#inner{padding:16px}label{display:block;margin:8px 0}</style></head>
+<body><div id="scrollview" aria-hidden="true"><div id="inner"><h1>Apply for Data Analyst</h1><form action="/applied" method="get">
+<label>First name <input name="first"></label><label>Email <input name="email" type="email"></label>
+<div aria-hidden="true" style="position:absolute;left:-5000px"><label>Leave this empty <input name="website" tabindex="-1"></label></div>
+<button type="button" role="combobox" aria-expanded="false">Country</button>
+<button type="button" onclick="document.getElementById('sure').showModal()">Review</button>
+<button>Submit application</button></form></div></div>
+<dialog id="sure"><p>Have you checked your answers?</p><button type="button" onclick="this.closest('dialog').close()">Not yet</button></dialog></body></html>`;
+
 // A second job at the same company, and an application form that never says which job or company it is for.
 const SECOND_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Research Analyst · Smoke Co</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Research Analyst","hiringOrganization":{"@type":"Organization","name":"Smoke Co"},
@@ -416,6 +430,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
     if (url.pathname === '/choices') return response.end(CHOICE_PAGE);
+    if (url.pathname === '/marked-hidden') return response.end(MARKED_HIDDEN_PAGE);
     if (url.pathname === '/jobs/9') return response.end(SECOND_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
@@ -525,6 +540,20 @@ async function smokeBrowser(token) {
       && (await call('type', { ref: option('textbox', 'Preferred first name'), text: 'Smokey' })).typed.value === 'Smokey';
     const refusedCode = await post('type', { ref: option('textbox', 'Verification code'), text: '123456' });
     steps.codeRefused = refusedCode.status === 409 && /one-time codes, and e\d+ \(“Verification code”\)/.test((await refusedCode.json()).error) && !(await answer()).includes('123456');
+    // 整页被标成“对读屏软件隐藏”: such a page is read, filled and typed in like any other. The field kept for robots in
+    // it stays out of sight, and once a dialog is open over the page only the dialog is offered.
+    await call('open', { url: `${base}/marked-hidden` });
+    const marked = await call('read');
+    const markedNames = marked.elements.map(item => item.name);
+    steps.markedRead = ['First name', 'Email', 'Country', 'Review', 'Submit application'].every(name => markedNames.includes(name))
+      && !markedNames.includes('Leave this empty');
+    const markedFill = await browser.autofill({});
+    steps.markedFilled = markedFill.filled.map(item => item.key).sort().join(',') === 'email,firstName'
+      && (await tabPage().executeJavaScript("document.querySelector('[name=first]').value + '|' + document.querySelector('[name=email]').value + '|' + document.querySelector('[name=website]').value"))
+        === 'Smoke|smoke@example.com|';
+    await call('click', { ref: marked.elements.find(item => item.name === 'Review').ref });
+    const behind = (await call('read')).elements.map(item => item.name);
+    steps.markedBehindDialog = behind.includes('Not yet') && !behind.includes('First name') && !behind.includes('Submit application');
     await call('open', { url: `${base}/jobs/7` });
     const job = await call('read');
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
@@ -666,7 +695,8 @@ async function smokeBrowser(token) {
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'assistantAsked',
     'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
-    'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused'].every(step => steps[step] === true);
+    'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
+    'markedRead', 'markedFilled', 'markedBehindDialog'].every(step => steps[step] === true);
   return steps;
 }
 
