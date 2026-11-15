@@ -4,6 +4,7 @@
 //   npm run live-check -- --pipeline           # also a full run into a temporary database
 //   npm run live-check -- --score resume.pdf   # also score one posting with Claude Code
 //   npm run live-check -- --jobspy             # also try the Python JobSpy bridge
+//   npm run live-check -- --past               # also search LinkedIn and Indeed a second time, past the jobs of the first
 // Writes a JSON report next to the console summary (--out report.json).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,6 +16,7 @@ import { indeed } from '../server/jobs/scrapers/indeed.mjs';
 import { checkCompanyJob, fetchCompanyBoard } from '../server/jobs/scrapers/company-boards.mjs';
 import { createJobspyBridge, detectJobspy } from '../server/jobs/scrapers/jobspy-bridge.mjs';
 import { boardQuery } from '../server/jobs/matching.mjs';
+import { lookPast } from '../server/jobs/search-runner.mjs';
 
 const { values } = parseArgs({ options: {
   keywords: { type: 'string', default: 'data scientist' },
@@ -26,6 +28,7 @@ const { values } = parseArgs({ options: {
   pipeline: { type: 'boolean', default: false },
   score: { type: 'string' },
   jobspy: { type: 'boolean', default: false },
+  past: { type: 'boolean', default: false },
   python: { type: 'string', default: process.platform === 'win32' ? 'python' : 'python3' },
   out: { type: 'string', default: 'live-check-report.json' },
 } });
@@ -76,6 +79,20 @@ async function board(scraper) {
     summary: `${postings.length} 个岗位，发布日期 ${completeness(postings).datePosted}，描述 ${completeness(postings).description}，检查开放 = ${open}` };
 }
 
+// What a daily run does from its second day on: the jobs of the first search are held already, so the same search
+// reads on past them for as many new ones. A job that is held is passed on again, and its page is not read again.
+async function past(scraper) {
+  const first = await scraper.search(input, { http, log });
+  const held = new Set(first.postings.map(item => String(item.externalId)));
+  if (!held.size) return { ok: false, problem: '没有返回岗位', warnings: first.warnings };
+  const second = await scraper.search({ ...input, known: id => held.has(String(id)), rejects: () => false, lookPast: lookPast(input.resultsWanted) }, { http, log });
+  const fresh = second.postings.filter(item => !held.has(String(item.externalId)));
+  const again = second.postings.length - fresh.length;
+  return { ok: fresh.length > 0, problem: fresh.length ? undefined : `第二次没有翻到新的岗位（第一次 ${held.size} 个，第二次又见到其中 ${again} 个）`,
+    first: held.size, again, fresh: fresh.length, lookPast: lookPast(input.resultsWanted), warnings: second.warnings, completeness: completeness(fresh), sample: sample(fresh[0]),
+    summary: `第一次 ${held.size} 个；第二次越过其中 ${again} 个，又找到 ${fresh.length} 个新的，描述 ${completeness(fresh).description}` };
+}
+
 async function company(ats, slug) {
   const item = { name: slug, ats, slug };
   const postings = await fetchCompanyBoard(item, { http, log });
@@ -88,6 +105,10 @@ async function company(ats, slug) {
 
 await check('LinkedIn 搜索 + 岗位详情', () => board(linkedin));
 await check('Indeed 搜索', () => board(indeed));
+if (values.past) {
+  await check('LinkedIn 越过已有的岗位', () => past(linkedin));
+  await check('Indeed 越过已有的岗位', () => past(indeed));
+}
 await check(`Greenhouse (${values.greenhouse})`, () => company('greenhouse', values.greenhouse));
 await check(`Lever (${values.lever})`, () => company('lever', values.lever));
 await check(`Ashby (${values.ashby})`, () => company('ashby', values.ashby));

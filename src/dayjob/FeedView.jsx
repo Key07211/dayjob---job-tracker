@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
-import { label, relativeDay, salaryText } from './format.js';
+import { label, recentTime, relativeDay, salaryText } from './format.js';
+import { feedNote } from './run-outcome.js';
 import { useI18n } from '../i18n.jsx';
 import { ScoreBadge } from './ScoreBadge.jsx';
 import { PostingDetail } from './PostingDetail.jsx';
@@ -23,6 +24,11 @@ const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label
 const LOW_SCORE = 60;
 const SCORES = [{ id: '', label: ['任意匹配度', 'Any match'] }, { id: '65', label: ['≥ 65', '≥ 65'] }, { id: '75', label: ['≥ 75', '≥ 75'] }, { id: '85', label: ['≥ 85', '≥ 85'] }];
 
+// The newest search's note on Today is put away per run: the id of the run whose note was last closed.
+const RUN_NOTE = 'dayjob-run-note';
+const recall = key => { try { return localStorage.getItem(key); } catch { return null; } };
+const keep = (key, value) => { try { localStorage.setItem(key, value); } catch { /* optional */ } };
+
 function useDebounced(value, delay) {
   const [current, setCurrent] = useState(value);
   useEffect(() => {
@@ -32,8 +38,13 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null }) {
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null, lastRun = null }) {
   const { t } = useI18n();
+  // Today says where the jobs of the newest search went when not all of them were new (most often: Dayjob had them
+  // already), so a search that "found 32" and added none is explained where the user looks for them.
+  const [noteClosed, setNoteClosed] = useState(() => recall(RUN_NOTE));
+  const runNote = mode === 'active' && lastRun && lastRun.id !== noteClosed ? feedNote(lastRun, t, recentTime(lastRun.finishedAt)) : '';
+  const closeRunNote = () => { keep(RUN_NOTE, lastRun.id); setNoteClosed(lastRun.id); };
   const [filters, setFilters] = useState({ q: '', site: '', minScore: '', sort: focus ? 'score' : mode === 'saved' ? 'seen' : 'posted', sinceDays: '', searchId: '', includeClosed: mode === 'saved' });
   // In a narrow view the filters fold behind 筛选; the number on it is how many of them narrow the list just now.
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -257,6 +268,8 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
         </div>
       </header>
       {scoringMessage ? <p className="notice">{scoringMessage}</p> : null}
+      {runNote ? <p className="notice run-note">{runNote}<button className="link" onClick={() => setView('searches')}>{t('看抓取记录', 'See the run')}</button>
+        <button className="link" onClick={closeRunNote}>{t('知道了', 'OK')}</button></p> : null}
       {noneLow ? <p className="notice">{t(`没有低于 ${LOW_SCORE} 分的新岗位。`, `No new jobs score under ${LOW_SCORE}.`)}<button className="link" onClick={() => setNoneLow(false)}>{t('知道了', 'OK')}</button></p> : null}
       {/* The page is a container (for its own layout), so the bar is placed on the window itself to sit at its bottom. */}
       {undo ? createPortal(

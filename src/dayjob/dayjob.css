@@ -426,6 +426,7 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .run-detail em { flex: 1 1 130px; min-width: 0; overflow-wrap: anywhere; font-style: normal; }
 .run-detail li.error em { color: var(--red); }
 .run-detail li.warning em { color: var(--orange); }
+.run-detail li.known { padding-bottom: 3px; margin-bottom: 3px; border-bottom: 1px dashed var(--line); }
 
 /* ---------- notifications ---------- */
 .notifications {

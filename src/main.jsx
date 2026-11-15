@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
@@ -15,6 +15,7 @@ import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.j
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
 import { AssistantCard } from './dayjob/assistant/AssistantCard.jsx';
 import { AssistantPane } from './dayjob/assistant/AssistantPane.jsx';
+import { runResult } from './dayjob/run-outcome.js';
 import { assistant, onAssistantEffect, useAssistant } from './dayjob/assistant/store.js';
 import { Guide } from './dayjob/guide/Guide.jsx';
 import { guide, useGuide } from './dayjob/guide/store.js';
@@ -62,6 +63,25 @@ const ASSISTANT_WIDTH = 360;
 const paneLimits = windowWidth => [PANE_MIN, Math.max(PANE_MIN, windowWidth - SIDEBAR - VIEW_MIN)];
 const read = (storage, key) => { try { return storage.getItem(key); } catch { return null; } };
 const keep = (storage, key, value) => { try { storage.setItem(key, value); } catch { /* optional */ } };
+
+// The sidebar holds its keys, the assistant's card and the record in smaller forms as it gets shorter (groove.css,
+// assistant.css). What counts is the room those have: the window's height less what the lines under the record take
+// (a search's result, the paused line, the pause button), which come and go. Each step is a class on the sidebar.
+const SIDE_STEPS = [909, 879, 729, 690, 599];
+const EXTRA_GAP = 8;
+function useSidebarRoom() {
+  const [extra, setExtra] = useState(null);
+  const [room, setRoom] = useState(() => window.innerHeight);
+  useLayoutEffect(() => {
+    const measure = () => setRoom(window.innerHeight - (extra ? extra.offsetHeight + EXTRA_GAP : 0));
+    measure();
+    window.addEventListener('resize', measure);
+    const watch = extra && typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    watch?.observe(extra);
+    return () => { window.removeEventListener('resize', measure); watch?.disconnect(); };
+  }, [extra]);
+  return { room, extraRef: setExtra, steps: SIDE_STEPS.filter(step => room <= step).map(step => ` h${step}`).join('') };
+}
 
 function nextRunText(value) {
   if (!value) return tr('点唱片开始抓取', 'Click the record to search');
@@ -111,6 +131,7 @@ function App() {
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
+  const side = useSidebarRoom();
   // Stopping a search: while it winds down, then what it kept, for a few seconds under the record.
   const [stopping, setStopping] = useState(false);
   const [deckNote, setDeckNote] = useState('');
@@ -176,12 +197,21 @@ function App() {
       setDataVersion(version => version + 1);
       // Only a search has a result to report; a scoring batch just refreshes the list.
       const run = wasSearching.current ? status?.runs?.[0] : null;
-      if (run) setRunMessage(run.status === 'failed' ? tr('这次抓取没有成功，详情见“搜索与公司”。', 'This search did not succeed. See Searches for details.')
-        : tr(`抓取完成：${run.found} 个岗位，其中 ${run.newCount} 个是新的。`, `Done: ${run.found} jobs, ${run.newCount} new.`));
+      if (run) setRunMessage(runResult(run, tr));
     }
     wasRunning.current = busy;
     wasSearching.current = Boolean(status?.scheduler?.running);
   }, [busy, status]);
+
+  // A search was just asked for, here or on the Searches page. It can be over before the next look at the status (a
+  // short one ends within seconds); noted here, it still ends with its result said and the lists read again.
+  const runStarted = useCallback(async () => {
+    wasRunning.current = true;
+    wasSearching.current = true;
+    const next = await api('/api/status');
+    setStatus(next);
+    return next;
+  }, []);
 
   const finishBatch = useCallback(() => {
     const f = feed.current;
@@ -295,7 +325,7 @@ function App() {
     emit('fetch');
     try {
       await api('/api/runs', { method: 'POST', body: {} });
-      setStatus(await api('/api/status'));
+      await runStarted();
     } catch (failure) { setRunMessage(failure.message); }
   }
 
@@ -342,7 +372,7 @@ function App() {
   const trackSub = track ? [track.artist, appName(track.app, t)].filter(Boolean).join(' · ') : '';
   const openApplications = ['applied', 'oa', 'interview', 'offer'].reduce((sum, key) => sum + (stats.applications[key] || 0), 0);
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
-  const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')) };
+  const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')), runStarted };
   const focusFor = target => (focus?.view === target ? focus.id : null);
   // The assistant as a full page stands where the view does. When the browser takes the page instead (made wide,
   // or the window too narrow for both), the chat docks at the side so it stays in sight.
@@ -401,7 +431,7 @@ function App() {
   return (
     <div className={`app-shell${tour.on ? ' guiding' : ''}`}>
       {opening}
-      <aside className="sidebar" inert={tour.on}>
+      <aside className={`sidebar${side.steps}`} inert={tour.on}>
         <div className="brand">
           <BrandMark label={t('回到主页', 'Back to Home')} onClick={() => goTo('home')} />
           <Wordmark />
@@ -414,7 +444,7 @@ function App() {
         <PianoNav items={pianoKeys} theme={theme} label={t('主导航', 'Main navigation')} />
         <div className="sidebar-foot">
           <UpdateItem state={update} />
-          <AssistantCard form={assistantForm} asking={asking} onForm={assistant.setForm} />
+          <AssistantCard form={assistantForm} asking={asking} onForm={assistant.setForm} large={side.room > 729} />
           <button ref={bell} className={`nav-item${showNotifications ? ' active' : ''}`} data-fx="bell" onClick={() => setShowNotifications(value => !value)}>
             <Bell size={18} /><span>{t('通知', 'Notifications')}</span>{stats.unreadNotifications ? <em key={stats.unreadNotifications}>{stats.unreadNotifications}</em> : null}
           </button>
@@ -423,9 +453,9 @@ function App() {
             title={track ? track.title : t('每日推荐', 'Daily picks')}
             sub={runText || deckNote || trackSub || nextRunText(scheduler.nextRunAt)} dim={scoring.paused && !deckBusy} />
           {scoring.paused || runMessage || scoringNow ? (
-            <div className="run-extra">
+            <div className="run-extra" ref={side.extraRef}>
               {scoring.paused ? <p className="run-paused"><Pause size={14} />{scoring.held ? t(`AI 打分已暂停，${scoring.held} 个岗位等着打分`, `AI scoring is paused; ${scoring.held} ${scoring.held === 1 ? 'job is' : 'jobs are'} waiting`) : t('AI 打分已暂停', 'AI scoring is paused')}</p> : null}
-              {runMessage ? <p className="run-message">{runMessage}</p> : null}
+              {runMessage ? <p className="run-message" title={runMessage}>{runMessage}</p> : null}
               {scoringNow ? <button className="button block" data-fx="morph" onClick={() => setScoringPaused(true)}><Pause size={15} />{t('暂停打分', 'Pause scoring')}</button>
                 : scoring.paused ? <button className="button block" data-fx="morph" onClick={() => setScoringPaused(false)}><Play size={15} />{t('继续打分', 'Resume scoring')}</button> : null}
             </div>
@@ -439,7 +469,7 @@ function App() {
           {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
             <>
               {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} /> : null}
+              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} lastRun={status?.runs?.find(run => run.finishedAt) || null} /> : null}
               {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
               {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
               {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}

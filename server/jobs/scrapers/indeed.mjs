@@ -107,10 +107,19 @@ export const indeed = {
     const base = `https://${subdomain}.indeed.com`;
     const headers = { ...HEADERS, 'indeed-co': code, 'indeed-locale': `${language}-${code}` };
     const wanted = input.resultsWanted || 25;
+    // The number asked for counts jobs that are of use: with input.lookPast, the search reads on past that many
+    // results, at most, that are not (see linkedin.mjs). A job Dayjob already holds (input.known) is passed on all the
+    // same, so Dayjob knows it is still listed; one the search's filters turn away (input.rejects) is left out.
+    const past = Math.max(0, Number(input.lookPast) || 0);
+    const known = past && typeof input.known === 'function' ? input.known : () => false;
+    const rejects = past && typeof input.rejects === 'function' ? input.rejects : () => false;
     const results = [];
     const seen = new Set();
     let cursor = null;
-    while (results.length < wanted) {
+    let added = 0;
+    let passed = 0;
+    let done = false;
+    while (!done && added < wanted) {
       const body = JSON.stringify({ query: buildQuery(input, cursor) });
       let response;
       try {
@@ -129,8 +138,16 @@ export const indeed = {
       const fresh = (search.results || []).map(result => result.job).filter(job => job?.key && !seen.has(job.key));
       fresh.forEach(job => seen.add(job.key));
       for (const job of fresh) {
-        if (results.length >= wanted) break;
-        try { results.push(toPosting(job, base)); } catch (error) { log(`indeed ${job.key}: ${error.message}`); }
+        if (added >= wanted) break;
+        let item;
+        try { item = toPosting(job, base); } catch (error) { log(`indeed ${job.key}: ${error.message}`); continue; }
+        const turned = rejects(item);
+        if (turned || known(job.key)) {
+          if (passed >= past) { done = true; break; }
+          passed += 1;
+          if (turned) continue;
+        } else added += 1;
+        results.push(item);
       }
       cursor = search.pageInfo?.nextCursor;
       if (!fresh.length || !cursor) break;

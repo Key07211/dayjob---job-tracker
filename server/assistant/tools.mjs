@@ -119,7 +119,9 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     {
       name: 'get_status', tier: 'read', view: 'home',
       description: 'Read Dayjob\'s state: the computer\'s local time and time zone, how many postings are new or saved, applications by status, '
-        + 'whether a search or scoring is running, when the next daily search is, the scoring mode, and the latest search runs.',
+        + 'whether a search or scoring is running, when the next daily search is, the scoring mode, and the latest search runs. A run\'s outcome '
+        + 'says where the jobs it found went: new (added to Today), listed (already in Today), saved, removed (the user had moved them to Not interested, '
+        + 'where they stay), applied, duplicates (the same job from another site).',
       shape: {},
       label: () => ['看了一下现在的状态', 'Checked how things stand'],
       async run() {
@@ -129,7 +131,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
           search: { running: state.scheduler.running, phase: state.scheduler.phase, nextRunAt: state.scheduler.nextRunAt, dailyAt: settings.schedule.enabled ? settings.schedule.time : null },
           scoring: { mode: state.scoring.mode, available: state.scoring.available, paused: state.scoring.paused, held: state.scoring.held, resumes: state.scoring.resumes,
             running: Boolean(state.scheduler.scoringBatch) },
-          lastRuns: state.runs.slice(0, 3).map(run => ({ startedAt: run.startedAt, status: run.status, found: run.found, newCount: run.newCount, scored: run.scored })) } };
+          lastRuns: state.runs.slice(0, 3).map(run => ({ startedAt: run.startedAt, status: run.status, found: run.found, newCount: run.newCount, scored: run.scored, ...(run.outcome ? { outcome: run.outcome } : {}) })) } };
       },
     },
     {

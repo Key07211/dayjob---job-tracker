@@ -6,6 +6,20 @@ import { sourcePlan } from './source-quota.mjs';
 
 const COMPANY_DELAY_MS = 800;
 
+// A board answers with its best matches first, and those are much the same from one day to the next. So the jobs
+// Dayjob already holds, and those the search's own filters turn away, do not count toward the number a search asks
+// for: the search reads on past them, this far at most, until it has that many jobs it did not have.
+export const lookPast = wanted => Math.min(200, Math.max(50, wanted * 3));
+
+// Where the jobs a run found went, each job once however many searches found it.
+const OUTCOME = { new: 'listed', saved: 'saved', dismissed: 'removed', applied: 'applied' };
+const emptyTotals = () => ({ seen: new Set(), outcome: { new: 0, listed: 0, saved: 0, removed: 0, applied: 0, duplicates: 0 } });
+function tally(totals, stored) {
+  if (totals.seen.has(stored.id)) return;
+  totals.seen.add(stored.id);
+  totals.outcome[stored.isNew ? 'new' : stored.duplicate ? 'duplicates' : OUTCOME[stored.was] || 'listed'] += 1;
+}
+
 // The shared HTTP client, for one run: its requests and its waits end as soon as the run is stopped.
 function stoppable(http, signal) {
   if (!signal) return http;
@@ -29,13 +43,15 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
   let progress = null;
 
   // wanted: how many results this search asks of each of its boards in this run (source-quota.mjs). A board with 0 is left out.
+  // LinkedIn and Indeed are told which jobs Dayjob already holds, so they read past those (JobSpy's sites are asked as before).
   async function searchOne(search, wanted, detail, totals, newIds, { http, signal }) {
     const base = { keywords: boardQuery(search.keywords), location: search.location, distance: search.distance, hoursOld: search.hoursOld,
       jobType: search.jobType, isRemote: search.isRemote, country: search.country };
     for (const site of search.sites) {
       if (signal?.aborted) return;
       if (!wanted[site]) continue;
-      const input = { ...base, resultsWanted: wanted[site] };
+      const input = { ...base, resultsWanted: wanted[site], known: id => repo.holdsPosting(site, id),
+        rejects: item => !passesFilters(item, search), lookPast: lookPast(wanted[site]) };
       const source = `${search.name} · ${site}`;
       try {
         let result;
@@ -47,11 +63,10 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
         for (const item of result.postings) {
           if (!passesFilters(item, search)) continue;
           const stored = repo.upsertPosting(item, search.id);
+          tally(totals, stored);
           kept += 1;
           if (stored.isNew) { fresh += 1; newIds.add(stored.id); }
         }
-        totals.found += kept;
-        totals.newCount += fresh;
         detail.push({ source, found: kept, new: fresh, asked: wanted[site], warnings: result.warnings || [] });
       } catch (error) {
         if (signal?.aborted) return;
@@ -76,14 +91,13 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
           seenIds.push(postingId(item));
           const matches = searches.filter(search => companyJobMatches(item, search, now()));
           if (!matches.length) continue;
-          let stored;
-          for (const search of matches) stored = repo.upsertPosting(item, search.id);
+          // The first search to store it says whether the job is new; the others only add their name to it.
+          const [stored] = matches.map(search => repo.upsertPosting(item, search.id));
+          tally(totals, stored);
           kept += 1;
           if (stored.isNew) { fresh += 1; newIds.add(stored.id); }
         }
         const closed = repo.markUnseenCompanyJobsClosed(company.ats, company.slug, seenIds);
-        totals.found += kept;
-        totals.newCount += fresh;
         detail.push({ source, found: kept, new: fresh, listed: jobs.length, closed: closed.length });
       } catch (error) {
         if (signal?.aborted) return;
@@ -98,7 +112,7 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
     const http = stoppable(sharedHttp, signal);
     const runId = repo.startRun('search', trigger);
     const detail = [];
-    const totals = { found: 0, newCount: 0 };
+    const totals = emptyTotals();
     const newIds = new Set();
     const enabled = repo.listSearches().filter(search => search.enabled);
     // Each board's number is divided among every enabled search, so a search run on its own asks for what it asks for in the daily run.
@@ -123,7 +137,8 @@ export function createSearchRunner({ repo, http: sharedHttp, bridge, now = () =>
       detail.push({ source: 'dayjob', warning: 'Stopped before it finished.', cancelled: true });
       if (status === 'succeeded') status = 'partial';
     }
-    const run = repo.finishRun(runId, { status, found: totals.found, newCount: totals.newCount, detail });
+    // found: the different jobs this run came across; a job two searches found counts once.
+    const run = repo.finishRun(runId, { status, found: totals.seen.size, newCount: totals.outcome.new, detail, outcome: totals.outcome });
     return { run, newIds: [...newIds] };
   }
 

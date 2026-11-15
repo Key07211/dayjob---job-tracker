@@ -62,7 +62,7 @@ test('postings upsert, dedupe across boards, reopen and filter', () => {
   const { repo } = memoryRepo(now);
   const search = repo.saveSearch({ name: 'DS', keywords: 'data scientist', sites: ['linkedin', 'indeed'] });
   const first = repo.upsertPosting(job(), search.id);
-  assert.deepEqual(first, { id: 'li-1', isNew: true, reopened: false });
+  assert.deepEqual(first, { id: 'li-1', isNew: true, reopened: false, was: null, duplicate: false });
   assert.equal(repo.upsertPosting(job({ description: null }), search.id).isNew, false);
   assert.equal(repo.getPosting('li-1').description, 'Python', 'a later run without a description keeps the old one');
 

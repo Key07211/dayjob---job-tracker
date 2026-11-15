@@ -18,7 +18,7 @@ export function PianoNav({ items, theme, label }) {
     item.onSelect();
   }
   return (
-    <nav className="keys" aria-label={label}>
+    <nav className="keys" aria-label={label} style={{ '--keys': items.length }}>
       {items.map((item, index) => (
         <button key={item.id} type="button" data-view={item.id} className={`pkey${item.active ? ' on' : ''}${down === item.id ? ' down' : ''}`}
           aria-current={item.active ? 'page' : undefined} onClick={() => press(item)}>

@@ -727,7 +727,7 @@ function SourceQuota({ value, onChange, sites, searches }) {
           {SOURCE_MODES.map(([mode, zh, en]) => <button key={mode} type="button" className={value.mode === mode ? 'active' : ''} onClick={() => set({ mode })}>{t(zh, en)}</button>)}
         </div>
         <small>{value.mode === 'search' ? t('每个搜索用它自己的“每个网站最多”，在“搜索与公司”里改。', 'Each search uses its own “Results per site”, set under Searches.')
-          : value.mode === 'count' ? t('每次抓取向每个来源最多要多少条。0 就是不抓这个来源。', 'The most each source is asked for in one run. 0 leaves the source out.')
+          : value.mode === 'count' ? t('整次抓取从每个来源最多带回多少个岗位，由勾了它的搜索平分。0 就是不抓这个来源。', 'The most one whole run brings back from each source, shared by the searches that tick it. 0 leaves the source out.')
             : t('定一个总数，再按比例分给各个来源。数字越大分得越多，比如 3 和 1 就是 75% 和 25%；0 就是不抓。', 'Set one total, shared between the sources. A larger number gets more: 3 and 1 make 75% and 25%; 0 leaves the source out.')}</small>
       </div>
       {value.mode === 'share' ? (
@@ -749,7 +749,8 @@ function SourceQuota({ value, onChange, sites, searches }) {
         </ul>
       ) : null}
       <p className="hint">{enabled.length
-        ? t(`这样每次抓取最多向招聘网站要 ${plan.total} 条；重复的和被筛选条件挡掉的不会进列表，所以实际会少一些。`, `A run then asks the job sites for ${plan.total} results at most; duplicates and jobs your filters turn away are left out, so fewer arrive.`)
+        ? t(`这样每次抓取最多带回 ${plan.total} 个岗位。在 LinkedIn 和 Indeed 上，已经有的岗位和被筛选条件挡掉的不占这个数，Dayjob 会接着往后翻一段去找新的；其他来源按条数要，重复的和被挡掉的不进列表，所以会少一些。`,
+          `A run then brings back ${plan.total} jobs at most. On LinkedIn and Indeed, jobs Dayjob already has and jobs your filters turn away do not count toward that: Dayjob reads on for a while to find new ones. The other sources are asked for that many results, and duplicates and filtered jobs are left out, so fewer arrive.`)
         : t('还没有启用的搜索。', 'There is no enabled search yet.')}
         {value.mode !== 'search' ? t('几个搜索勾了同一个来源时，这个来源的数平均分给它们。', ' When several searches tick the same source, they share its number evenly.') : ''}
         {t('关注的公司招聘页不算在内，每次都把在招的岗位全部看一遍。', ' Followed company boards are not counted: every open job on them is read each time.')}</p>

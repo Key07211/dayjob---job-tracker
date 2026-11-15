@@ -44,26 +44,23 @@
   transition: background 156ms, border-color 156ms, color 156ms; }
 .assistant-card-forms button:hover { border-color: var(--side-text); }
 .assistant-card-forms button.active { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-/* Not a tall window: the small gramophone, its name beside it, the two buttons under them. */
-@media (max-height: 729px) {
-  .assistant-card { gap: 7px; padding: 8px 9px 9px; border-radius: 14px; }
-  .assistant-card-face { gap: 8px; }
-  .assistant-card-text { gap: 1px; }
-  .assistant-card-text strong { font-size: 14px; }
-  .assistant-card-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .assistant-card-forms button { height: 26px; }
-}
-/* A short window: one block, the gramophone at the left; beside it one line (its name, or what it is doing
+/* The sidebar's steps (groove.css; main.jsx puts them on it as classes). Not a tall one: the small gramophone, its
+   name beside it, the two buttons under them. */
+.sidebar.h729 .assistant-card { gap: 7px; padding: 8px 9px 9px; border-radius: 14px; }
+.sidebar.h729 .assistant-card-face { gap: 8px; }
+.sidebar.h729 .assistant-card-text { gap: 1px; }
+.sidebar.h729 .assistant-card-text strong { font-size: 14px; }
+.sidebar.h729 .assistant-card-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar.h729 .assistant-card-forms button { height: 26px; }
+/* A short one: one block, the gramophone at the left; beside it one line (its name, or what it is doing
    while it is doing something) and the two buttons under that line. */
-@media (max-height: 690px) {
-  .assistant-card { position: relative; gap: 0; padding: 5px 8px 5px 6px; }
-  .assistant-card-face { align-items: flex-start; min-height: 46px; }
-  .assistant-card-face .gramophone { margin-top: 3px; }
-  .assistant-card-text strong, .assistant-card-text small { font-size: 13px; font-weight: 700; line-height: 17px; color: var(--side-text); }
-  .assistant-card.stated .assistant-card-text strong { display: none; }
-  .assistant-card-forms { position: absolute; left: 54px; right: 8px; bottom: 5px; gap: 5px; }
-  .assistant-card-forms button { height: 24px; font-size: 12px; }
-}
+.sidebar.h690 .assistant-card { position: relative; gap: 0; padding: 5px 8px 5px 6px; }
+.sidebar.h690 .assistant-card-face { align-items: flex-start; min-height: 46px; }
+.sidebar.h690 .assistant-card-face .gramophone { margin-top: 3px; }
+.sidebar.h690 .assistant-card-text strong, .sidebar.h690 .assistant-card-text small { font-size: 13px; font-weight: 700; line-height: 17px; color: var(--side-text); }
+.sidebar.h690 .assistant-card.stated .assistant-card-text strong { display: none; }
+.sidebar.h690 .assistant-card-forms { position: absolute; left: 54px; right: 8px; bottom: 5px; gap: 5px; }
+.sidebar.h690 .assistant-card-forms button { height: 24px; font-size: 12px; }
 
 /* ---------- the gramophone ---------- */
 /* A pixel drawing on a canvas (Gramophone.jsx). Still unless something is happening: thinking turns the record, a tool
