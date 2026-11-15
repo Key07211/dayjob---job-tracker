@@ -373,6 +373,98 @@ const MARKED_HIDDEN_PAGE = `<!doctype html><html lang="en"><head><meta charset="
 <button>Submit application</button></form></div></div>
 <dialog id="sure"><p>Have you checked your answers?</p><button type="button" onclick="this.closest('dialog').close()">Not yet</button></dialog></body></html>`;
 
+// Dropdowns and choices a page draws itself, the ways application forms draw them. All of it sits in a box marked
+// aria-hidden, as on Meta Careers, whose two dropdowns the first one is built after: a button that says it is a
+// combobox and opens a box with a search field and a list, of which only the first rows are there until the
+// search is typed in (the rows come a moment later). Then a dropdown with no role anywhere, whose list is put at
+// the end of the page; a field that suggests places as you type (two of them read the same); tiles that are radio
+// buttons and a button that is a switch; a menu that opens under the mouse; and two things to click that say
+// nothing about themselves, one of which deletes.
+const WIDGET_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>More questions · Smoke Co</title><style>
+html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;overflow-y:auto}#inner{position:relative;padding:16px;min-height:1400px}p{margin:14px 0}
+.pop{position:absolute;z-index:9;width:280px;max-height:150px;overflow:auto;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #888}
+.pop ul{list-style:none;margin:0;padding:0}.pop li,.pop .row{padding:6px 10px}.pop li{cursor:pointer}
+.dd,.tile{display:inline-block;padding:8px 12px;border:1px solid #888;border-radius:6px;cursor:pointer}.more{position:relative;display:inline-block}
+.more .menu{display:none;position:absolute;left:100%;top:0;padding:0 8px;background:#fff;border:1px solid #888;white-space:nowrap}.more:hover .menu{display:block}</style></head>
+<body><div id="scrollview" aria-hidden="true"><div id="inner"><h1>More questions</h1><form action="/answered" method="get">
+<input type="hidden" name="code" value="+1"><input type="hidden" name="dept"><input type="hidden" name="how" value="email"><input type="hidden" name="news" value="no"><input type="hidden" name="refs" value="0">
+<p><button type="button" id="code-button" role="combobox" aria-label="Code" aria-controls="code-pop" aria-expanded="false"><span>Code</span> <span id="code-now">+1</span></button></p>
+<p><span class="dd" id="dept">Department: <b id="dept-now">Choose one</b></span></p>
+<p><label>Current city <input id="city" name="city" role="combobox" aria-autocomplete="list" aria-controls="city-list" aria-expanded="false" autocomplete="off"></label></p>
+<div role="radiogroup" aria-label="How should we reach you?"><div class="tile" role="radio" aria-checked="true" tabindex="0" data-how="email">By email</div>
+<div class="tile" role="radio" aria-checked="false" tabindex="-1" data-how="phone">By phone</div></div>
+<p><button type="button" id="news-button" role="switch" aria-checked="false">Email me job news</button></p>
+<p><span class="more"><span>More actions</span><span class="menu"><a href="#help">Get help with this form</a></span></span></p>
+<p><span id="another">Add another reference</span></p><p><span id="wipe">Delete my answers</span></p></form></div></div><script>
+const form = document.querySelector('form');
+const set = (name, value) => { form.elements[name].value = value; };
+const make = (tag, text, attributes = {}) => { const item = document.createElement(tag); item.textContent = text; for (const key in attributes) item.setAttribute(key, attributes[key]); return item; };
+const CODES = ['+93 Afghanistan', '+355 Albania', '+213 Algeria', '+376 Andorra', '+244 Angola', '+1 Canada', '+86 China', '+971 United Arab Emirates', '+44 United Kingdom', '+1 United States Minor Outlying Islands', '+1 United States'];
+const code = document.getElementById('code-button');
+code.addEventListener('click', () => {
+  const open = document.getElementById('code-pop');
+  code.setAttribute('aria-expanded', String(!open));
+  if (open) { open.remove(); return; }
+  setTimeout(() => {
+    const box = make('div', '', { id: 'code-pop', class: 'pop', style: 'left:' + code.offsetLeft + 'px;top:' + (code.offsetTop + code.offsetHeight) + 'px' });
+    const search = make('input', '', { 'aria-label': 'Search', 'aria-autocomplete': 'list' });
+    const list = make('ul', '', { role: 'listbox' });
+    const draw = rows => list.replaceChildren(...rows.map(text => {
+      const row = make('li', text, { role: 'option', 'aria-selected': 'false' });
+      row.addEventListener('click', () => { set('code', text.split(' ')[0]); document.getElementById('code-now').textContent = text.split(' ')[0]; box.remove(); code.setAttribute('aria-expanded', 'false'); code.focus(); });
+      return row;
+    }));
+    let timer = 0;
+    search.addEventListener('input', () => { list.replaceChildren(); clearTimeout(timer); timer = setTimeout(() => draw(CODES.filter(text => text.toLowerCase().includes(search.value.trim().toLowerCase()))), 160); });
+    draw(CODES.slice(0, 5));
+    box.append(search, list);
+    document.getElementById('inner').append(box);
+    search.focus();
+  }, 80);
+});
+const dept = document.getElementById('dept');
+dept.addEventListener('click', () => {
+  const open = document.getElementById('dept-pop');
+  if (open) { open.remove(); return; }
+  const at = dept.getBoundingClientRect();
+  const box = make('div', '', { id: 'dept-pop', class: 'pop', style: 'left:' + at.left + 'px;top:' + at.bottom + 'px' });
+  for (const text of ['Engineering', 'Data and Analytics', 'Operations']) {
+    const row = make('div', text, { class: 'row' });
+    row.addEventListener('click', () => { set('dept', text); document.getElementById('dept-now').textContent = text; box.remove(); });
+    box.append(row);
+  }
+  document.body.append(box);
+});
+const city = document.getElementById('city');
+let wait = 0;
+city.addEventListener('input', () => {
+  document.getElementById('city-list')?.remove();
+  city.setAttribute('aria-expanded', 'false');
+  clearTimeout(wait);
+  const typed = city.value.split(',')[0].trim().toLowerCase();
+  if (typed) wait = setTimeout(() => {
+    const list = make('ul', '', { id: 'city-list', class: 'pop', role: 'listbox', style: 'left:' + city.offsetLeft + 'px;top:' + (city.offsetTop + city.offsetHeight) + 'px' });
+    for (const text of ['Menlo Park, CA', 'Menlo Park, CA', 'West Menlo Park, CA', 'Berkeley, CA', 'New York, NY'].filter(place => place.toLowerCase().includes(typed))) {
+      const row = make('li', text, { role: 'option' });
+      row.addEventListener('click', () => { city.value = text; list.remove(); city.setAttribute('aria-expanded', 'false'); });
+      list.append(row);
+    }
+    document.getElementById('inner').append(list);
+    city.setAttribute('aria-expanded', 'true');
+  }, 180);
+});
+for (const tile of document.querySelectorAll('.tile')) {
+  tile.addEventListener('click', () => {
+    for (const other of document.querySelectorAll('.tile')) { other.setAttribute('aria-checked', String(other === tile)); other.tabIndex = other === tile ? 0 : -1; }
+    set('how', tile.dataset.how);
+  });
+}
+const news = document.getElementById('news-button');
+news.addEventListener('click', () => { const on = news.getAttribute('aria-checked') !== 'true'; news.setAttribute('aria-checked', String(on)); set('news', on ? 'yes' : 'no'); });
+document.getElementById('another').addEventListener('click', () => set('refs', String(Number(form.elements.refs.value) + 1)));
+document.getElementById('wipe').addEventListener('click', () => set('refs', 'wiped'));
+</script></body></html>`;
+
 // A second job at the same company, and an application form that never says which job or company it is for.
 const SECOND_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Research Analyst · Smoke Co</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Research Analyst","hiringOrganization":{"@type":"Organization","name":"Smoke Co"},
@@ -431,6 +523,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
     if (url.pathname === '/choices') return response.end(CHOICE_PAGE);
     if (url.pathname === '/marked-hidden') return response.end(MARKED_HIDDEN_PAGE);
+    if (url.pathname === '/widgets') return response.end(WIDGET_PAGE);
     if (url.pathname === '/jobs/9') return response.end(SECOND_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
@@ -554,6 +647,58 @@ async function smokeBrowser(token) {
     await call('click', { ref: marked.elements.find(item => item.name === 'Review').ref });
     const behind = (await call('read')).elements.map(item => item.name);
     steps.markedBehindDialog = behind.includes('Not yet') && !behind.includes('First name') && !behind.includes('Submit application');
+    // 鼠标: what a page draws itself is worked with the mouse, as a person works it. The page is read with what its
+    // dropdowns show and what its tiles and switches say; a dropdown is chosen from in one step, whether its list has
+    // to be searched, has no roles at all, or suggests as you type.
+    await call('open', { url: `${base}/widgets` });
+    const widgets = await call('read');
+    const widget = (role, name) => widgets.elements.find(item => item.role === role && item.name.startsWith(name)) || {};
+    const picked = () => tabPage().executeJavaScript("new URLSearchParams(new FormData(document.querySelector('form'))).toString()");
+    const pointerShown = () => tabPage().executeJavaScript("Boolean(document.querySelector('[data-dayjob-pointer]'))");
+    steps.widgetsRead = widget('combobox', 'Code').value === '+1' && widget('combobox', 'Code').opens === 'list' && Boolean(widget('clickable', 'Department').ref)
+      && widget('radio', 'By phone').checked === false && /reach you/.test(widget('radio', 'By phone').group || '') && widget('switch', 'Email me job news').checked === false;
+    const coded = await call('select', { ref: widget('combobox', 'Code').ref, option: 'United Kingdom' });
+    steps.listSearched = coded.selected.value === '+44 United Kingdom' && coded.selected.shows === '+44' && (await picked()).includes('code=%2B44&');
+    steps.pointerShown = await pointerShown();
+    // The closest row is the one meant: "United States", not "United States Minor Outlying Islands" above it.
+    steps.closestRow = (await call('select', { ref: widget('combobox', 'Code').ref, option: 'United States' })).selected.value === '+1 United States' && (await picked()).includes('code=%2B1&');
+    // A click says what it brought on show: the rows of a list that names nothing come back with refs to click.
+    const dept = widget('clickable', 'Department').ref;
+    const dropped = await call('click', { ref: dept });
+    steps.clickBrought = (dropped.appeared || []).map(item => item.name).join('|') === 'Engineering|Data and Analytics|Operations' && dropped.appeared.every(item => /^e\d+$/.test(item.ref));
+    // Chosen from with the list already open (the first click closes it, so it is opened again).
+    steps.plainList = (await call('select', { ref: dept, option: 'analytics' })).selected.value === 'Data and Analytics' && (await picked()).includes('dept=Data+and+Analytics');
+    // No such row: the answer names the rows there are, and the list stays open for the next try.
+    const noRow = await post('select', { ref: dept, option: 'Legal' });
+    steps.noSuchRow = noRow.status === 409 && /Options: Engineering \| Data and Analytics \| Operations\. The list is still open/.test((await noRow.json()).error)
+      && (await call('select', { ref: dept, option: 'Operations' })).selected.value === 'Operations' && (await picked()).includes('dept=Operations');
+    steps.typeahead = (await call('select', { ref: widget('combobox', 'Current city').ref, option: 'Menlo Park, CA' })).selected.value === 'Menlo Park, CA' && (await picked()).includes('city=Menlo+Park%2C+CA');
+    // A tile that is a radio button and a button that is a switch say how they stand after the click.
+    steps.drawnChoices = (await call('click', { ref: widget('radio', 'By phone').ref })).clicked.checked === true
+      && (await call('click', { ref: widget('switch', 'Email me job news').ref })).clicked.checked === true && (await picked()).includes('how=phone&news=yes');
+    // The mouse over a menu opens it, and what is in it comes back.
+    const hovered = await call('hover', { text: 'More actions' });
+    steps.hovered = hovered.appeared?.[0]?.role === 'link' && hovered.appeared[0].name === 'Get help with this form';
+    // Something the page lists under no ref is clicked by the words on it, or at a point of a screenshot, which has
+    // to be the one taken just before.
+    steps.clickedWords = (await call('click', { text: 'Add another reference' })).clicked.name === 'Add another reference' && (await picked()).includes('refs=1');
+    const blind = await post('click', { x: 20, y: 20 });
+    steps.pointNeedsShot = blind.status === 409 && /screenshot/.test((await blind.json()).error);
+    const spot = async id => {
+      const view = await call('screenshot');
+      const at = await tabPage().executeJavaScript(`(() => { const box = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2, width: innerWidth }; })()`);
+      return { x: Math.round(at.x * view.width / at.width), y: Math.round(at.y * view.width / at.width) };
+    };
+    steps.clickedPoint = (await call('click', await spot('another'))).clicked.name === 'Add another reference' && (await picked()).includes('refs=2');
+    // A point is asked about like any other click when what is there sends or deletes.
+    browser.setAutoSubmit(false);
+    const wiping = post('click', await spot('wipe'));
+    steps.pointAsksFirst = await until(() => browser.state().approval?.name === 'Delete my answers', 5000);
+    browser.answer(browser.state().approval?.id, false);
+    steps.pointDeclined = (await wiping).status === 409 && (await picked()).includes('refs=2');
+    browser.setAutoSubmit(true);
+    // The pointer leaves by itself: a page nobody is acting on stays as it was.
+    steps.pointerLeaves = await until(async () => !(await pointerShown()), 6000);
     await call('open', { url: `${base}/jobs/7` });
     const job = await call('read');
     await call('type', { ref: job.elements.find(item => item.name === 'Full name').ref, text: 'Auto Submit' });
@@ -696,7 +841,8 @@ async function smokeBrowser(token) {
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'assistantAsked',
     'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
-    'markedRead', 'markedFilled', 'markedBehindDialog'].every(step => steps[step] === true);
+    'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
+    'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'pointerLeaves'].every(step => steps[step] === true);
   return steps;
 }
 

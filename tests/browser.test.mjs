@@ -28,6 +28,19 @@ test('browser requests are checked before they reach the desktop browser', () =>
   assert.deepEqual(browserInput('read', {}), { query: '', maxChars: 15000 });
   assert.throws(() => browserInput('read', { maxChars: 10 }), /maxChars/);
   assert.throws(() => browserInput('click', { ref: 'button.submit' }), /e12/);
+  // The mouse goes for one thing, said one way: a ref, the words on it, or a point of the last screenshot.
+  assert.deepEqual(browserInput('click', { ref: 'e4' }), { ref: 'e4' });
+  assert.deepEqual(browserInput('click', { text: '  United States ' }), { text: 'United States' });
+  assert.deepEqual(browserInput('click', { x: 640, y: 20, ref: null }), { x: 640, y: 20 });
+  assert.deepEqual(browserInput('hover', { text: 'More actions' }), { text: 'More actions' });
+  assert.throws(() => browserInput('click', {}), /one way/);
+  assert.throws(() => browserInput('click', { ref: 'e4', text: 'Next' }), /one way/);
+  assert.throws(() => browserInput('click', { ref: 'e4', x: 1, y: 1 }), /one way/);
+  assert.throws(() => browserInput('click', { x: 12 }), /y/);
+  assert.throws(() => browserInput('click', { x: 12.5, y: 3 }), /x/);
+  assert.throws(() => browserInput('hover', { x: -1, y: 3 }), /x/);
+  assert.throws(() => browserInput('click', { text: ' ' }), /text/);
+  assert.deepEqual(browserInput('select', { ref: 'e7', option: ' United States ' }), { ref: 'e7', option: 'United States' });
   assert.deepEqual(browserInput('type', { ref: 'e3', text: '  leading spaces stay ' }), { ref: 'e3', text: '  leading spaces stay ', append: false, pressEnter: false });
   assert.throws(() => browserInput('type', { ref: 'e3', text: 'x'.repeat(10001) }), /10000/);
   assert.throws(() => browserInput('key', { key: 'F12' }), /key must be one of/);
@@ -72,7 +85,7 @@ test('Claude drives the Dayjob browser through MCP, screenshots included', async
   const calls = [];
   const browser = { run: async (action, input) => {
     calls.push([action, input]);
-    if (action === 'screenshot') return { image: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg', page: { id: 'tab-1' } };
+    if (action === 'screenshot') return { image: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg', width: 1280, height: 720, page: { id: 'tab-1' } };
     if (action === 'read') return { page: { id: 'tab-1' }, text: 'Data Analyst', elements: [{ ref: 'e1', role: 'button', name: 'Submit application' }] };
     return { page: { id: 'tab-1' } };
   } };
@@ -85,17 +98,26 @@ test('Claude drives the Dayjob browser through MCP, screenshots included', async
   try {
     const { tools } = await client.listTools();
     const names = tools.map(tool => tool.name).filter(name => name.startsWith('dayjob_browser_'));
-    assert.deepEqual(names, ['dayjob_browser_open', 'dayjob_browser_read', 'dayjob_browser_screenshot', 'dayjob_browser_click', 'dayjob_browser_type',
+    assert.deepEqual(names, ['dayjob_browser_open', 'dayjob_browser_read', 'dayjob_browser_screenshot', 'dayjob_browser_click', 'dayjob_browser_hover', 'dayjob_browser_type',
       'dayjob_browser_select', 'dayjob_browser_press_key', 'dayjob_browser_scroll', 'dayjob_browser_navigate', 'dayjob_browser_autofill', 'dayjob_browser_upload_resume', 'dayjob_browser_tabs']);
     assert.ok(tools.find(tool => tool.name === 'dayjob_browser_read').annotations.readOnlyHint);
     const read = await client.callTool({ name: 'dayjob_browser_read', arguments: { query: 'submit' } });
     assert.equal(JSON.parse(read.content[0].text).elements[0].ref, 'e1');
     const shot = await client.callTool({ name: 'dayjob_browser_screenshot', arguments: {} });
     assert.deepEqual(shot.content[0], { type: 'image', data: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg' });
+    // A point for the mouse is a point of this picture, so its size comes with it.
+    assert.deepEqual(JSON.parse(shot.content[1].text), { width: 1280, height: 720, page: { id: 'tab-1' } });
     await client.callTool({ name: 'dayjob_browser_press_key', arguments: { key: 'Escape' } });
     await client.callTool({ name: 'dayjob_browser_autofill', arguments: {} });
     const bad = await client.callTool({ name: 'dayjob_browser_click', arguments: { ref: '#submit' } });
     assert.ok(bad.isError);
+    // The mouse: by the words on a thing, at a point of the screenshot, over a menu; a dropdown by its option.
+    await client.callTool({ name: 'dayjob_browser_click', arguments: { text: 'Add another reference' } });
+    await client.callTool({ name: 'dayjob_browser_click', arguments: { x: 640, y: 20 } });
+    await client.callTool({ name: 'dayjob_browser_hover', arguments: { ref: 'e3' } });
+    await client.callTool({ name: 'dayjob_browser_select', arguments: { ref: 'e7', option: 'United States' } });
+    assert.ok((await client.callTool({ name: 'dayjob_browser_click', arguments: { ref: 'e1', text: 'Submit application' } })).isError, 'one way of aiming at a time');
+    assert.deepEqual(calls.splice(4), [['click', { text: 'Add another reference' }], ['click', { x: 640, y: 20 }], ['hover', { ref: 'e3' }], ['select', { ref: 'e7', option: 'United States' }]]);
     assert.deepEqual(calls.map(([action]) => action), ['read', 'screenshot', 'key', 'autofill']);
     assert.deepEqual(calls[0][1], { query: 'submit', maxChars: 15000 });
   } finally {
