@@ -3,15 +3,24 @@
 // (e1, e2, …) that stays the same for the life of the document, so Claude can
 // read a page once and then act on what it read.
 const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
+const { PICK_SOURCE } = require('./page-pick.cjs');
 
 // makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
-function install(makeHidden) {
+// pickOption: page-pick.cjs, which says which row of a list some words mean.
+function install(makeHidden, pickOption) {
   if (globalThis.dayjobPage) return globalThis.dayjobPage;
   const hidden = makeHidden();
   const refs = new Map();
   const ids = new WeakMap();
   let next = 0;
-  const FIELDS = 'a[href], button, input, select, textarea, summary, [contenteditable=""], [contenteditable="true"], [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [role="textbox"], [role="searchbox"]';
+  const FIELDS = 'a[href], button, input, select, textarea, summary, [contenteditable=""], [contenteditable="true"], [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [role="textbox"], [role="searchbox"], '
+    + '[role="menuitemradio"], [role="menuitemcheckbox"], [role="treeitem"], [role="slider"], [role="spinbutton"], [aria-haspopup]:not([aria-haspopup="false"])';
+  // What a page lets people click without saying what it is: something the keyboard reaches, or with a click
+  // handler written on it. (Whatever shows the hand counts too; see looseControl.)
+  const LOOSE = '[tabindex]:not([tabindex^="-"]), [onclick]';
+  // The rows of a list that a dropdown or a menu opens.
+  const ROWS = '[role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="treeitem"]';
+  const loose = new WeakSet();
   // Labels of actions that send, submit or delete something for the user.
   const RISKY = /\b(submit|send|confirm|finish|complete|pay|purchase|buy|place order|delete|remove|withdraw|unsubscribe)\b|提交|投递|发送|确认|完成|支付|付款|购买|删除|撤回/i;
   const BUTTON_TYPES = ['submit', 'button', 'reset', 'image'];
@@ -56,7 +65,9 @@ function install(makeHidden) {
       if (element.type === 'range' || element.type === 'color') return element.type;
       return 'textbox';
     }
-    return element.isContentEditable ? 'textbox' : tag.toLowerCase();
+    if (element.isContentEditable) return 'textbox';
+    if (loose.has(element)) return 'clickable';
+    return element.matches('[aria-haspopup]:not([aria-haspopup="false"])') ? 'button' : tag.toLowerCase();
   }
 
   function name(element) {
@@ -92,6 +103,40 @@ function install(makeHidden) {
     if (!target.checkVisibility({ visibilityProperty: true })) return false;
     const rect = target.getBoundingClientRect();
     return rect.width >= 1 && rect.height >= 1;
+  }
+
+  // Something to click that the page does not call a control: it shows the hand, the keyboard reaches it, or a click
+  // handler is written on it. Only the smallest such box counts (a card around a link is not one), and only one
+  // with words on it.
+  const wholeText = element => String(element.innerText ?? element.textContent ?? '').trim();
+  function looseControl(element) {
+    const view = element.ownerDocument.defaultView;
+    if (!view) return false;
+    const hand = box => view.getComputedStyle(box).cursor === 'pointer';
+    const parent = element.parentElement;
+    // The hand is passed down to everything inside, so it counts where it starts.
+    if (!element.matches(LOOSE) && !(hand(element) && !(parent && hand(parent)))) return false;
+    if (wholeText(element).length > 160) return false;
+    if (element.closest(FIELDS) || element.querySelector(`${FIELDS}, ${LOOSE}`)) return false;
+    if (element.tagName === 'LABEL' && element.control) return false;
+    return Boolean(name(element));
+  }
+  // Every control a person could use on the page just now, in page order.
+  function controls(found) {
+    const list = [];
+    let looked = 0;
+    for (const root of found) {
+      for (const element of root.querySelectorAll('*')) {
+        let take = element.matches(FIELDS);
+        if (!take && looked < 8000) {
+          looked += 1;
+          take = looseControl(element);
+          if (take) loose.add(element);
+        }
+        if (take && shown(element)) list.push(element);
+      }
+    }
+    return list;
   }
 
   function frameOffset(element) {
@@ -151,11 +196,33 @@ function install(makeHidden) {
     return false;
   }
 
+  // A dropdown the page draws itself: a button that opens a list.
+  const opensList = element => !editable(element) && (element.getAttribute('role') === 'combobox' || /^(listbox|menu|tree|grid|true)$/.test(element.getAttribute('aria-haspopup') || ''));
   function value(element) {
     if (element.tagName === 'SELECT') return clean(element.selectedOptions[0]?.text || '', 200);
     if (element.isContentEditable) return textOf(element);
+    if (opensList(element)) {
+      // What it shows as chosen: its own words, less its label when the label is drawn inside it ("Code +1").
+      const label = name(element);
+      const drawn = textOf(element);
+      if (!drawn || drawn === label) return undefined;
+      return clean(drawn.startsWith(`${label} `) ? drawn.slice(label.length) : drawn, 200);
+    }
     if (!editable(element) || typeof element.value !== 'string' || !element.value) return undefined;
     return secret(element) ? '(filled)' : clean(element.value, 300);
+  }
+
+  // How a control stands: checked, open, pressed, chosen, and what it holds.
+  function stateOf(element) {
+    const state = {};
+    if (choice(element)) state.checked = element.checked;
+    else if (element.hasAttribute('aria-checked')) state.checked = element.getAttribute('aria-checked') === 'true';
+    for (const [key, attribute] of [['expanded', 'aria-expanded'], ['pressed', 'aria-pressed'], ['selected', 'aria-selected']]) {
+      if (element.hasAttribute(attribute)) state[key] = element.getAttribute(attribute) === 'true';
+    }
+    const current = value(element);
+    if (current) state.value = current;
+    return state;
   }
 
   // The question a radio button or a checkbox answers: its group's caption, when the page gives the group one.
@@ -181,12 +248,14 @@ function install(makeHidden) {
     }
     if (element.tagName === 'A' && element.href) item.href = element.href.slice(0, 300);
     if (element.tagName === 'INPUT' && item.role === 'textbox' && element.type !== 'text') item.type = element.type;
-    if (element.tagName === 'INPUT' && (element.type === 'checkbox' || element.type === 'radio')) item.checked = element.checked;
-    else if (element.hasAttribute('aria-checked')) item.checked = element.getAttribute('aria-checked') === 'true';
-    const current = value(element);
-    if (current) item.value = current;
+    const state = stateOf(element);
+    // Every row of a list says whether it is the chosen one; only the chosen one is worth the words.
+    if (state.selected === false) delete state.selected;
+    const { expanded, ...rest } = state;
+    Object.assign(item, rest);
     if (element.tagName === 'SELECT') item.options = [...element.options].slice(0, 40).map(option => clean(option.text, 80));
-    if (element.hasAttribute('aria-expanded')) item.expanded = element.getAttribute('aria-expanded') === 'true';
+    if (expanded !== undefined) item.expanded = expanded;
+    if (opensList(element)) item.opens = 'list';
     if (disabled(element)) item.disabled = true;
     if (element.required || element.getAttribute('aria-required') === 'true') item.required = true;
     if (!inViewport(element)) item.offscreen = true;
@@ -208,6 +277,64 @@ function install(makeHidden) {
     return element?.isConnected ? element : null;
   }
 
+  // What a click brought: before one, everything on show is noted, so that what is on show after it and was not
+  // before can be told apart. (A list that was there all along but see-through or without a size was not on show.)
+  let before = null;
+  function visible(element) {
+    if (!element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true })) return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width >= 1 && rect.height >= 1;
+  }
+  const came = element => Boolean(before) && !before.has(element) && visible(element);
+  // Words on show that no control carries: how a page draws the rows of a list it does not name as one. Each row
+  // is given as the first piece of words in it (where a click surely lands on it); line() reads the whole row.
+  // onlyNew: rows a click brought, in something that floats over the page (a list that dropped down, not a
+  // paragraph that unfolded).
+  const rowOf = new WeakMap();
+  const line = holder => textOf(rowOf.get(holder) || holder).slice(0, 120);
+  function words(found, { onlyNew = false, limit = 400 } = {}) {
+    const list = [];
+    const seen = new Set();
+    const fits = onlyNew ? came : visible;
+    const floating = holder => {
+      for (let box = holder; box && came(box); box = box.parentElement) {
+        if (/^(absolute|fixed)$/.test(box.ownerDocument.defaultView.getComputedStyle(box).position)) return true;
+      }
+      return false;
+    };
+    const inLoose = holder => { for (let box = holder; box; box = box.parentElement) if (loose.has(box)) return true; return false; };
+    // A box of rows: two or more of its children are made alike and hold words.
+    const repeats = box => {
+      const kinds = new Set();
+      for (const child of box.children) {
+        if (!child.textContent.trim()) continue;
+        const kind = `${child.tagName} ${child.className?.baseVal ?? child.className}`;
+        if (kinds.has(kind)) return true;
+        kinds.add(kind);
+      }
+      return false;
+    };
+    for (const root of found) {
+      const walker = (root.ownerDocument || root).createTreeWalker(root.body || root, 4);
+      for (let node = walker.nextNode(); node && list.length < limit; node = walker.nextNode()) {
+        const holder = node.parentElement;
+        if (!holder || seen.has(holder) || !node.nodeValue.trim()) continue;
+        seen.add(holder);
+        if (!fits(holder) || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'OPTION', 'TITLE'].includes(holder.tagName)) continue;
+        if (holder.closest(FIELDS) || inLoose(holder) || (onlyNew && !floating(holder))) continue;
+        if (hidden(holder) || wholeText(holder).length > 160) continue;
+        // The whole row the words are part of ("Menlo Park" and "CA, USA" side by side are one row).
+        let row = holder;
+        for (let box = row.parentElement; box && box !== root.body && fits(box) && wholeText(box).length <= 160 && !repeats(box) && !box.querySelector(FIELDS); box = row.parentElement) row = box;
+        if (row !== holder && seen.has(row)) continue;
+        seen.add(row);
+        rowOf.set(holder, row);
+        list.push(holder);
+      }
+    }
+    return list;
+  }
+
   function heavyForm(form) {
     if (!form) return false;
     const fields = [...form.elements].filter(field => ['INPUT', 'SELECT', 'TEXTAREA'].includes(field.tagName) && field.type !== 'hidden' && !BUTTON_TYPES.includes(field.type));
@@ -219,6 +346,78 @@ function install(makeHidden) {
     if (RISKY.test(name(element))) return true;
     const submits = (element.tagName === 'BUTTON' && element.type === 'submit') || (element.tagName === 'INPUT' && (element.type === 'submit' || element.type === 'image'));
     return submits && heavyForm(element.form);
+  }
+
+  // The same question for a click that names no control: whatever is at a point, or a few words. The words around
+  // the spot decide, as far out as they stay a label (a picture inside a "Submit" button says nothing itself).
+  function riskyAt(spot, control) {
+    if (risky(control)) return true;
+    for (let box = spot, depth = 0; box && depth < 6 && !box.matches(FIELDS); box = box.parentElement, depth += 1) {
+      const said = wholeText(box);
+      if (said.length > 80) break;
+      if (RISKY.test(`${said} ${box.getAttribute('aria-label') || ''} ${box.getAttribute('title') || ''}`)) return true;
+    }
+    return false;
+  }
+
+  // What the mouse is about to go for.
+  function aim(element) {
+    const info = { ref: refFor(element), role: role(element), name: name(element), disabled: disabled(element), risky: riskyAt(element, element), editable: editable(element) };
+    // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
+    // picture, or under another option's, is still answered.
+    if (choice(element)) { info.choice = element.type; info.checked = element.checked; }
+    if (element.hasAttribute('aria-expanded')) info.expanded = element.getAttribute('aria-expanded') === 'true';
+    return info;
+  }
+
+  // The pointer people watch: an arrow that glides to where the mouse goes, with a ring where it presses. It is
+  // drawn over the page, takes no clicks, and leaves a moment after the last move.
+  let pointer = null;
+  function showPointer(x, y, press) {
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (!pointer || !pointer.host.isConnected) {
+      const host = document.createElement('div');
+      host.setAttribute('data-dayjob-pointer', '');
+      host.style.cssText = 'all:initial;position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none';
+      const inside = host.attachShadow({ mode: 'closed' });
+      const ring = document.createElement('div');
+      ring.style.cssText = 'position:fixed;left:-17px;top:-17px;width:30px;height:30px;border:2px solid #f2b632;border-radius:50%;opacity:0;pointer-events:none';
+      const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      arrow.setAttribute('viewBox', '0 0 24 24');
+      arrow.setAttribute('width', '24');
+      arrow.setAttribute('height', '24');
+      arrow.style.cssText = 'position:fixed;left:-3px;top:-2px;pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))';
+      const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      shape.setAttribute('d', 'M3 2l0 17 4.6-4.2 3 6.6 2.9-1.3-3-6.5 6.1-.4z');
+      shape.setAttribute('fill', '#1d2733');
+      shape.setAttribute('stroke', '#fff');
+      shape.setAttribute('stroke-width', '1.4');
+      shape.setAttribute('stroke-linejoin', 'round');
+      arrow.append(shape);
+      inside.append(ring, arrow);
+      document.documentElement.append(host);
+      pointer = { host, ring, arrow, x: Math.max(0, x - 90), y: y + 70, timer: 0, fade: null };
+    }
+    pointer.fade?.cancel();
+    pointer.fade = null;
+    // Moved with `translate`, which is applied outside `scale`: the ring grows where it stands.
+    const from = `${pointer.x}px ${pointer.y}px`;
+    const to = `${x}px ${y}px`;
+    const far = Math.hypot(x - pointer.x, y - pointer.y);
+    const glide = still || far < 2 ? 0 : Math.round(Math.min(320, 140 + far / 4));
+    for (const part of [pointer.arrow, pointer.ring]) part.animate([{ translate: from }, { translate: to }], { duration: glide, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+    if (press) {
+      pointer.ring.animate([{ opacity: 0, scale: 0.4 }, { opacity: 0.95, scale: 0.6, offset: 0.25 }, { opacity: 0, scale: 1.25 }], { duration: still ? 1 : 520, delay: glide, easing: 'ease-out' });
+    }
+    pointer.x = x;
+    pointer.y = y;
+    clearTimeout(pointer.timer);
+    const mine = pointer;
+    pointer.timer = setTimeout(() => {
+      mine.fade = mine.host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: still ? 1 : 260, fill: 'forwards' });
+      mine.fade.onfinish = () => { mine.host.remove(); if (pointer === mine) pointer = null; };
+    }, 1800);
+    return glide;
   }
 
   function focused() {
@@ -287,36 +486,149 @@ function install(makeHidden) {
       const wanted = clean(query, 200).toLowerCase();
       const elements = [];
       let count = 0;
-      for (const root of found) {
-        for (const element of root.querySelectorAll(FIELDS)) {
-          if (!shown(element)) continue;
-          const item = describe(element, refFor(element));
-          if (wanted && ![item.name, item.href, item.value].some(text => text?.toLowerCase().includes(wanted))) continue;
-          count += 1;
-          if (elements.length < maxElements) elements.push(item);
-        }
+      for (const element of controls(found)) {
+        const item = describe(element, refFor(element));
+        if (wanted && ![item.name, item.href, item.value].some(text => text?.toLowerCase().includes(wanted))) continue;
+        count += 1;
+        if (elements.length < maxElements) elements.push(item);
       }
       const text = pageText(found);
       return { title: document.title, text: text.slice(0, maxChars), textTruncated: text.length > maxChars, elements, elementCount: count, otherSiteFrames: frames, jobPosting: jobPosting() };
     },
 
-    // Where to click, after scrolling the element into view.
+    // Where to click. An element the mouse already reaches is left where it is (a list that dropped down may close
+    // when the page moves under it); any other is scrolled into view first.
     target({ ref }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };
-      const info = { role: role(element), name: name(element), disabled: disabled(element), risky: risky(element), editable: editable(element) };
-      // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
-      // picture, or under another option's, is still answered.
-      if (choice(element)) { info.choice = element.type; info.checked = element.checked; }
+      const info = aim(element);
       const point = clickable(element);
-      point.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      const rect = point.getBoundingClientRect();
-      const x = rect.left + Math.min(rect.width / 2, 40);
-      const y = rect.top + rect.height / 2;
-      const hit = point.getRootNode().elementFromPoint?.(x, y) || point.ownerDocument.elementFromPoint(x, y);
-      if (!reaches(element, point, hit)) info.coveredBy = hit ? `${hit.tagName.toLowerCase()} “${textOf(hit).slice(0, 80) || name(hit) || hit.className}”` : 'nothing (outside the window)';
+      const spot = () => {
+        const rect = point.getBoundingClientRect();
+        const x = rect.left + Math.min(rect.width / 2, 40);
+        const y = rect.top + rect.height / 2;
+        return { x, y, hit: point.getRootNode().elementFromPoint?.(x, y) || point.ownerDocument.elementFromPoint(x, y) };
+      };
+      let at = inViewport(point) ? spot() : null;
+      if (!at || !reaches(element, point, at.hit)) {
+        point.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        at = spot();
+      }
+      if (!reaches(element, point, at.hit)) info.coveredBy = at.hit ? `${at.hit.tagName.toLowerCase()} “${textOf(at.hit).slice(0, 80) || name(at.hit) || at.hit.className}”` : 'nothing (outside the window)';
       const offset = frameOffset(point);
-      return { ...info, x: x + offset.x, y: y + offset.y };
+      return { ...info, x: at.x + offset.x, y: at.y + offset.y };
+    },
+
+    // What is at a point of the window (as in a picture of the page): the control there, or the bare thing itself.
+    at({ x, y }) {
+      let hit = document.elementFromPoint(x, y);
+      let left = 0;
+      let top = 0;
+      for (let depth = 0; hit && depth < 12; depth += 1) {
+        // Into open shadow roots and this site's own frames; another site's frame cannot be looked into.
+        const inner = hit.shadowRoot?.elementFromPoint(x - left, y - top);
+        if (inner && inner !== hit) { hit = inner; continue; }
+        if (hit.tagName !== 'IFRAME' && hit.tagName !== 'FRAME') break;
+        let doc = null;
+        try { doc = hit.contentDocument; } catch { /* another site */ }
+        if (!doc) return { error: 'other-site', src: String(hit.src || '').slice(0, 300) };
+        const rect = hit.getBoundingClientRect();
+        left += rect.left + hit.clientLeft;
+        top += rect.top + hit.clientTop;
+        hit = doc.elementFromPoint(x - left, y - top);
+      }
+      if (!hit) return { error: 'outside' };
+      let control = hit.closest(FIELDS);
+      for (let box = hit; !control && box; box = box.parentElement) if (loose.has(box) || looseControl(box)) control = box;
+      control ||= hit;
+      const info = aim(control);
+      return { ...info, name: info.name || textOf(hit).slice(0, 120), risky: info.risky || riskyAt(hit, control), x, y };
+    },
+
+    // Which control some words on the page belong to: one that reads so, else the words themselves where they
+    // stand. Two that read alike are told apart by what a click just brought, then by what is in the window;
+    // if that does not settle it, both are named.
+    seek({ text }) {
+      const want = clean(text, 200).toLowerCase();
+      if (!want) return { error: 'no-text' };
+      const found = roots().found;
+      const pools = [[controls(found), item => name(item) || textOf(item)]];
+      pools.push([words(found, { limit: 3000 }), line]);
+      let hits = [];
+      for (const exact of [true, false]) {
+        for (const [pool, said] of pools) {
+          const names = pool.map(item => clean(said(item), 200).toLowerCase());
+          const index = exact ? names.indexOf(want) : pickOption(names, want);
+          if (index < 0) continue;
+          hits = pool.filter((item, place) => names[place] === names[index]);
+          break;
+        }
+        if (hits.length) break;
+      }
+      if (!hits.length) return { error: 'no-text' };
+      for (const narrow of [came, inViewport]) {
+        const fewer = hits.filter(narrow);
+        if (hits.length > 1 && fewer.length) hits = fewer;
+      }
+      if (hits.length > 1) return { error: 'ambiguous', matches: hits.slice(0, 8).map(item => describe(item, refFor(item))) };
+      return { ref: refFor(hits[0]) };
+    },
+
+    // Before a click: what is on show now.
+    mark() {
+      before = new WeakSet();
+      for (const root of roots().found) for (const element of root.querySelectorAll('*')) if (visible(element)) before.add(element);
+      return true;
+    },
+
+    // After a click: how the thing clicked stands now, and what the click brought on show: controls, else the
+    // rows of a list that names none.
+    changes({ ref, limit = 30 }) {
+      const element = ref ? find(ref) : null;
+      const found = roots().found;
+      const outside = item => !element || !(element === item || element.contains(item));
+      let brought = controls(found).filter(item => came(item) && outside(item));
+      const plain = !brought.length;
+      if (plain) brought = words(found, { onlyNew: true }).filter(outside);
+      return { ...(element ? stateOf(element) : { gone: true }), appearedCount: brought.length,
+        appeared: brought.slice(0, limit).map(item => (plain ? { ref: refFor(item), role: 'text', name: line(item) } : describe(item, refFor(item)))) };
+    },
+
+    // The rows of the list a dropdown drawn by the page has open: those of the list it names, else what came on
+    // show since it was clicked. option: the row meant, when one fits. search: a box in the list to type in.
+    options({ ref, option = '' }) {
+      const element = find(ref);
+      if (!element) return { error: 'missing' };
+      const found = roots().found;
+      const root = element.getRootNode();
+      // The list it names (aria-controls, or aria-owns on the combobox around a field), when that is on show.
+      const owner = element.matches('[aria-controls], [aria-owns]') ? element : element.closest('[role="combobox"]') || element;
+      const named = ['aria-controls', 'aria-owns'].flatMap(attribute => String(owner.getAttribute(attribute) || '').split(/\s+/)).filter(Boolean)
+        .map(id => root.getElementById?.(id) || element.ownerDocument.getElementById(id)).filter(list => list && visible(list));
+      const usable = row => row !== element && !element.contains(row) && visible(row) && !hidden(row);
+      const everything = controls(found).filter(usable);
+      let all = [];
+      let rows = [];
+      for (const lists of named.length ? [named, []] : [[]]) {
+        const within = row => (lists.length ? lists.some(list => list.contains(row)) : came(row));
+        all = everything.filter(within);
+        rows = all.filter(item => item.matches(ROWS));
+        if (!rows.length) {
+          rows = all.filter(item => !editable(item) && !['file', 'select'].includes(role(item)));
+          rows.push(...words(found, { onlyNew: !lists.length }).filter(holder => usable(holder) && within(holder)));
+        }
+        if (rows.length) break;
+      }
+      const names = rows.map(row => clean(rowOf.has(row) ? line(row) : name(row) || textOf(row), 120));
+      const index = option ? pickOption(names, option) : -1;
+      const search = editable(element) ? null : all.find(item => editable(item) && !secret(item) && !disabled(item) && !item.readOnly);
+      return { options: names.slice(0, 40), count: names.length, ...(index >= 0 ? { match: { ref: refFor(rows[index]), name: names[index] } } : {}),
+        ...(search ? { search: refFor(search) } : {}), ...stateOf(element) };
+    },
+
+    // Shows the pointer on its way to a point; answers how long (ms) it takes to get there.
+    pointer({ x, y, press = false }) {
+      try { return { wait: showPointer(x, y, press) }; } catch { return { wait: 0 }; }
     },
 
     // Sets a real checkbox or radio button the way pressing Space on it would, for one the mouse cannot reach.
@@ -353,7 +665,7 @@ function install(makeHidden) {
     read({ ref }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };
-      return { value: value(element) ?? '', ...(choice(element) ? { checked: element.checked } : element.hasAttribute('aria-checked') ? { checked: element.getAttribute('aria-checked') === 'true' } : {}) };
+      return { ...stateOf(element), value: value(element) ?? '' };
     },
 
     // For fields that did not take typed text: set the value the way a user's
@@ -426,4 +738,4 @@ function install(makeHidden) {
   });
 }
 
-exports.PAGE_SOURCE = `(${install.toString()})(${HIDDEN_SOURCE})`;
+exports.PAGE_SOURCE = `(${install.toString()})(${HIDDEN_SOURCE}, ${PICK_SOURCE})`;

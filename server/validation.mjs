@@ -337,7 +337,7 @@ export function goalLogInput(input) {
 }
 
 // What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).
-export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'upload', 'tabs'];
+export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'hover', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'upload', 'tabs'];
 export const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
 
 export function browserInput(action, input) {
@@ -346,12 +346,22 @@ export function browserInput(action, input) {
     if (typeof input.ref !== 'string' || !/^e\d{1,7}$/.test(input.ref)) fail('ref must be an element ref from dayjob_browser_read, such as e12.');
     return input.ref;
   };
+  // What the mouse goes for, said one way: an element's ref, the words on it, or a point of the last screenshot.
+  const aim = () => {
+    const given = key => has(input, key) && input[key] !== null && input[key] !== undefined;
+    const point = given('x') || given('y');
+    if ([given('ref'), given('text'), point].filter(Boolean).length !== 1) fail('Say what to aim at in one way: ref (from dayjob_browser_read), text (the words on it), or x and y (a point in the last screenshot).');
+    if (given('ref')) return { ref: ref() };
+    if (given('text')) return { text: text(input.text, 'text', { min: 1, max: 200 }) };
+    return { x: integer(input.x, 'x', 0, 10000), y: integer(input.y, 'y', 0, 10000) };
+  };
   switch (action) {
     case 'open': return { url: httpUrl(input.url, 'url'), newTab: flag('newTab') };
     case 'read': return { query: text(input.query, 'query', { max: 200, optional: true }),
       maxChars: has(input, 'maxChars') && input.maxChars !== null ? integer(input.maxChars, 'maxChars', 500, 60000) : 15000 };
     case 'screenshot': return {};
-    case 'click': return { ref: ref() };
+    case 'click': return aim();
+    case 'hover': return aim();
     case 'type':
       if (typeof input.text !== 'string' || input.text.length > 10000) fail('text must be text of up to 10000 characters.');
       return { ref: ref(), text: input.text, append: flag('append'), pressEnter: flag('pressEnter') };

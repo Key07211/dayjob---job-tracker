@@ -83,7 +83,7 @@ test('the browser tools exist only where there is a Dayjob browser, and none of 
   assert.equal(there.browser, true);
   assert.equal(there.settings.apply, 'confirm', 'sending waits for the user unless they say otherwise');
   const tiers = Object.fromEntries(there.tools.map(tool => [tool.name, tool.tier]));
-  for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_type', 'browser_select', 'browser_press_key', 'browser_scroll', 'browser_navigate',
+  for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_press_key', 'browser_scroll', 'browser_navigate',
     'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_sign_in', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
   assert.equal(tiers.get_profile, 'read');
   assert.equal(tiers.update_profile, 'undoable');
@@ -156,6 +156,47 @@ test('what the browser refuses comes back to the model in words, and its own fai
   await chat('call:browser_click {"ref":"button#submit"}', declined.id);
   assert.match(engines['claude-cli'].results[2].value.error, /Invalid input/);
   assert.equal(browser.calls.length, 2, 'a ref that is not one of the page\'s never reaches the browser');
+});
+
+test('the assistant works dropdowns and choices a page draws itself with the mouse', async t => {
+  const rows = [{ ref: 'e31', role: 'option', name: '+93 Afghanistan' }, { ref: 'e32', role: 'option', name: '+355 Albania' }];
+  const browser = fakeBrowser({
+    click: input => (input.text ? { clicked: { ref: 'e19', role: 'span', name: input.text } }
+      : input.ref === 'e5' ? { clicked: { ref: 'e5', role: 'radio', name: 'By phone', checked: true } }
+        : { clicked: { ref: input.ref, role: 'combobox', name: 'Code', expanded: true }, appeared: rows, appearedCount: 239, notice: 'What appeared is named by the website.' }),
+    hover: input => ({ hovered: { ref: 'e18', role: 'span', name: input.text }, appeared: [{ ref: 'e40', role: 'link', name: 'Get help with this form' }] }),
+    select: input => ({ selected: { ref: input.ref, name: 'Code', value: '+1 United States', shows: '+1' } }),
+  });
+  const { app, chat, engines } = await start({ browser });
+  t.after(() => app.close());
+  // A dropdown is one step: the option as the user reads it.
+  const chosen = await chat('call:browser_select {"ref":"e1","option":"United States"}');
+  assert.deepEqual(browser.calls[0].input, { ref: 'e1', option: 'United States' });
+  assert.deepEqual(chosen.tool.label, ['选了“Code”：+1 United States', 'Chose +1 United States for “Code”']);
+  assert.equal(chosen.tool.step, 'questions');
+  assert.equal(engines['claude-cli'].results[0].value.selected.shows, '+1');
+  // A click says what it brought on show, so the rows of a list that opened can be clicked next.
+  const opened = await chat('call:browser_click {"ref":"e1"}', chosen.id);
+  assert.deepEqual(engines['claude-cli'].results[1].value.appeared, rows);
+  assert.equal(engines['claude-cli'].results[1].value.appearedCount, 239);
+  assert.deepEqual(opened.tool.label, ['点开了“Code”', 'Opened “Code”']);
+  // A tile that is a radio button says it is chosen; something with no ref is clicked by the words on it.
+  assert.deepEqual((await chat('call:browser_click {"ref":"e5"}', chosen.id)).tool.label, ['选了“By phone”', 'Chose “By phone”']);
+  const worded = await chat('call:browser_click {"text":"Add another reference"}', chosen.id);
+  assert.deepEqual(browser.calls[3].input, { text: 'Add another reference' });
+  assert.deepEqual(worded.tool.label, ['点了“Add another reference”', 'Clicked “Add another reference”']);
+  // The mouse over a menu, without a click.
+  const over = await chat('call:browser_hover {"text":"More actions"}', chosen.id);
+  assert.deepEqual(browser.calls[4], { action: 'hover', input: { text: 'More actions' }, context: browser.calls[4].context });
+  assert.equal(over.tool.tier, 'browser');
+  assert.deepEqual(over.tool.label, ['把鼠标移到了“More actions”上', 'Moved the mouse over “More actions”']);
+  assert.equal(engines['claude-cli'].results[4].value.appeared[0].name, 'Get help with this form');
+  // One way of aiming at a time, and no points: the assistant does not see the page as a picture.
+  await chat('call:browser_click {"ref":"e1","text":"Code"}', chosen.id);
+  assert.match(engines['claude-cli'].results[5].value.error, /one way/);
+  await chat('call:browser_click {"x":10,"y":10}', chosen.id);
+  assert.match(engines['claude-cli'].results[6].value.error, /Invalid input/);
+  assert.equal(browser.calls.length, 5);
 });
 
 test('signing in tells the model how it went and nothing else', async t => {
