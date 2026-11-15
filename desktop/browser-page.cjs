@@ -2,8 +2,12 @@
 // the page's own scripts cannot reach. Each link, button and field gets a ref
 // (e1, e2, …) that stays the same for the life of the document, so Claude can
 // read a page once and then act on what it read.
-function install() {
+const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
+
+// makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
+function install(makeHidden) {
   if (globalThis.dayjobPage) return globalThis.dayjobPage;
+  const hidden = makeHidden();
   const refs = new Map();
   const ids = new WeakMap();
   let next = 0;
@@ -83,7 +87,7 @@ function install() {
   }
 
   function shown(element) {
-    if (element.type === 'hidden' || element.closest('[aria-hidden="true"], [inert]')) return false;
+    if (element.type === 'hidden' || hidden(element)) return false;
     const target = clickable(element);
     if (!target.checkVisibility({ visibilityProperty: true })) return false;
     const rect = target.getBoundingClientRect();
@@ -422,4 +426,4 @@ function install() {
   });
 }
 
-exports.PAGE_SOURCE = `(${install.toString()})()`;
+exports.PAGE_SOURCE = `(${install.toString()})(${HIDDEN_SOURCE})`;

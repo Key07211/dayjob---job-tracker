@@ -4,8 +4,12 @@
 // box before it) or a sign-up form (a new password typed twice), fills a saved
 // sign-in into a login form and, for 自动登录, sends it, and reports a password
 // the user typed so that Dayjob can offer to keep it.
-function installLogin() {
+const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
+
+// makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
+function installLogin(makeHidden) {
   if (globalThis.dayjobLogin) return globalThis.dayjobLogin;
+  const hidden = makeHidden();
   // What Dayjob put into each password box, so that it is not offered back.
   const mine = new WeakMap();
   const clean = (value, max = 200) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -32,7 +36,7 @@ function installLogin() {
     return found;
   }
   const usable = element => element.isConnected && !element.disabled && !element.readOnly && element.getBoundingClientRect().width > 0
-    && element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) !== false && !element.closest('[aria-hidden="true"], [inert]');
+    && element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true }) !== false && !hidden(element);
   const describe = element => `${element.name} ${element.id} ${element.placeholder} ${element.getAttribute('aria-label') || ''} ${[...(element.labels || [])].map(label => label.innerText).join(' ')}`;
 
   function userBox(password, scope) {
@@ -46,7 +50,7 @@ function installLogin() {
   function sender(box) {
     const scope = box.form || box.closest('[role="form"], [role="dialog"], section, main') || box.getRootNode();
     const buttons = [...scope.querySelectorAll('button, input[type="submit"], input[type="image"], [role="button"]')]
-      .filter(button => button.isConnected && button.getBoundingClientRect().width > 0 && !button.closest('[aria-hidden="true"], [inert]') && !ELSEWHERE.test(label(button)));
+      .filter(button => button.isConnected && button.getBoundingClientRect().width > 0 && !hidden(button) && !ELSEWHERE.test(label(button)));
     const submits = button => box.form && button.form === box.form && (button.tagName === 'INPUT' || (button.type || 'submit') === 'submit');
     return buttons.find(button => submits(button) && SENDS.test(label(button))) || buttons.find(button => SENDS.test(label(button)))
       || (buttons.filter(submits).length === 1 ? buttons.find(submits) : null);
@@ -145,7 +149,7 @@ function installLogin() {
   return (globalThis.dayjobLogin = { probe, fill, submit, fillUser, sendUser });
 }
 
-const LOGIN_SOURCE = `(${installLogin.toString()})()`;
+const LOGIN_SOURCE = `(${installLogin.toString()})(${HIDDEN_SOURCE})`;
 const loginScript = (method, args) => `${LOGIN_SOURCE}.${method}(${args === undefined ? '' : JSON.stringify(args)})`;
 
 module.exports = { loginScript };
