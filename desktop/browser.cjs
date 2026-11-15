@@ -539,11 +539,17 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     contents.sendInputEvent({ type: 'keyUp', keyCode });
   }
   // The mouse. A pointer the user can watch glides to the spot first; then real input goes there, as from a hand.
+  // What is on show is noted just before the mouse moves, so that what it brings can be told afterwards. A page
+  // that had to be scrolled to the spot is given a moment first: what the scroll set off (a header coming back,
+  // say) is not what the click brought.
+  const SCROLL_REST = 400;
   async function mouse(tab, target, { press = true } = {}) {
     const contents = tab.view.webContents;
     let shown = null;
     try { shown = await page(tab, 'pointer', { x: target.x, y: target.y, press }); } catch { /* the click matters, not the picture of it */ }
-    if (shown?.wait) await delay(shown.wait);
+    const wait = Math.max(shown?.wait || 0, target.moved ? SCROLL_REST : 0);
+    if (wait) await delay(wait);
+    await page(tab, 'mark');
     const zoom = contents.getZoomFactor();
     const x = Math.round(target.x * zoom);
     const y = Math.round(target.y * zoom);
@@ -981,7 +987,6 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (target.coveredBy && !target.choice) fail(409, covered(target));
       const documents = tab.documents;
       if (!target.coveredBy) {
-        await page(tab, 'mark');
         await mouse(tab, target);
         await settle(tab);
       }
@@ -1012,7 +1017,6 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       const target = await aim(tab, input);
       if (target.coveredBy) fail(409, covered(target));
       const documents = tab.documents;
-      await page(tab, 'mark');
       await mouse(tab, target, { press: false });
       await delay(450);
       const { state, ...after } = await brought(tab, documents, target.ref);
@@ -1062,11 +1066,10 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       const contents = tab.view.webContents;
       const open = async () => {
         if (target.coveredBy) fail(409, covered(target));
-        await page(tab, 'mark');
         await mouse(tab, target);
       };
-      await page(tab, 'mark');
       if (target.editable) {
+        await page(tab, 'mark');
         checked(await page(tab, 'focus', { ref }), ref);
         await contents.insertText(option);
       } else if (!target.expanded) await open();

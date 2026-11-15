@@ -385,7 +385,8 @@ html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;ove
 .pop{position:absolute;z-index:9;width:280px;max-height:150px;overflow:auto;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #888}
 .pop ul{list-style:none;margin:0;padding:0}.pop li,.pop .row{padding:6px 10px}.pop li{cursor:pointer}
 .dd,.tile{display:inline-block;padding:8px 12px;border:1px solid #888;border-radius:6px;cursor:pointer}.more{position:relative;display:inline-block}
-.more .menu{display:none;position:absolute;left:100%;top:0;padding:0 8px;background:#fff;border:1px solid #888;white-space:nowrap}.more:hover .menu{display:block}</style></head>
+.more .menu{display:none;position:absolute;left:100%;top:0;padding:0 8px;background:#fff;border:1px solid #888;white-space:nowrap}.more:hover .menu{display:block}
+.answer{display:flex;gap:8px;align-items:center;margin:6px 0}.hand{cursor:pointer}</style></head>
 <body><div id="scrollview" aria-hidden="true"><div id="inner"><h1>More questions</h1><form action="/answered" method="get">
 <input type="hidden" name="code" value="+1"><input type="hidden" name="dept"><input type="hidden" name="how" value="email"><input type="hidden" name="news" value="no"><input type="hidden" name="refs" value="0">
 <p><button type="button" id="code-button" role="combobox" aria-label="Code" aria-controls="code-pop" aria-expanded="false"><span>Code</span> <span id="code-now">+1</span></button></p>
@@ -395,7 +396,12 @@ html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;ove
 <div class="tile" role="radio" aria-checked="false" tabindex="-1" data-how="phone">By phone</div></div>
 <p><button type="button" id="news-button" role="switch" aria-checked="false">Email me job news</button></p>
 <p><span class="more"><span>More actions</span><span class="menu"><a href="#help">Get help with this form</a></span></span></p>
-<p><span id="another">Add another reference</span></p><p><span id="wipe">Delete my answers</span></p></form></div></div><script>
+<p><span id="another">Add another reference</span></p><p><span id="wipe">Delete my answers</span></p>
+<p id="site-bar"><a href="#home">Careers home</a></p>
+<div role="radiogroup" aria-label="Are you a veteran?"><div class="answer"><input type="radio" name="vet" value="yes" aria-labelledby="vet-yes"><div id="vet-yes" class="hand">I am a veteran</div></div>
+<div class="answer"><label><input type="radio" name="vet" value="no"> <span class="hand">I am not a veteran</span></label></div>
+<div class="answer"><input type="radio" name="vet" value="skip" aria-label="I choose not to say"><span class="hand">I choose not to say</span></div></div>
+<p style="margin-top:900px"><button type="button" id="notes-button" aria-expanded="false">Show the notes</button> <a href="#notes" id="notes-link" hidden>Read the notes</a></p></form></div></div><script>
 const form = document.querySelector('form');
 const set = (name, value) => { form.elements[name].value = value; };
 const make = (tag, text, attributes = {}) => { const item = document.createElement(tag); item.textContent = text; for (const key in attributes) item.setAttribute(key, attributes[key]); return item; };
@@ -463,6 +469,12 @@ const news = document.getElementById('news-button');
 news.addEventListener('click', () => { const on = news.getAttribute('aria-checked') !== 'true'; news.setAttribute('aria-checked', String(on)); set('news', on ? 'yes' : 'no'); });
 document.getElementById('another').addEventListener('click', () => set('refs', String(Number(form.elements.refs.value) + 1)));
 document.getElementById('wipe').addEventListener('click', () => set('refs', 'wiped'));
+for (const words of document.querySelectorAll('.answer > .hand')) words.addEventListener('click', () => words.parentElement.querySelector('input').click());
+const bar = document.getElementById('site-bar');
+let rest = 0;
+document.getElementById('scrollview').addEventListener('scroll', () => { bar.style.visibility = 'hidden'; clearTimeout(rest); rest = setTimeout(() => { bar.style.visibility = ''; }, 200); });
+const notes = document.getElementById('notes-button');
+notes.addEventListener('click', () => { document.getElementById('notes-link').hidden = false; notes.setAttribute('aria-expanded', 'true'); });
 </script></body></html>`;
 
 // A second job at the same company, and an application form that never says which job or company it is for.
@@ -697,6 +709,15 @@ async function smokeBrowser(token) {
     browser.answer(browser.state().approval?.id, false);
     steps.pointDeclined = (await wiping).status === 409 && (await picked()).includes('refs=2');
     browser.setAutoSubmit(true);
+    // The words beside a real radio button are its name, not a second thing to click, however the page ties the
+    // two together; asked for by those words, the button itself is set.
+    const answers = ['I am a veteran', 'I am not a veteran', 'I choose not to say'];
+    steps.labelsOnce = answers.every(name => widgets.elements.filter(item => item.name === name).map(item => item.role).join() === 'radio')
+      && (await call('click', { text: 'I am not a veteran' })).clicked.checked === true && (await picked()).includes('vet=no');
+    // The page has to be scrolled to this button, and its bar hides while it scrolls: what the scroll set off is
+    // not taken for what the click brought.
+    const noted = await call('click', { ref: widget('button', 'Show the notes').ref });
+    steps.scrolledClick = noted.clicked.expanded === true && (noted.appeared || []).map(item => item.name).join('|') === 'Read the notes';
     // The pointer leaves by itself: a page nobody is acting on stays as it was.
     steps.pointerLeaves = await until(async () => !(await pointerShown()), 6000);
     await call('open', { url: `${base}/jobs/7` });
@@ -842,7 +863,7 @@ async function smokeBrowser(token) {
     'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
-    'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'pointerLeaves'].every(step => steps[step] === true);
+    'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);
   return steps;
 }
 

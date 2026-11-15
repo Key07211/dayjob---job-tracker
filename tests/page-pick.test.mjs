@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { pickOption, PICK_SOURCE } = require('../desktop/page-pick.cjs');
@@ -35,6 +36,12 @@ test('the page reader carries the picker, lists what pages draw themselves, and 
   // What the mouse needs from a page: where a ref, some words or a point lead, what a click brought, the rows of
   // an open list, and the pointer people watch.
   for (const method of ['target({ ref })', 'seek({ text })', 'at({ x, y })', 'mark()', 'changes({ ref', 'options({ ref', 'pointer({ x, y']) assert.ok(PAGE_SOURCE.includes(method), method);
+  // The words beside a checkbox or radio button are its name, not a second thing listed; and a spot the page was
+  // scrolled to says so, so that what the scroll set off is not taken for what the click brought.
+  assert.match(PAGE_SOURCE, /Boolean\(name\(element\)\) && !namesControl\(element\)/);
+  assert.match(PAGE_SOURCE, /info\.moved = true/);
+  const browserSource = readFileSync(new URL('../desktop/browser.cjs', import.meta.url), 'utf8');
+  assert.match(browserSource, /target\.moved \? SCROLL_REST : 0/);
   // The pointer takes no clicks and is not kept in the page.
   assert.match(PAGE_SOURCE, /pointer-events:none/);
   assert.match(PAGE_SOURCE, /host\.remove\(\)/);
