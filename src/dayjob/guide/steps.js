@@ -221,11 +221,11 @@ export function settingsSteps({ browser = true } = {}) {
       id: 'sources', target: group('sources'),
       title: ['每个来源抓多少', 'Results per source'],
       say: [
-        { text: ['来源指的是各个招聘网站。这里定每次抓取向每个网站最多要多少条结果。', 'A source is a job site. This sets how many results each site is asked for, at most, in one run.'] },
+        { text: ['来源指的是各个招聘网站。这里定每次抓取最多从每个网站带回多少个岗位。LinkedIn 和 Indeed 上已经有的岗位不占这个数，会接着往后翻去找新的。', 'A source is a job site. This sets how many jobs one run brings back from each site, at most. On LinkedIn and Indeed, jobs Dayjob already has do not count: it reads on to find new ones.'] },
       ],
       terms: [
         { name: ['按每个搜索', 'By each search'], means: ['每个搜索用它自己填的数，在“搜索与公司”里改。最省心。', 'Each search uses its own number, set under “Searches”. The simplest choice.'] },
-        { name: ['按个数', 'By number'], means: ['给每个网站定一个数，比如 LinkedIn 50 条、Indeed 20 条。0 就是不抓它。', 'Give each site a number of its own, say 50 from LinkedIn and 20 from Indeed. 0 leaves a site out.'] },
+        { name: ['按个数', 'By number'], means: ['给每个网站定一个整次抓取的数，比如 LinkedIn 50、Indeed 20，由用它的搜索平分。0 就是不抓它。', 'Give each site a number for the whole run, say 50 from LinkedIn and 20 from Indeed, shared by the searches that use it. 0 leaves a site out.'] },
         { name: ['按比例', 'By share'], means: ['只定一个总数，再按份数分：填 3 和 1，就是 75% 和 25%。', 'Set one total and split it by shares: 3 and 1 make 75% and 25%.'] },
       ],
     },

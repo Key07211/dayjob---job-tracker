@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { formatTime, label, labels, relativeDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
+import { knownParts } from './run-outcome.js';
 import { BEAT, cue, playLift, playNeedle } from './groove/sound.js';
 import { E8, fadeIn, flyTo, leave, leaveThen, unfold } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
@@ -424,6 +425,8 @@ function Runs({ runs }) {
         {all.slice(0, shown).map((run, index) => {
           const open = isOpen(run, index);
           const failed = run.detail?.filter(entry => entry.error).length || 0;
+          // Where the jobs it found that were not new stand: why a search that found jobs may add nothing to Today.
+          const known = knownParts(run.outcome, t);
           const head = (
             <>
               <span className={`run-status ${run.cancelled ? 'cancelled' : run.status}`}>{run.cancelled ? <CircleStop size={14} /> : run.status === 'failed' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}{t(...(RUN_STATUS[run.cancelled ? 'cancelled' : run.status] || [run.status, run.status]))}</span>
@@ -439,6 +442,7 @@ function Runs({ runs }) {
               ) : <div className="run-head">{head}</div>}
               {run.detail?.length && open ? (
                 <ul className="run-detail">
+                  {known.length ? <li className="known"><span>{t('已经有的', 'Already had')}</span><em>{known.join(t('，', ', '))}</em></li> : null}
                   {run.detail.map((entry, index) => (
                     <li key={index} className={entry.error ? 'error' : entry.warning ? 'warning' : ''}>
                       <span>{entry.source}</span>
@@ -466,7 +470,7 @@ function Runs({ runs }) {
   );
 }
 
-export function SearchesView({ boot, reload, status, setView, refreshStatus }) {
+export function SearchesView({ boot, reload, status, setView, refreshStatus, runStarted }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
@@ -492,6 +496,13 @@ export function SearchesView({ boot, reload, status, setView, refreshStatus }) {
       playNeedle();
       await api('/api/runs', { method: 'POST', body: { searchIds: [search.id] } });
       setMessage(t(`已开始抓取“${search.name}”。`, `Started “${search.name}”.`));
+      // The window is told at once, so a search that is over within seconds still shows its result and stops spinning.
+      const now = await runStarted();
+      if (!now?.scheduler?.running) {
+        setPlaying(null);
+        setMessage('');
+        api(`/api/runs?limit=${RUNS_PAGE}`).then(setRuns).catch(() => {});
+      }
     } catch (failure) { setPlaying(null); setError(failure.message); }
   }
   // Its spinning record, clicked again, stops it (not within a second of starting: that is a double click).

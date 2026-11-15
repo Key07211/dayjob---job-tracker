@@ -74,6 +74,16 @@ export function formatTime(value) {
   return `${formatDay(value)} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+// A time in the last two days as "today 12:36" / "yesterday 08:30"; an older one as its date and time.
+export function recentTime(value, now = new Date()) {
+  const date = toDate(value);
+  if (!date) return '';
+  const start = day => new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const days = Math.round((start(now) - start(date)) / DAY);
+  if (days !== 0 && days !== 1) return formatTime(value);
+  return `${days ? tr('昨天', 'yesterday') : tr('今天', 'today')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 // US dollars as Dayjob counts API spending: cents, and "<$0.01" for a call or two that came to less than one.
 export function usd(value) {
   const amount = Number(value) || 0;

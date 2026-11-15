@@ -220,10 +220,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   function upsertPosting(item, searchId = null) {
     const id = postingId(item);
     const at = iso();
-    const existing = q('SELECT id, closed_at, description FROM postings WHERE id = ?').get(id);
+    const existing = q('SELECT id, closed_at, status, duplicate_of FROM postings WHERE id = ?').get(id);
     const salary = item.salary || {};
     let isNew = false;
     let reopened = false;
+    let duplicate = Boolean(existing?.duplicate_of);
     if (existing) {
       q(`UPDATE postings SET title = ?, company = COALESCE(?, company), company_url = COALESCE(?, company_url), company_logo = COALESCE(?, company_logo),
         location = COALESCE(?, location), city = COALESCE(?, city), state = COALESCE(?, state), country = COALESCE(?, country),
@@ -252,10 +253,18 @@ export function createRepository(db, { now = () => new Date() } = {}) {
         salary.min ?? null, salary.max ?? null, salary.interval ?? null, salary.currency ?? null, salary.source ?? null,
         item.description, JSON.stringify(item.emails || []), item.jobUrl, item.applyUrl, item.datePosted, at, at, key, twin?.id ?? null);
       isNew = !twin;
+      duplicate = Boolean(twin);
     }
     if (searchId) q('INSERT OR IGNORE INTO posting_searches (posting_id, search_id, matched_at) VALUES (?, ?, ?)').run(id, searchId, at);
     matchPosting(id);
-    return { id, isNew, reopened };
+    // was: where a job Dayjob already had stood before this sighting (new, saved, dismissed, applied); null for one just added.
+    // duplicate: the same job as one from another site, so it is kept out of the lists.
+    return { id, isNew, reopened, was: existing?.status ?? null, duplicate };
+  }
+  // Whether Dayjob already holds this job with its description: a search then need not read its page again, nor count it
+  // among the results it was asked for.
+  function holdsPosting(site, externalId) {
+    return Boolean(q("SELECT 1 FROM postings WHERE id = ? AND description IS NOT NULL AND description <> ''").get(postingId({ site, externalId })));
   }
 
   const LIST_COLUMNS = `p.id, p.site, p.external_id, p.title, p.company, p.company_url, p.company_logo, p.location, p.city, p.state, p.country,
@@ -371,20 +380,25 @@ export function createRepository(db, { now = () => new Date() } = {}) {
 
   // ---------- runs ----------
   // A run the user stopped is kept as part done, with a note in its detail.
-  const runRow = row => row && (detail => ({ id: row.id, kind: row.kind, trigger: row.trigger, startedAt: row.started_at, finishedAt: row.finished_at,
-    status: row.status, found: row.found, newCount: row.new_count, scored: row.scored, detail, cancelled: detail.some(entry => entry?.cancelled === true) }))(json(row.detail, []));
+  // outcome: where the jobs a search found went ({ new, listed, saved, removed, applied, duplicates }); it is stored as one
+  // more entry of the detail and handed out on its own. Runs from before 0.36 have none.
+  const runRow = row => row && (all => (detail => ({ id: row.id, kind: row.kind, trigger: row.trigger, startedAt: row.started_at, finishedAt: row.finished_at,
+    status: row.status, found: row.found, newCount: row.new_count, scored: row.scored, detail, outcome: all.find(entry => entry?.outcome)?.outcome || null,
+    cancelled: detail.some(entry => entry?.cancelled === true) }))(all.filter(entry => !entry?.outcome)))(json(row.detail, []));
+  const storedDetail = (detail, outcome) => JSON.stringify(outcome ? [...detail, { source: 'dayjob', outcome }] : detail);
   function startRun(kind, trigger) {
     const id = randomUUID();
     q("INSERT INTO runs (id, kind, trigger, started_at, status) VALUES (?, ?, ?, ?, 'running')").run(id, kind, trigger, iso());
     return id;
   }
-  function finishRun(id, { status, found = 0, newCount = 0, scored = 0, detail = [] }) {
+  function finishRun(id, { status, found = 0, newCount = 0, scored = 0, detail = [], outcome = null }) {
     q('UPDATE runs SET finished_at = ?, status = ?, found = ?, new_count = ?, scored = ?, detail = ? WHERE id = ?')
-      .run(iso(), status, found, newCount, scored, JSON.stringify(detail), id);
+      .run(iso(), status, found, newCount, scored, storedDetail(detail, outcome), id);
     return runRow(q('SELECT * FROM runs WHERE id = ?').get(id));
   }
   function updateRunScoring(id, { scored, status, detail }) {
-    q('UPDATE runs SET scored = ?, status = ?, detail = ? WHERE id = ?').run(scored, status, JSON.stringify(detail), id);
+    const outcome = runRow(q('SELECT * FROM runs WHERE id = ?').get(id))?.outcome;
+    q('UPDATE runs SET scored = ?, status = ?, detail = ? WHERE id = ?').run(scored, status, storedDetail(detail, outcome), id);
   }
   // Newest first; with `before` (a run's startedAt), the ones that started earlier, for paging back through them.
   function listRuns(limit = 20, before = null) {
@@ -738,7 +752,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     getSettings, updateSettings, saveSettings, languageChosen, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
-    upsertPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
+    upsertPosting, holdsPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds, logUsage, priceUsage, usageSummary, usageSpend,

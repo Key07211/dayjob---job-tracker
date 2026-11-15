@@ -132,7 +132,8 @@
 .run-extra { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .run-extra p { color: var(--side-muted); line-height: 1.45; }
 .run-extra .run-paused { color: var(--orange); }
-.run-extra .run-message { color: var(--side-text); }
+/* A search's result is a line or two; an error may be longer and is cut at three (its title has all of it). */
+.run-extra .run-message { color: var(--side-text); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
 .run-extra .button { min-height: 32px; }
 .main { margin-left: 216px; }
 .notifications { left: 228px; }
@@ -202,27 +203,27 @@
 .deck-text span { font-size: 12px; color: var(--side-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deck-text.dim { opacity: .5; }
 
-/* Shorter windows. The sidebar holds eight keys, the update line, the assistant's card, notifications and the deck;
+/* A shorter sidebar. It holds eight keys, the update line, the assistant's card, notifications and the record;
    what gives way first is what matters least to the assistant, which keeps its large card as long as it can:
    the keys get a little shorter, then the small record replaces the deck, then the assistant's card takes its
-   smaller forms (assistant.css), and last the keys and the gaps tighten once more. Each step is where the sidebar
-   would stop fitting. */
-@media (max-height: 909px) {
-  .pkey { height: 40px; }
-}
-@media (max-height: 879px) {
-  .deck-box { display: none; }
-  .minirec { display: block; }
-  .turntable { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--side-card); }
-  .deck-text { padding: 0; }
-  .deck-text strong { font-size: 13px; }
-  .deck-text span { font-size: 11.5px; }
-}
-@media (max-height: 690px) {
-  .pkey { height: 36px; }
-  .sidebar { gap: 12px; padding-top: 16px; }
-  .sidebar-foot { gap: 6px; }
-}
+   smaller forms (assistant.css), and last the keys and the gaps tighten, twice. Each step is where the sidebar
+   would stop fitting, and is a class main.jsx puts on it (h909 means 909px of room or less): the room is the
+   window's height less what the lines under the record take, so those are never cut off at the bottom. */
+.sidebar.h909 .pkey { height: 40px; }
+.sidebar.h879 .deck-box { display: none; }
+.sidebar.h879 .minirec { display: block; }
+.sidebar.h879 .turntable { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--side-card); }
+.sidebar.h879 .deck-text { padding: 0; }
+.sidebar.h879 .deck-text strong { font-size: 13px; }
+.sidebar.h879 .deck-text span { font-size: 11.5px; }
+.sidebar.h690 .pkey { height: 36px; }
+.sidebar.h690 { gap: 12px; padding-top: 16px; }
+.sidebar.h690 .sidebar-foot { gap: 6px; }
+/* The last step, for the smallest window with several lines under the record: from here the keys share the height
+   that is left, down to 24px each. */
+.sidebar.h599 { gap: 8px; padding-top: 12px; }
+.sidebar.h599 .keys { flex: 0 1 auto; min-height: calc(var(--keys, 8) * 25px - 1px); }
+.sidebar.h599 .pkey { flex: 1 1 32px; height: auto; min-height: 24px; }
 
 /* 05 · while a batch is scored, the sidebar's edge becomes a line that charges, dashes forward and settles with each score. */
 .metronome { position: fixed; left: 202px; top: 0; width: 28px; height: 100vh; overflow: visible; color: var(--green); pointer-events: none; z-index: 21; }

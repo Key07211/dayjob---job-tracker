@@ -3,21 +3,21 @@ import { useI18n } from '../../i18n.jsx';
 import { APPLY_STEPS, applyRun } from './apply.js';
 import { Gramophone } from './Gramophone.jsx';
 import { assistant, useAssistant } from './store.js';
-import { useMedia } from '../useMedia.js';
 
 // The assistant's own place in the sidebar: its gramophone, its name, and the two ways to talk with it: a small
 // chat at the side of the window, or the whole page. The form that is open is lit; pressing it again closes the
 // chat. While the chat is closed the gramophone here moves with a reply that is still coming. What it is doing is
 // written only while it is doing something; at rest the card says nothing more than its name.
 //
-// In a window tall enough for it (assistant.css has the same height) the gramophone is drawn twice the size.
+// Where the sidebar has the room for it (large; main.jsx works that out, assistant.css has the same step) the
+// gramophone is drawn twice the size.
 //
 // form is what the window shows (a full-page chat docks at the side when the browser takes the page); asking is
 // true while a question waits for the user before something is sent.
-export function AssistantCard({ form, asking = false, onForm }) {
+export function AssistantCard({ form, asking = false, onForm, large = true }) {
   const { t } = useI18n();
   const { conversation, busy, phase } = useAssistant();
-  const scale = useMedia('(min-height: 730px)') ? 2 : 1;
+  const scale = large ? 2 : 1;
   useEffect(() => { void assistant.refresh(); }, []);
   const turns = conversation?.turns || [];
   const run = applyRun(turns);

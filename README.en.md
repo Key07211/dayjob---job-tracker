@@ -156,6 +156,25 @@ On **Searches**, click **Ask the AI** (optionally with preferences such as "Bay 
 
 Nothing is added until you click **Add** or **Follow**; you can also edit a search before adding it. When you are done, click **Done, close the suggestions** at the bottom (or the ✕ at the top) to put them away. The latest suggestions are kept: click **Show them again** to bring them back, and new suggestions open on their own.
 
+## Results per source
+
+**Results per source** under **Settings → Daily search** decides how many jobs one run brings back from each job site, at most. There are three ways:
+
+| Way | How it is worked out |
+| --- | --- |
+| By each search (default) | As before: each search asks each site it ticks for its own “Results per site”. |
+| By number | A number for each site, for the whole run and shared by the searches that tick the site: say LinkedIn 60, Indeed 30, Glassdoor 0. |
+| By share | One total for the run and a share for each site: with a total of 100, LinkedIn 3 and Indeed 1 make 75 and 25. Only sites that a search ticks take part. |
+
+- By number and by share, a site's number is divided evenly among the enabled searches that tick it; what is left over goes to the earlier searches. LinkedIn 50 with three searches is 17, 17 and 16.
+- 0 leaves a site out of the run. One search asks one site for 200 at most.
+- A search run on its own asks for what it asks for in the daily run.
+- Beside each site the page says how its number is divided, and below them how many the run asks for in all.
+- **On LinkedIn and Indeed the number counts new jobs.** A site answers with its best matches first, and those are much the same from day to day, so jobs Dayjob already has, and jobs the search's own filters turn away, do not use up the number: Dayjob reads on until it has that many, the list ends, or it has passed a set amount (three times the number, 50 at least and 200 at most). A job it already has is not opened again.
+- The sources fetched through JobSpy (Glassdoor, ZipRecruiter, Google Jobs) are still asked for that many results: duplicates and filtered jobs are left out, and a site may give fewer.
+- When a run ends, the bottom left says how many jobs it found and how many of them are new. When not all are new, **Today** says where the others stand, such as “12 already in Today, 2 in Not interested” (close the note with **OK**; it returns after the next run), and every run under **Searches → Recent searches** carries the same line. A job you moved to Not interested does not come back when it is found again.
+- Followed company boards are not counted: every open job on them is read each time.
+
 ## Home
 
 Dayjob opens on **Home**, which puts applications, tracking and goals on one page:
@@ -449,6 +468,7 @@ npm run live-check                          # LinkedIn, Indeed, Greenhouse, Leve
 npm run live-check -- --pipeline            # plus a full run into a temporary database
 npm run live-check -- --score resume.pdf    # plus one Claude Code score
 npm run live-check -- --jobspy              # plus the JobSpy in your own Python
+npm run live-check -- --past                # plus a second LinkedIn and Indeed search that reads past the jobs of the first
 ```
 
 ## Tests

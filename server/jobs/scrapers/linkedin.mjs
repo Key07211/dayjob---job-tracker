@@ -101,12 +101,24 @@ export const linkedin = {
   label: 'LinkedIn',
   async search(input, { http, log = () => {} }) {
     const wanted = Math.min(input.resultsWanted || 25, MAX_RESULTS);
+    // The number asked for counts jobs that are of use: with input.lookPast, the search reads on past that many
+    // results, at most, that are not. A list whose top is already known then still brings something new.
+    //   input.known(id)                   Dayjob already holds this job with its description: it is passed on as its
+    //                                     card alone, without reading its page again.
+    //   input.rejects({ title, company }) the search's own filters turn this job away: it is left out, unread.
+    const past = Math.max(0, Number(input.lookPast) || 0);
+    const known = past && typeof input.known === 'function' ? input.known : () => false;
+    const rejects = past && typeof input.rejects === 'function' ? input.rejects : () => false;
     const params = searchParams(input);
     const results = [];
     const warnings = [];
     const seen = new Set();
     let start = 0;
-    while (results.length < wanted && start < MAX_RESULTS) {
+    let added = 0;
+    let passed = 0;
+    let read = 0;
+    let done = false;
+    while (!done && added < wanted && start < MAX_RESULTS) {
       if (start > 0) await http.sleep(jitter(PAGE_DELAY));
       params.set('start', String(start));
       const page = await http.request(`${BASE}/jobs-guest/jobs/api/seeMoreJobPostings/search?${params}`, { headers: HEADERS });
@@ -120,11 +132,19 @@ export const linkedin = {
       const fresh = cards.filter(card => !seen.has(card.id));
       fresh.forEach(card => seen.add(card.id));
       for (const card of fresh) {
-        if (results.length >= wanted) break;
+        if (added >= wanted) break;
+        const turned = rejects({ title: card.title, company: card.company });
+        const held = !turned && known(card.id);
+        if (turned || held) {
+          if (passed >= past) { done = true; break; }
+          passed += 1;
+          if (turned) continue;
+        } else added += 1;
         let detail = {};
-        if (input.fetchDescription !== false) {
+        if (!held && input.fetchDescription !== false) {
           try {
-            if (results.length) await http.sleep(jitter(DETAIL_DELAY));
+            if (read) await http.sleep(jitter(DETAIL_DELAY));
+            read += 1;
             const response = await http.request(`${BASE}/jobs/view/${card.id}`, { headers: HEADERS });
             if (new URL(response.url).pathname.startsWith('/jobs/view/')) detail = parseDetail(response.body);
             else log(`linkedin ${card.id}: redirected away from the job page`);
