@@ -114,7 +114,10 @@ function ConfirmCard({ approval, run }) {
   };
   const stopHold = () => { hold.current(); hold.current = () => {}; };
   // An application is being sent when its form was filled in before this click; anything else is just a step.
-  const sending = Boolean(run && run.reached >= APPLY_STEPS.indexOf('fill'));
+  // 注册新账户 is its own question, whatever the application has reached.
+  const account = approval.action === 'account';
+  const sending = !account && Boolean(run && run.reached >= APPLY_STEPS.indexOf('fill'));
+  const heading = account ? t('注册新账户？', 'Create this account?') : sending ? t('确认投递', 'Send this application?') : t('确认这一步', 'Allow this step?');
   const site = approval.site || t('这个网站', 'this site');
   const facts = !sending ? [] : [
     run.resume ? t(`简历：${run.resume}`, `Resume: ${run.resume}`) : t('没有附简历', 'No resume attached'),
@@ -123,10 +126,13 @@ function ConfirmCard({ approval, run }) {
     run.letter ? t('附了求职信', 'Cover letter included') : '',
   ].filter(Boolean);
   return (
-    <div className="asst-confirm" ref={card} role="alertdialog" aria-live="assertive" aria-label={sending ? t('确认投递', 'Send this application?') : t('确认这一步', 'Allow this step?')}>
-      <strong>{sending ? t('确认投递', 'Send this application?') : t('确认这一步', 'Allow this step?')}</strong>
+    <div className="asst-confirm" ref={card} role="alertdialog" aria-live="assertive" aria-label={heading}>
+      <strong>{heading}</strong>
       {sending && run.job ? <p className="asst-confirm-job">{run.job}</p> : null}
-      <p>{approval.action === 'enter' ? t(`在 ${site} 的“${approval.name}”里按回车。`, `Press Enter in “${approval.name}” on ${site}.`) : t(`在 ${site} 上点击“${approval.name}”。`, `Click “${approval.name}” on ${site}.`)}</p>
+      <p>{approval.action === 'account'
+        ? t(`在 ${site} 用 ${approval.name} 注册一个新账户。密码由 Dayjob 在这台电脑上生成、填进网页并存进密码保管，助手看不到它。`,
+          `Create a new account on ${site} for ${approval.name}. Dayjob makes the password up on this computer, puts it into the page and keeps it in the vault; the assistant never sees it.`)
+        : approval.action === 'enter' ? t(`在 ${site} 的“${approval.name}”里按回车。`, `Press Enter in “${approval.name}” on ${site}.`) : t(`在 ${site} 上点击“${approval.name}”。`, `Click “${approval.name}” on ${site}.`)}</p>
       {facts.length ? <p className="asst-confirm-facts">{facts.join(' · ')}</p> : null}
       <div className="asst-confirm-actions">
         <button type="button" className="button primary" disabled={busy} onPointerDown={startHold} onPointerUp={stopHold} onPointerLeave={stopHold} onKeyDown={startHold} onKeyUp={stopHold}>

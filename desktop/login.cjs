@@ -3,7 +3,9 @@
 // cannot reach. It finds a login form (one password box, with the user name
 // box before it) or a sign-up form (a new password typed twice), fills a saved
 // sign-in into a login form and, for 自动登录, sends it, and reports a password
-// the user typed so that Dayjob can offer to keep it.
+// the user typed so that Dayjob can offer to keep it. For an account the
+// assistant creates (注册新账户) it puts a password Dayjob made up into the
+// sign-up form's password boxes.
 const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
 
 // makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
@@ -17,6 +19,11 @@ function installLogin(makeHidden) {
   // A button that sends a sign-in, and ones that only look like it (another way to sign in, or to sign up).
   const SENDS = /sign ?in|log ?in|login|continue|next|submit|^go$|登录|登入|继续|下一步|确定|提交/i;
   const ELSEWHERE = /sign ?up|register|create|forgot|reset|google|apple|facebook|microsoft|linkedin|github|sso|passkey|code|magic|subscribe|newsletter|注册|忘记|创建|验证码|订阅/i;
+  // What says a form creates an account, and what says it signs in to one.
+  const SIGNS_UP = /sign[ -]?up|register|registration|create (an |a |your |my |new )*account|join (us|now)|get started|new (user|account)|注册|创建账[号户]|新用户|新账[号户]/i;
+  const SIGNS_IN = /sign[ -]?in|log[ -]?in|登录|登入/i;
+  const EMAILISH = /e-?mail|邮箱|电子邮件/i;
+  const NAMEISH = /user|login|account|用户名|账号/i;
   // The first step of a two-step sign-in is only filled on a page that says it is about signing in.
   const SIGNIN_PAGE = /log[ _-]?in|sign[ _-]?in|signin|auth|account|identifier|sso|登录|登入/i;
 
@@ -77,6 +84,49 @@ function installLogin(makeHidden) {
       }
     }
     return null;
+  }
+  // 注册新账户. The box of a sign-up form that names the account: its email, else its user name; never a phone
+  // number or a person's name, which a sign-up form also asks for.
+  function accountBox(password, scope) {
+    const boxes = [...scope.querySelectorAll('input')].filter(input => usable(input) && ['text', 'email'].includes(input.type)
+      && (input.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING));
+    return boxes.find(input => /username|email/.test(input.autocomplete || '')) || boxes.find(input => input.type === 'email' || EMAILISH.test(describe(input)))
+      || boxes.find(input => NAMEISH.test(describe(input))) || null;
+  }
+  // Whether a form creates an account. One that asks for the password twice, or calls it new, does. One with a
+  // single plain password box does only when its own button says so, or the page does and its button does not
+  // say it signs in.
+  function creates(found) {
+    if (found.kind === 'signup') return true;
+    const scope = found.password.form || found.password.closest('[role="form"], [role="dialog"], section, main') || found.password.getRootNode();
+    const buttons = [...scope.querySelectorAll('button, input[type="submit"], [role="button"]')].filter(button => button.isConnected && button.getBoundingClientRect().width > 0 && !hidden(button));
+    const own = buttons.filter(button => !found.password.form || button.form === found.password.form).filter(button => button.tagName === 'INPUT' || (button.type || 'submit') === 'submit');
+    const says = (own.length ? own : buttons).map(label).join(' | ');
+    if (SIGNS_UP.test(says)) return true;
+    if (SIGNS_IN.test(says)) return false;
+    const heading = clean([...scope.querySelectorAll('h1, h2, h3, legend')].map(item => item.innerText).join(' ') || document.querySelector('h1')?.innerText || '', 300);
+    const about = `${heading} ${document.title} ${location.pathname}`;
+    return SIGNS_UP.test(about) && !SIGNS_IN.test(heading);
+  }
+  // What Dayjob needs to know before it makes a password up: is this a sign-up form, which account it is for, and
+  // how long a password its box takes.
+  function signup() {
+    const found = form();
+    if (!found) return { form: null };
+    const user = accountBox(found.password, found.password.form || found.password.closest('[role="form"], [role="dialog"], section, main') || found.password.getRootNode());
+    const size = name => { const value = Number(found.password.getAttribute(name)); return Number.isInteger(value) && value > 0 ? value : null; };
+    return { form: found.kind, creates: creates(found), userBox: Boolean(user), username: clean(user?.value), min: size('minlength'), max: size('maxlength'), boxes: found.again ? 2 : 1 };
+  }
+  // Puts the new password into the sign-up form's password box, and the box that asks for it again.
+  function setNew({ password }) {
+    const found = form();
+    if (!found || !creates(found)) return { set: false };
+    for (const box of [found.password, found.again].filter(Boolean)) {
+      set(box, password);
+      mine.set(box, password);
+      box.blur();
+    }
+    return { set: found.password.value === password && (!found.again || found.again.value === password), boxes: found.again ? 2 : 1 };
   }
   // A user name typed on a page without a password box: the first step of a two-step sign-in.
   function loneUser() {
@@ -146,7 +196,7 @@ function installLogin(makeHidden) {
     const box = userStep();
     return box?.value ? send(box) : { sent: false };
   }
-  return (globalThis.dayjobLogin = { probe, fill, submit, fillUser, sendUser });
+  return (globalThis.dayjobLogin = { probe, fill, submit, fillUser, sendUser, signup, setNew });
 }
 
 const LOGIN_SOURCE = `(${installLogin.toString()})(${HIDDEN_SOURCE})`;

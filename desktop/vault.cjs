@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } = require('node:crypto');
+const { createCipheriv, createDecipheriv, randomBytes, randomInt, randomUUID, scrypt } = require('node:crypto');
 
 // 密码保管: sign-ins for job sites, kept in one file on this computer with each
 // password encrypted by the operating system (on Windows, DPAPI, tied to the
@@ -15,6 +15,10 @@ const { createCipheriv, createDecipheriv, randomBytes, randomUUID, scrypt } = re
 // again when Dayjob quits, the computer locks or sleeps, or the user closes it.
 // Neither password is ever stored, only a check value sealed with a key made
 // from the vault password (scrypt, AES-256-GCM).
+//
+// 注册新账户: when the assistant creates an account for the user, Dayjob makes
+// the password up here (generatePassword), puts it into the sign-up form and
+// keeps it (create). Whoever asked for it never sees it.
 //
 // Before 0.20.0 a vault password also sealed each saved password with that key
 // (wrapped), so a locked vault could fill nothing. Those are opened with it and
@@ -84,6 +88,32 @@ function readPasswordCsv(text) {
   return rows.map(row => ({ url: row[at.url] ?? '', username: at.username < 0 ? '' : row[at.username] ?? '', password: row[at.password] ?? '' }));
 }
 
+// A password for a new account: random letters and digits with a few symbols, at least one of each kind, and
+// never the same character three times running (rules many sites have). length: 8 to 64. symbols: the ones the
+// site allows, '' for none.
+const LOWER = 'abcdefghijklmnopqrstuvwxyz';
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const DIGITS = '0123456789';
+const SYMBOLS = '!@#$%^&*';
+const NEW_PASSWORD = { min: 8, max: 64, length: 20 };
+function generatePassword({ length = NEW_PASSWORD.length, symbols = SYMBOLS } = {}) {
+  const size = Math.min(NEW_PASSWORD.max, Math.max(NEW_PASSWORD.min, Math.floor(Number(length)) || NEW_PASSWORD.length));
+  const marks = [...new Set(String(symbols ?? '').replace(/[^!-/:-@[-`{-~]/g, ''))].join('');
+  const kinds = [LOWER, UPPER, DIGITS, ...(marks ? [marks] : [])];
+  const pick = set => set[randomInt(set.length)];
+  for (;;) {
+    // One of each kind, a symbol about every seventh place, letters and digits for the rest; then shuffled.
+    const chars = kinds.map(pick);
+    while (chars.length < size) chars.push(pick(marks && randomInt(7) === 0 ? marks : LOWER + UPPER + DIGITS));
+    for (let at = chars.length - 1; at > 0; at -= 1) {
+      const other = randomInt(at + 1);
+      [chars[at], chars[other]] = [chars[other], chars[at]];
+    }
+    const made = chars.join('');
+    if (!/(.)\1\1/.test(made)) return made;
+  }
+}
+
 const derive = (password, salt) => new Promise((resolve, reject) => scrypt(password, salt, 32, SCRYPT, (error, key) => (error ? reject(error) : resolve(key))));
 function wrap(key, text) {
   const iv = randomBytes(12);
@@ -128,7 +158,8 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     const opened = safeStorage.decryptString(Buffer.from(entry.secret, 'base64'));
     return entry.wrapped ? unwrap(withKey, opened) : opened;
   };
-  const shown = ({ id, site, username, createdAt, updatedAt, usedAt }) => ({ id, site, username, createdAt, updatedAt, usedAt: usedAt || null });
+  // made: Dayjob made this password up for a new account (the user never typed it).
+  const shown = ({ id, site, username, createdAt, updatedAt, usedAt, madeAt }) => ({ id, site, username, createdAt, updatedAt, usedAt: usedAt || null, ...(madeAt ? { made: true } : {}) });
   // A saved password from before 0.20.0 still sealed with the vault password: it fills only once that has opened it.
   const waiting = entry => entry.wrapped && !key;
   // Opened with the vault password once, every password from before 0.20.0 is sealed by the system alone.
@@ -168,6 +199,36 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     entries.push(entry);
     persist();
     return shown(entry);
+  }
+  // 注册新账户: the sign-in of an account whose password Dayjob has just made up and put into the site's sign-up
+  // form. It is kept whether the vault is open or not: nothing saved is shown or changed by it, because a sign-in
+  // the vault already has for that site and user name is never written over. again: the id of a sign-in this
+  // made a moment ago, to give it another password (the site did not take the first).
+  function create({ site: where, username: who, password, again = null } = {}) {
+    const site = siteOf(where) || fail('That is not a site a password can be kept for.');
+    const username = typeof who === 'string' ? who.trim() : '';
+    if (!username || username.length > 200) fail('The account needs a user name or email, up to 200 characters.');
+    if (typeof password !== 'string' || !password || password.length > 500) fail('The password must be 1 to 500 characters.');
+    const at = now().toISOString();
+    const existing = entries.find(entry => entry.site === site && entry.username === username);
+    if (existing) {
+      if (!again || existing.id !== again) fail('The vault already has a sign-in for this site and user name.');
+      delete existing.wrapped;
+      Object.assign(existing, { secret: seal(password), updatedAt: at });
+      persist();
+      return shown(existing);
+    }
+    if (entries.length >= MAX_ENTRIES) fail(`Up to ${MAX_ENTRIES} passwords can be saved.`);
+    const entry = { id: randomUUID(), site, username, secret: seal(password), createdAt: at, updatedAt: at, usedAt: null, madeAt: at };
+    entries.push(entry);
+    persist();
+    return shown(entry);
+  }
+  // Whether a sign-in is saved for this host and user name (user names of emails are compared without case).
+  function has(host, username) {
+    const name = String(host || '').toLowerCase();
+    const who = String(username || '').trim().toLowerCase();
+    return entries.find(entry => covers(entry.site, name) && entry.username.toLowerCase() === who)?.id || null;
   }
   // Many sign-ins at once, from a browser's export. Each new one is added, a saved one with another password is
   // updated, and the counts say what was left out and why. Only the counts go back.
@@ -303,7 +364,7 @@ function createVault({ file, safeStorage, now = () => new Date(), clock = () => 
     persist();
   }
 
-  return { available, locked, fillable, list, save, importMany, remove, clear, reveal, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
+  return { available, locked, fillable, list, save, create, has, importMany, remove, clear, reveal, forHost, password, knows, used, unlock, close, setLock, removeLock, reset };
 }
 
-module.exports = { createVault, siteOf, parseCsv, readPasswordCsv, VaultError, LOCK_RULE };
+module.exports = { createVault, siteOf, parseCsv, readPasswordCsv, generatePassword, NEW_PASSWORD, VaultError, LOCK_RULE };

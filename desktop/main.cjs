@@ -69,12 +69,12 @@ const TEXT = {
   zh: { title: 'Dayjob · 求职追踪', tooltip: 'Dayjob · 每日岗位抓取与投递追踪', open: '打开 Dayjob', run: '立即抓取新岗位', data: '打开数据文件夹', quit: '退出 Dayjob',
     portable: '请先安装 Dayjob，再添加稳定的 Claude MCP 连接。', cannotStart: 'Dayjob 无法启动',
     portInUse: port => `本地端口 ${port} 已被占用。请先关闭已运行的 Dayjob（npm start）或占用该端口的程序，然后重新打开。`, failed: message => `Dayjob 启动失败：${message}`,
-    approval: ({ action, name, site }) => ({ title: 'Claude 请你确认一下', body: action === 'enter' ? `在 ${site} 的“${name}”里按回车` : `在 ${site} 上点击“${name}”` }),
+    approval: ({ action, name, site }) => ({ title: 'Claude 请你确认一下', body: action === 'account' ? `在 ${site} 用 ${name} 注册新账户，密码由 Dayjob 生成并存进密码保管` : action === 'enter' ? `在 ${site} 的“${name}”里按回车` : `在 ${site} 上点击“${name}”` }),
     browser: { openTab: '在新标签页打开链接', openExternal: '用系统浏览器打开链接', copyLink: '复制链接地址', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选', back: '后退', forward: '前进', reload: '重新加载' } },
   en: { title: 'Dayjob · Job tracker', tooltip: 'Dayjob · daily job search and application tracking', open: 'Open Dayjob', run: 'Search for new jobs now', data: 'Open data folder', quit: 'Quit Dayjob',
     portable: 'Install Dayjob before adding a lasting Claude MCP connection.', cannotStart: 'Dayjob cannot start',
     portInUse: port => `Local port ${port} is in use. Close the Dayjob already running (npm start) or the program using that port, then open Dayjob again.`, failed: message => `Dayjob failed to start: ${message}`,
-    approval: ({ action, name, site }) => ({ title: 'Claude is asking first', body: action === 'enter' ? `Press Enter in “${name}” on ${site}` : `Click “${name}” on ${site}` }),
+    approval: ({ action, name, site }) => ({ title: 'Claude is asking first', body: action === 'account' ? `Create an account on ${site} for ${name}, with a password Dayjob makes up and keeps in the vault` : action === 'enter' ? `Press Enter in “${name}” on ${site}` : `Click “${name}” on ${site}` }),
     browser: { openTab: 'Open link in new tab', openExternal: 'Open link in your browser', copyLink: 'Copy link address', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select all', back: 'Back', forward: 'Forward', reload: 'Reload' } },
 };
 // Chinese on a Chinese system, English on any other: the same rule the page follows on a first launch (src/i18n.jsx).
@@ -746,7 +746,7 @@ async function smokeBrowser(token) {
     const letter = await browser.agent('letter', { text: 'Dear Smoke Co team,\n\nI build dashboards that people use every week.\n\nSmoke Tester' }, { by: 'assistant' });
     const cover = await uploadPage.executeJavaScript("(async () => { const file = document.getElementById('cover').files[0]; return file ? file.name + '|' + file.type + '|' + (await file.text()).slice(0, 5) : 'none'; })()");
     steps.letterAttached = letter.letter.as === 'file' && cover === 'Cover Letter - Smoke Tester.pdf|application/pdf|%PDF-';
-    steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404;
+    steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404;
     await send(`/api/resumes/${kept.id}`, 'DELETE');
 
     // 密码保管: a saved sign-in is filled into its site's login form, where
@@ -830,6 +830,49 @@ async function smokeBrowser(token) {
       && !/Asst-pass|asst@example/.test(JSON.stringify(signedByAssistant));
     await browser.agent('open', { url: `${asst}/login?again=1` }, byAssistant);
     steps.assistantNoRetry = (await browser.agent('signin', {}, byAssistant)).status === 'failed' && Boolean(pageAt(`${asst}/login?again=1`));
+    // 助手注册新账户: asked by the assistant, Dayjob makes the password of a new account up, puts it into both
+    // boxes of the sign-up form and keeps it with the form's email, also while the vault is closed. The answer and
+    // the interface carry no password. The email comes first; in manual confirm the user is asked; a "no" leaves
+    // the form and the vault as they were. (Its own site name again.)
+    const join = `http://join.localhost:${site.address().port}`;
+    const handedOver = { by: 'assistant', takeover: true };
+    const newBoxes = start => pageAt(start).executeJavaScript("[...document.querySelectorAll('input[type=password]')].map(box => box.value)");
+    await browser.agent('open', { url: `${join}/signup` }, byAssistant);
+    steps.signupNeedsName = (await browser.agent('signup', {}, handedOver)).status === 'no-username';
+    const joinPage = await browser.agent('read', {}, byAssistant);
+    await browser.agent('type', { ref: joinPage.elements.find(item => item.name === 'Email').ref, text: 'join@example.com' }, byAssistant);
+    const askedAccount = browser.agent('signup', {}, byAssistant).then(() => 'set', error => error.status);
+    steps.signupAsks = await until(() => browser.state().approval?.action === 'account' && browser.state().approval.name === 'join@example.com' && browser.state().approval.by === 'assistant', 5000);
+    browser.answer(browser.state().approval?.id, false);
+    steps.signupDeclined = (await askedAccount) === 409 && (await newBoxes(`${join}/signup`)).join('') === '' && !vault.has('join.localhost', 'join@example.com');
+    vault.close();
+    const madeUp = await browser.agent('signup', { length: 14, symbols: '-_' }, handedOver);
+    const firstTyped = await newBoxes(`${join}/signup`);
+    const keptId = vault.has('join.localhost', 'join@example.com');
+    steps.signupSet = madeUp.status === 'set' && madeUp.username === 'join@example.com' && madeUp.boxes === 2 && madeUp.length === 14 && firstTyped.length === 2 && firstTyped[0] === firstTyped[1]
+      && /^[A-Za-z0-9_-]{14}$/.test(firstTyped[0]) && vault.locked() && Boolean(keptId) && vault.password(keptId) === firstTyped[0]
+      && !(JSON.stringify(madeUp) + JSON.stringify(browser.state())).includes(firstTyped[0]) && browser.state().login?.auto?.state === 'made'
+      && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes(firstTyped[0]);
+    await vault.unlock('Sm0keVault1');
+    // The site did not take it: asked again, the same sign-in gets another password, here of the usual length.
+    const madeAgain = await browser.agent('signup', {}, handedOver);
+    const secondTyped = await newBoxes(`${join}/signup`);
+    steps.signupAgain = madeAgain.status === 'set' && secondTyped[0] === secondTyped[1] && secondTyped[0].length === 20 && secondTyped[0] !== firstTyped[0]
+      && vault.has('join.localhost', 'join@example.com') === keptId && vault.password(keptId) === secondTyped[0] && vault.list().entries.find(entry => entry.id === keptId)?.made === true;
+    // Sent with the form's own button, the site gets the email and the password; Dayjob does not offer to keep what it keeps already.
+    await browser.agent('click', { ref: joinPage.elements.find(item => item.name === 'Create account').ref }, handedOver);
+    steps.signupSent = await until(async () => (await pageAt(`${join}/signed-in`)?.executeJavaScript('document.body.innerText').catch(() => ''))?.includes('Signed in as join@example.com'), 6000)
+      && (await pageAt(`${join}/signed-in`).executeJavaScript('document.body.innerText')).includes('20-character password') && !browser.state().login?.offer;
+    // Only for a new account: one the vault already has is not made again, and a login form is not a sign-up form.
+    await browser.agent('open', { url: `${asst}/signup` }, byAssistant);
+    const known = await browser.agent('read', {}, byAssistant);
+    await browser.agent('type', { ref: known.elements.find(item => item.name === 'Email').ref, text: 'asst@example.com' }, byAssistant);
+    const again = await browser.agent('signup', {}, handedOver);
+    const leftEmpty = (await newBoxes(`${asst}/signup`)).join('') === '';
+    const elsewhere = `http://other.localhost:${site.address().port}`;
+    await browser.agent('open', { url: `${elsewhere}/login` }, byAssistant);
+    steps.signupOnlyNew = again.status === 'has-account' && leftEmpty && (await browser.agent('signup', {}, handedOver)).status === 'login'
+      && (await newBoxes(`${elsewhere}/login`)).join('') === '' && !vault.has('other.localhost', 'asst@example.com');
     // A two-step sign-in: the user name, Next, then the password and Sign in.
     vault.save({ site: 'localhost', username: 'two@example.com', password: 'Tw0-step!' });
     const local = `http://localhost:${site.address().port}`;
@@ -859,7 +902,7 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'assistantAsked',
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
     'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
