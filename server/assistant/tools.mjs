@@ -64,16 +64,17 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
   // One step in the Dayjob browser. What the browser refuses (a stale ref, a field Claude may not type in, the user
-  // saying no) comes back in its own words for the model to read. context: the reply's stop signal, and the
-  // conversation's memo of the job being applied to.
+  // saying no) comes back in its own words for the model to read. context: the reply's stop signal, the
+  // conversation's memo of the job being applied to, and whose step this is (run: an application with a
+  // conversation of its own works in a tab of its own, see desktop/browser.cjs).
   async function inBrowser(action, input, context) {
     try {
-      const outcome = await browser.run(action, input, { by: 'assistant', takeover: applyMode() === 'takeover', signal: context?.signal });
+      const outcome = await browser.run(action, input, { by: 'assistant', takeover: applyMode() === 'takeover', signal: context?.signal, ...(context?.run ? { run: context.run } : {}) });
       if (outcome?.page) delete outcome.page.favicon;
       return outcome;
     } catch (error) {
@@ -630,6 +631,49 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     },
   ];
   // ---------- companies' own job boards ----------
+  // 同时申请 and the feedback file: several applications at once, each in a conversation of its own, and a word
+  // from the model on how an application went (index.mjs writes the entry, with what Dayjob saw itself).
+  const applyingTools = !browser || !applications ? [] : [
+    {
+      name: 'start_applications', tier: 'browser', view: 'feed',
+      description: 'Start applying to several postings at once. Each gets a conversation and a browser tab of its own and is worked on in the background, a few at a time, the rest waiting their '
+        + 'turn; the user follows them in the assistant pane and is asked there before anything is sent (unless they chose full takeover). Use it when the user asks for more than one job; '
+        + 'a single job you apply to here yourself, with open_application. Returns, for each posting, whether it started (working), waits (queued), or was refused and why. '
+        + 'A later message tells you how each one ended: do not wait for them, and do not open their pages here.',
+      shape: { ids: z.array(id).min(1).max(10) },
+      label: (input, result) => { const count = result.applications.filter(item => !item.error).length; return [`开始了 ${count} 个申请`, `Started ${count} ${count === 1 ? 'application' : 'applications'}`]; },
+      run(input, context) {
+        if (context?.run?.own) throw new HttpError(409, 'This conversation is one application already. Work on this one; the user starts the others.');
+        return { result: { applications: applications.start([...new Set(input.ids)], context) }, ui: { runs: true } };
+      },
+    },
+    {
+      name: 'list_application_runs', tier: 'read', view: null,
+      description: 'The applications that have a conversation of their own (started from the Today list, or with start_applications): each one\'s job, whether it waits, is being worked on or is over, '
+        + 'how it ended and why, and what it has used.',
+      shape: {},
+      label: () => ['看了各个申请的进度', 'Looked at the applications under way'],
+      run: () => ({ result: { applications: applications.list().map(run => ({ postingId: run.postingId, job: run.job, state: run.state, outcome: run.outcome, reason: run.reason || undefined, steps: run.steps, tokens: run.tokens })) } }),
+    },
+    {
+      name: 'report_application', tier: 'read', view: null,
+      description: 'Note how an application went, for the feedback file Dayjob keeps for the user. Call it once when you stop working on an application, sent or not, just before your last '
+        + 'words to the user. outcome: submitted (the page confirmed it), needs-user (the user has to do something first: a captcha, a code, a question only they can answer, a confirmation '
+        + 'they declined), failed (the site or the form would not let it through), skipped (not this job after all: closed, the wrong page, applied already). stoppedAt: the step it ended at. '
+        + 'reason: one sentence on why it was not sent. problems: what got in the way, also when it was sent in the end (a field that would not take its value, a sign-in that failed, a page that '
+        + 'kept changing), each with what happened and, when you know it, why. Keep it short and factual. Never put a password, a code, or what was typed into a field here.',
+      shape: { outcome: z.enum(['submitted', 'needs-user', 'failed', 'skipped']), stoppedAt: z.enum(APPLY_STEPS).optional(), reason: z.string().max(300).optional(),
+        problems: z.array(z.strictObject({ at: z.enum(APPLY_STEPS).optional(), what: z.string().min(1).max(200), why: z.string().max(300).optional() })).max(8).optional() },
+      label: () => ['记下了这次申请的情况', 'Noted how this application went'],
+      run(input, context) {
+        if (context?.memo) {
+          context.memo.report = { outcome: input.outcome, stoppedAt: input.stoppedAt || null, reason: (input.reason || '').trim(),
+            problems: (input.problems || []).map(problem => ({ at: problem.at || null, what: problem.what.trim(), why: (problem.why || '').trim() })) };
+        }
+        return { result: { noted: true } };
+      },
+    },
+  ];
   const sameBoard = (company, board) => company.ats === board.ats && company.slug.toLowerCase() === board.slug.toLowerCase();
   const companyTools = !companies ? [] : [
     {
@@ -710,15 +754,16 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
-  tools.push(...companyTools, ...profileTools, ...memoryTools, ...browserTools);
+  tools.push(...companyTools, ...profileTools, ...memoryTools, ...browserTools, ...applyingTools);
 
   const byName = new Map(tools.map(tool => [tool.name, { ...tool, schema: z.strictObject(tool.shape) }]));
   // The tools a conversation can do without until it turns to what they are for. The Claude API engine keeps them
   // out of the prompt until the model asks for the group (engine-api.mjs); everything else is always at hand.
   const GROUPS = {
     apply: { about: 'working in the Dayjob browser and applying to a job there (open_application and every browser_ tool: open, read, click, type, select, autofill, sign in, create '
-      + 'an account, attach the resume, cover letter), and update_profile, which saves an answer the user gave into the application profile',
-      has: tool => tool.tier === 'browser' || tool.name === 'update_profile' },
+      + 'an account, attach the resume, cover letter), start_applications for several jobs at once, report_application for how one went, and update_profile, which saves an answer '
+      + 'the user gave into the application profile',
+      has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs'].includes(tool.name) },
     searches: { about: 'what Dayjob fetches every day (list_searches, save_search and run_search for saved searches; find_company_board and follow_company for a company\'s own job board)',
       has: tool => ['list_searches', 'save_search', 'run_search', 'find_company_board', 'follow_company'].includes(tool.name) },
   };

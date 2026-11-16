@@ -169,6 +169,25 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     turn.onCompact({ ...boundary, summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX)}…` : summary });
   }
 
+  // What each message of a reply used, for the step it is. The stream says it in pieces: message_start what went
+  // in, message_delta what came out, and the whole message says it once more; a later line never says less.
+  // A message is passed on as a step when it ends, or when the next one begins.
+  const STEP_KEYS = { inputTokens: 'input_tokens', outputTokens: 'output_tokens', cacheReadTokens: 'cache_read_input_tokens', cacheWriteTokens: 'cache_creation_input_tokens' };
+  function noteUsage(turn, id, used, model) {
+    if (!id || !used) return;
+    const step = turn.steps.get(id) || { usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, model: null, sent: false };
+    for (const [key, theirs] of Object.entries(STEP_KEYS)) step.usage[key] = Math.max(step.usage[key], Number(used[theirs]) || 0);
+    if (model) step.model = model;
+    turn.steps.set(id, step);
+  }
+  function passSteps(session, turn, { only = null, but = null } = {}) {
+    for (const [id, step] of turn.steps) {
+      if (step.sent || (only && id !== only) || id === but) continue;
+      step.sent = true;
+      turn.onStep({ kind: 'reply', model: step.model || session.served, usage: step.usage });
+    }
+  }
+
   // One line of the CLI's stream. Text arrives as deltas (stream_event); a whole assistant message follows each
   // one and is only used for text that never came as deltas.
   //
@@ -205,7 +224,12 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     settle(session, turn);
     if (event.type === 'stream_event') {
       const inner = event.event || {};
-      if (inner.type === 'message_start') turn.message = inner.message?.id || null;
+      if (inner.type === 'message_start') {
+        turn.message = inner.message?.id || null;
+        passSteps(session, turn, { but: turn.message });
+        if (inner.message?.model !== '<synthetic>') noteUsage(turn, turn.message, inner.message?.usage, inner.message?.model);
+      } else if (inner.type === 'message_delta') { if (turn.steps.has(turn.message)) noteUsage(turn, turn.message, inner.usage); }
+      else if (inner.type === 'message_stop') passSteps(session, turn, { only: turn.message });
       else if (inner.type === 'content_block_start' && inner.content_block?.type === 'thinking') turn.onThinking();
       else if (inner.type === 'content_block_delta') {
         if (inner.delta?.type === 'text_delta' && inner.delta.text) {
@@ -220,6 +244,11 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
       if (message.model && message.model !== '<synthetic>') session.served = message.model;
       const used = message.usage;
       if (used && message.model !== '<synthetic>') session.context = (used.input_tokens || 0) + (used.cache_read_input_tokens || 0) + (used.cache_creation_input_tokens || 0) + (used.output_tokens || 0);
+      if (used && message.model !== '<synthetic>') {
+        // Without the stream's own lines this is all that says what a message used: the one before it is over.
+        passSteps(session, turn, { but: message.id });
+        if (!turn.steps.get(message.id)?.sent) noteUsage(turn, message.id, used, message.model);
+      }
       if (turn.streamed.has(message.id)) return;
       for (const block of message.content || []) if (block.type === 'text' && block.text) turn.onText(block.text);
       return;
@@ -227,6 +256,7 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     if (event.type === 'result') {
       clearTimeout(session.quiet);
       session.turn = null;
+      passSteps(session, turn);
       if (event.is_error) {
         const said = String(event.result || event.subtype || 'error');
         end(id, session);
@@ -241,7 +271,7 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     }
   }
 
-  function ask(id, session, { text, onText, onThinking, onRound, onCompacting = () => {}, onCompact = () => {}, signal }) {
+  function ask(id, session, { text, onText, onThinking, onRound, onCompacting = () => {}, onCompact = () => {}, onStep = () => {}, signal }) {
     return new Promise((resolve, reject) => {
       const abort = () => {
         session.turn = null;
@@ -250,7 +280,7 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
       };
       const done = work => value => { signal?.removeEventListener('abort', abort); work(value); };
       clearTimeout(session.idle);
-      session.turn = { resolve: done(resolve), reject: done(reject), onText, onThinking, onRound, onCompacting, onCompact, message: null, streamed: new Set() };
+      session.turn = { resolve: done(resolve), reject: done(reject), onText, onThinking, onRound, onCompacting, onCompact, onStep, message: null, streamed: new Set(), steps: new Map() };
       signal?.addEventListener('abort', abort, { once: true });
       watch(id, session);
       session.child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`);
@@ -283,7 +313,8 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
     },
     // onCompacting / onCompact: Claude Code has started compacting the conversation / has done so
     // ({ trigger, summary, before, after }; the summary is empty when it did not say what it wrote).
-    async send({ id, text, system, model, onText, onThinking, onRound, onCompacting, onCompact, signal }) {
+    // onStep: what one message of the reply used ({ kind, model, usage }), as each one ends.
+    async send({ id, text, system, model, onText, onThinking, onRound, onCompacting, onCompact, onStep, signal }) {
       if (signal?.aborted) throw signal.reason || new Error('Stopped.');
       const found = await info();
       if (!found.available) throw new AssistantError('no-cli', 'Claude Code was not found. Install it and sign in, or set its path under Resume & AI.');
@@ -291,12 +322,12 @@ export function createCliEngine({ getSettings, mcpUrl, spawn = nodeSpawn, detect
       const fresh = !session;
       if (fresh) session = start(id, { system, model, token: randomBytes(24).toString('hex'), found });
       try {
-        return await ask(id, session, { text, onText, onThinking, onRound, onCompacting, onCompact, signal });
+        return await ask(id, session, { text, onText, onThinking, onRound, onCompacting, onCompact, onStep, signal });
       } catch (error) {
         // Some company-managed setups refuse --strict-mcp-config; there the conversation runs with the user's other servers present but not allowed.
         if (!fresh || !error.retryLoose || signal?.aborted) throw error;
         session = start(id, { system, model, token: session.token, found, strictMcp: false });
-        return ask(id, session, { text, onText, onThinking, onRound, onCompacting, onCompact, signal });
+        return ask(id, session, { text, onText, onThinking, onRound, onCompacting, onCompact, onStep, signal });
       }
     },
   };

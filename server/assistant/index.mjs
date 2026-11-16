@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { HttpError, readJson, respond } from '../http.mjs';
 import { CLAUDE_MODELS, PROVIDERS } from '../jobs/scoring/models.mjs';
+import { costOf } from '../jobs/scoring/prices.mjs';
 import { createApiEngine } from './engine-api.mjs';
 import { createCliEngine } from './engine-cli.mjs';
 import { handleMcp } from './mcp-http.mjs';
 import { AssistantError, SUMMARISE_MAX, SYSTEM_PROMPT, compactPrompt, cutFor, handover, isMarker, lastSummary, summaryOf, withNotes } from './prompt.mjs';
 import { createConversationStore } from './store.mjs';
 import { createMemory, MEMORY_EMPTY } from './memory.mjs';
-import { createTools } from './tools.mjs';
+import { createFeedback, scrub, sumSteps } from './feedback.mjs';
+import { APPLY_STEPS, createTools } from './tools.mjs';
 
 export const ENGINES = ['claude-cli', 'anthropic-api'];
 // Sending an application: 'confirm' waits for the user on a card in the chat; 'takeover' lets the assistant send it.
@@ -16,6 +18,10 @@ const MODE_NOTES = {
   confirm: 'Apply mode: manual confirm. A click that sends an application waits for the user on a card in the chat.',
   takeover: 'Apply mode: full takeover. The user has let you send applications without asking each time.',
 };
+// 同时申请: how many applications the assistant works on at the same time (the rest wait their turn), and how many
+// it keeps in its list before the oldest that are over make room.
+export const PARALLEL = { min: 1, max: 5, default: 3 };
+const MAX_RUNS = 40;
 const MAX_LIVE = 8;
 const MAX_TEXT = 8000;
 const MAX_FOCUS = 1000;
@@ -42,12 +48,25 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // - by itself when a conversation with no engine copy is too long to hand over whole: the older turns are
 //   summarised once, instead of being left out.
 //
-// browser: the desktop app's Dayjob browser ({ run(action, input, context) }), which the applying tools work in;
-// without it (plain `npm start`) those tools are not offered.
+// 同时申请: an application can have a conversation of its own (conversation.run), started from a job in the Today
+// list or by the assistant in another conversation. Such a conversation's reply runs in the background, in a
+// browser tab of its own: nobody has to keep the pane on it, and the pane can look in and leave again (/live).
+// Only a few are worked on at once; the others wait in line.
+//
+// Every request a reply makes to the model is a step of it. What each step used is kept with the reply
+// (turn.steps), written to the database, and shown in the pane. After a reply that worked on an application,
+// Dayjob adds an entry to the feedback file (feedback.mjs): how it ended, why, and what got in the way.
+//
+// browser: the desktop app's Dayjob browser ({ run(action, input, context), endRun(key, options) }), which the
+// applying tools work in; without it (plain `npm start`) those tools are not offered.
+// feedbackDir: the folder the feedback file lives in (none: its entries are only held in memory).
 // companies: { find, follow } from the app, which look a company's own job board up and put it on the daily list.
-export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, now = () => new Date(), log = console.warn }) {
+export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, feedbackDir = null, now = () => new Date(), log = console.warn }) {
   const memory = createMemory(repo, now);
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, companies, onSettings, memory, applyMode: () => settings().apply });
+  const english = () => repo.getSettings().language === 'en';
+  const feedback = createFeedback({ dir: feedbackDir, english, now, log });
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, companies, onSettings, memory, applyMode: () => settings().apply,
+    applications: { start: (ids, context) => startMany(ids, context), list: () => runList().map(runView) } });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
   const available = engines || {
@@ -65,7 +84,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const saved = repo.getMeta('assistant') || {};
     const model = id => (typeof saved.models?.[id] === 'string' ? saved.models[id] : '');
     return { engine: ENGINES.includes(saved.engine) ? saved.engine : 'claude-cli', models: Object.fromEntries(ENGINES.map(id => [id, model(id)])),
-      apply: APPLY_MODES.includes(saved.apply) ? saved.apply : 'confirm' };
+      apply: APPLY_MODES.includes(saved.apply) ? saved.apply : 'confirm',
+      parallel: Number.isInteger(saved.parallel) && saved.parallel >= PARALLEL.min && saved.parallel <= PARALLEL.max ? saved.parallel : PARALLEL.default };
   }
   function saveSettings(input) {
     const current = settings();
@@ -80,25 +100,34 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       }
     }
     if (input.apply !== undefined && !APPLY_MODES.includes(input.apply)) throw new HttpError(400, `apply must be one of: ${APPLY_MODES.join(', ')}.`);
-    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models, apply: input.apply ?? current.apply });
+    if (input.parallel !== undefined && !(Number.isInteger(input.parallel) && input.parallel >= PARALLEL.min && input.parallel <= PARALLEL.max)) {
+      throw new HttpError(400, `parallel must be a whole number from ${PARALLEL.min} to ${PARALLEL.max}.`);
+    }
+    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models, apply: input.apply ?? current.apply, parallel: input.parallel ?? current.parallel });
+    // More room at once: the applications that were waiting for it start.
+    if (input.parallel !== undefined) pump();
     return settings();
   }
 
   // ---------- conversations ----------
-  const revive = row => ({ ...row, kept: true, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now() });
+  const revive = row => ({ ...row, kept: true, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now(), run: null, listeners: new Set() });
   function release(conversation) {
     conversation.flight?.abort();
     for (const engine of Object.values(available)) engine.close(conversation.id);
     conversations.delete(conversation.id);
+    // What it had open in the Dayjob browser is the user's from here on.
+    try { browser?.endRun?.(conversation.id, { forgotten: true }); } catch { /* the browser is gone */ }
   }
   // Only a handful stay in memory; the one used longest ago makes room (a kept one is still in the database).
+  // The applications in the list are not counted here: they leave when they are taken off it.
   function trim() {
-    const idle = [...conversations.values()].filter(item => !item.flight).sort((a, b) => a.usedAt - b.usedAt);
-    while (conversations.size > MAX_LIVE && idle.length) release(idle.shift());
+    const plain = [...conversations.values()].filter(item => !item.run);
+    const idle = plain.filter(item => !item.flight).sort((a, b) => a.usedAt - b.usedAt);
+    for (let over = plain.length - MAX_LIVE; over > 0 && idle.length; over -= 1) release(idle.shift());
   }
   function create() {
     const at = iso();
-    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, archivedAt: null, turns: [], kept: false, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now() };
+    const conversation = { id: randomUUID(), title: '', createdAt: at, updatedAt: at, archivedAt: null, turns: [], kept: false, actions: new Map(), notes: [], memo: {}, flight: null, live: null, engine: null, model: '', usedAt: Date.now(), run: null, listeners: new Set() };
     conversations.set(conversation.id, conversation);
     trim();
     return conversation;
@@ -126,15 +155,25 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   // (facts: the job, the resume's name, how many fields), and, for a cover letter, the letter itself (detail).
   const toolView = (conversation, tool) => ({ id: tool.id, name: tool.name, tier: tool.tier, view: tool.view, ok: tool.ok, label: tool.label, error: tool.error, offset: tool.offset,
     undone: Boolean(tool.undone), undoable: Boolean(conversation.actions.get(tool.id) && !tool.undone),
-    ...(tool.step ? { step: tool.step } : {}), ...(tool.facts ? { facts: tool.facts } : {}), ...(tool.detail ? { detail: tool.detail } : {}) });
+    ...(tool.step ? { step: tool.step } : {}), ...(tool.facts ? { facts: tool.facts } : {}), ...(tool.detail ? { detail: tool.detail } : {}), ...(tool.stepNo ? { stepNo: tool.stepNo } : {}) });
+  // 同时申请: an application with a conversation of its own, as the list in the window shows it.
+  // state: queued (waiting its turn) | working | done. outcome: how its last reply ended (the names in feedback.mjs),
+  // reason: a line on why it was not sent. steps, tokens, cost: what it has used so far, every reply together.
+  const runView = conversation => {
+    const run = conversation.run;
+    if (!run) return null;
+    return { id: conversation.id, postingId: run.postingId, job: run.job, state: run.state, outcome: run.outcome, reason: run.reason, at: run.at, startedAt: run.startedAt, endedAt: run.endedAt,
+      parent: run.parent, steps: run.used.steps, tokens: run.used.inputTokens + run.used.cacheReadTokens + run.used.cacheWriteTokens + run.used.outputTokens, cost: run.used.cost };
+  };
+  const runList = () => [...conversations.values()].filter(item => item.run);
   // context: how large the engine's copy was at its last reply ({ tokens, limit }, limit being the size it is
   // compacted at), or null when no engine holds the conversation.
   const view = conversation => ({ id: conversation.id, title: conversation.title, kept: conversation.kept, archivedAt: conversation.archivedAt || null,
     createdAt: conversation.createdAt, updatedAt: conversation.updatedAt, busy: Boolean(conversation.flight),
-    context: conversation.context || null, compactable: compactable(conversation),
+    context: conversation.context || null, compactable: compactable(conversation), run: runView(conversation),
     turns: conversation.turns.map(turn => (isMarker(turn) ? markerView(turn) : turn.role === 'user' ? { role: 'user', text: turn.text, at: turn.at }
       : { role: 'assistant', text: turn.text, at: turn.at, engine: turn.engine, model: turn.model || null, stopped: Boolean(turn.stopped), error: turn.error || null, errorCode: turn.errorCode || null,
-        usage: turn.usage || null, tools: turn.tools.map(tool => toolView(conversation, tool)) })) });
+        usage: turn.usage || null, steps: turn.steps || [], tools: turn.tools.map(tool => toolView(conversation, tool)) })) });
 
   // ---------- tools ----------
   async function runTool(conversation, name, input) {
@@ -148,7 +187,14 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     // that silence for a reply gone quiet.
     const engine = available[conversation.engine];
     engine?.hold?.(conversation.id, true);
-    try { outcome = await tools.run(name, input, { signal: conversation.flight?.signal, memo: conversation.memo }); } catch (error) {
+    // run: whose step in the Dayjob browser this is. An application with a conversation of its own works in a tab
+    // of its own (own); any other conversation works in the tab on show.
+    const context = { signal: conversation.flight?.signal, memo: conversation.memo, conversationId: conversation.id,
+      run: { key: conversation.id, own: Boolean(conversation.run), job: conversation.run?.job || '' } };
+    // The step of the reply that asked for this tool: the request made last.
+    const step = live.turn.steps?.at(-1) || null;
+    step?.tools.push(name);
+    try { outcome = await tools.run(name, input, context); } catch (error) {
       log(`[dayjob] assistant tool ${name}: ${error.stack || error.message}`);
       outcome = { ok: false, error: 'Dayjob could not do that.', tier, view: null };
     } finally { engine?.hold?.(conversation.id, false); }
@@ -157,7 +203,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     // readings have come, and in the turns kept here, which are what a conversation is handed over from.
     const stale = outcome.ok && outcome.stale ? JSON.stringify(outcome.stale) : null;
     const record = { id: callId, name, tier: outcome.tier, view: outcome.view, ok: outcome.ok, label: outcome.label || null, error: outcome.ok ? null : outcome.error,
-      input: input ?? {}, summary: stale || clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false,
+      input: input ?? {}, summary: stale || clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false, ...(step ? { stepNo: step.n } : {}),
       ...(outcome.ok && outcome.step ? { step: outcome.step } : {}), ...(outcome.ok && outcome.facts ? { facts: outcome.facts } : {}), ...(outcome.ok && outcome.detail ? { detail: outcome.detail } : {}) };
     if (outcome.ok && outcome.undo) conversation.actions.set(callId, outcome.undo);
     live.turn.tools.push(record);
@@ -282,20 +328,169 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     if (conversationId !== undefined && conversationId !== null && typeof conversationId !== 'string') throw new HttpError(400, 'conversationId must be text.');
     const conversation = conversationId ? need(load(conversationId)) : create();
     if (conversation.flight) throw new HttpError(409, 'The assistant is still answering.');
+    if (conversation.run?.state === 'queued') throw new HttpError(409, 'This application is waiting for its turn. It starts by itself.');
     const controller = new AbortController();
     conversation.flight = controller;
     return { conversation, controller, run: emit => reply(conversation, text.trim(), emit, controller) };
   }
 
+  // ---------- 同时申请: applications with a conversation of their own ----------
+  const jobName = posting => [posting.company, posting.title].filter(Boolean).join(' · ') || 'this job';
+  const NO_USE = () => ({ steps: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cost: null });
+  const RUN_NOTE = posting => `This conversation is one application, which the user started for posting ${posting.id} (${jobName(posting)}). It runs in the background, in a browser tab of its own: the user `
+    + 'may be looking at something else, and other applications may be running at the same time in other tabs. Start with open_application for this posting and work on this one only. '
+    + 'When it is sent, or when you cannot go on, call report_application, then say in a few lines how it went and what, if anything, the user has to do.';
+  const ENDED = { submitted: 'it was sent, and Dayjob tracks it now', unconfirmed: 'the assistant there says it was sent, but Dayjob saw no confirmation', 'needs-user': 'it was not sent: it needs the user',
+    failed: 'it was not sent: it failed', skipped: 'it was not sent: it was skipped', stopped: 'the user stopped it', error: 'it broke off with an error', unclear: 'it was not sent' };
+  // Takes an application off the list. One whose conversation the user keeps stays as an ordinary conversation.
+  function dismiss(conversation) {
+    if (conversation.kept && !conversation.flight) {
+      conversation.run = null;
+      try { browser?.endRun?.(conversation.id, { forgotten: true }); } catch { /* the browser is gone */ }
+      trim();
+    } else release(conversation);
+  }
+  // Starts the applications that are waiting, as far as there is room for them.
+  function pump() {
+    const limit = settings().parallel;
+    let working = runList().filter(item => item.flight).length;
+    for (const conversation of runList()) {
+      if (working >= limit) break;
+      if (conversation.run.state !== 'queued' || conversation.flight) continue;
+      working += 1;
+      launch(conversation);
+    }
+  }
+  function launch(conversation) {
+    const controller = new AbortController();
+    conversation.flight = controller;
+    reply(conversation, conversation.run.text, event => cast(conversation, event), controller).catch(error => {
+      log(`[dayjob] assistant: ${error.stack || error.message}`);
+      // Never leave a place in the line taken by something that is not running.
+      if (conversation.flight === controller) conversation.flight = null;
+      if (conversation.run) Object.assign(conversation.run, { state: 'done', outcome: 'error', endedAt: iso() });
+      pump();
+    });
+  }
+  // parent: the conversation whose assistant started it, which is told how it ended.
+  function startApplication(postingId, { parent = null } = {}) {
+    if (!browser) throw new HttpError(409, 'Applying needs the Dayjob desktop app, which has the Dayjob browser.');
+    if (typeof postingId !== 'string' || !postingId) throw new HttpError(400, 'postingId is required.');
+    const posting = need(repo.getPosting(postingId), 'Posting');
+    const under = runList().find(item => item.run.postingId === posting.id && item.run.state !== 'done');
+    if (under) return { conversation: under, already: true };
+    if (repo.applicationForPosting(posting.id)) throw new HttpError(409, 'This job is already tracked as applied.');
+    if (!(posting.applyUrl || posting.jobUrl)) throw new HttpError(409, 'This posting has no link to open.');
+    // An earlier try at the same job gives way to the new one, and the list keeps only the latest.
+    for (const old of runList().filter(item => item.run.state === 'done' && item.run.postingId === posting.id)) dismiss(old);
+    if (runList().length >= MAX_RUNS) {
+      const over = runList().find(item => item.run.state === 'done');
+      if (!over) throw new HttpError(409, 'Too many applications are waiting already. Let some of them finish first.');
+      dismiss(over);
+    }
+    const conversation = create();
+    const job = jobName(posting);
+    const text = english() ? `Apply to this job: ${job}` : `申请这个岗位：${job}`;
+    conversation.run = { postingId: posting.id, job, state: 'queued', outcome: null, reason: '', at: iso(), startedAt: null, endedAt: null, parent, text, used: NO_USE() };
+    conversation.title = titleOf(text);
+    conversation.notes.push(RUN_NOTE(posting));
+    pump();
+    return { conversation, already: false };
+  }
+  // For the assistant's own tool: several at once, each answered for by itself.
+  function startMany(ids, context) {
+    return ids.map(id => {
+      try {
+        const { conversation, already } = startApplication(id, { parent: context?.conversationId || null });
+        return { id, job: conversation.run.job, state: conversation.run.state, ...(already ? { note: 'This one was under way already.' } : {}) };
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        return { id, error: error.message };
+      }
+    });
+  }
+  // Stops an application: one at work is stopped like any reply, one still waiting never starts.
+  function stop(conversation) {
+    if (conversation.run?.state === 'queued') Object.assign(conversation.run, { state: 'done', outcome: 'stopped', endedAt: iso() });
+    else conversation.flight?.abort();
+  }
+
+  // After a reply that worked on an application: how it ended, noted on the application and in the feedback file.
+  // Dayjob writes the entry from what it saw itself (whether the application was recorded, where the tools got to,
+  // which of them failed) and from what the model reported, if it did. Returns the outcome, or null when the reply
+  // was about something else.
+  function wrapUp(conversation, turn, { engineId, started }) {
+    const memo = conversation.memo;
+    const run = conversation.run;
+    const report = memo.report || null;
+    memo.report = null;
+    const last = name => turn.tools.findLast(tool => tool.ok && tool.name === name);
+    const postingId = run?.postingId || last('open_application')?.facts?.postingId || last('mark_applied')?.input?.id || memo.posting?.id || null;
+    const browsed = turn.tools.some(tool => tool.tier === 'browser');
+    if (!run && !report && !(postingId && browsed)) return null;
+    // A later message in an application's conversation that only talked about it changes nothing.
+    if (run?.replies && !report && !browsed && !turn.stopped && !turn.error) return run.outcome;
+    if (run) run.replies = (run.replies || 0) + 1;
+    const posting = postingId ? repo.getPosting(postingId) : null;
+    const recorded = turn.tools.some(tool => tool.ok && tool.step === 'record') || Boolean(run && repo.applicationForPosting(run.postingId));
+    const outcome = recorded ? 'submitted' : turn.stopped ? 'stopped' : turn.error ? 'error' : report?.outcome === 'submitted' ? 'unconfirmed' : report?.outcome || 'unclear';
+    const reached = Math.max(-1, ...turn.tools.filter(tool => tool.ok && tool.step).map(tool => APPLY_STEPS.indexOf(tool.step)));
+    const failures = new Map();
+    for (const tool of turn.tools.filter(item => !item.ok)) {
+      const key = `${tool.name}\n${tool.error}`;
+      failures.set(key, { tool: tool.name, error: tool.error || '', count: (failures.get(key)?.count || 0) + 1 });
+    }
+    const failed = [...failures.values()].sort((a, b) => b.count - a.count).slice(0, 6);
+    const reason = outcome === 'submitted' ? '' : report?.reason || (turn.error && !turn.stopped ? turn.error : '') || report?.problems?.[0]?.what || failed[0]?.error || '';
+    let site = '';
+    try { site = new URL(posting?.applyUrl || posting?.jobUrl || '').host; } catch { /* no link */ }
+    const key = postingId || '';
+    feedback.add({ at: now(), job: run?.job || (posting ? jobName(posting) : ''), site, outcome, stoppedAt: report?.stoppedAt || APPLY_STEPS[reached] || null, reason, problems: report?.problems || [], failures: failed,
+      engine: engineId, model: turn.model || turn.steps.at(-1)?.model || null, durationMs: Date.now() - started, steps: turn.steps, again: Boolean(memo.entries?.has(key)) });
+    memo.entries = (memo.entries || new Set()).add(key);
+    if (run) Object.assign(run, { outcome, reason: scrub(reason, 200) });
+    return outcome;
+  }
+
   async function reply(conversation, text, emit, controller) {
     const { engineId, engine, model, apply } = engage(conversation);
     const at = iso();
+    const run = conversation.run;
+    if (run) Object.assign(run, { state: 'working', startedAt: run.startedAt || at, endedAt: null });
     const earlier = conversation.turns.length;
     conversation.turns.push({ role: 'user', text, at });
     if (!conversation.title) conversation.title = titleOf(text);
-    const turn = { role: 'assistant', text: '', tools: [], at, engine: engineId, model: null };
+    const turn = { role: 'assistant', text: '', tools: [], steps: [], at, engine: engineId, model: null };
     conversation.turns.push(turn);
-    emit({ type: 'start', conversation: { id: conversation.id, title: conversation.title, kept: conversation.kept }, engine: engineId });
+    emit({ type: 'start', conversation: { id: conversation.id, title: conversation.title, kept: conversation.kept, run: runView(conversation) }, engine: engineId });
+    // 每一步的 token: a step is one request to the model, with the tools it then ran. It is written to the database
+    // once the next one begins (its tools are known by then), and the last one when the reply is over.
+    let written = 0;
+    const writeSteps = upto => {
+      for (; written < upto; written += 1) {
+        const step = turn.steps[written];
+        try {
+          repo.logStep?.({ at: step.at, conversationId: conversation.id, replyAt: at, step: step.n, kind: step.kind || 'reply', postingId: run?.postingId || conversation.memo.posting?.id || null,
+            provider: engineId, model: step.model, tools: step.tools, usage: step, cost: step.cost });
+        } catch (error) { log(`[dayjob] assistant: could not log a step: ${error.message}`); }
+      }
+    };
+    const onStep = ({ kind = 'reply', model: served = null, usage }) => {
+      if (!usage) return;
+      const step = { n: turn.steps.length + 1, at: iso(), ...(kind === 'reply' ? {} : { kind }), model: served || model || null, tools: [],
+        inputTokens: usage.inputTokens || 0, outputTokens: usage.outputTokens || 0, cacheReadTokens: usage.cacheReadTokens || 0, cacheWriteTokens: usage.cacheWriteTokens || 0 };
+      step.cost = costOf(step.model, step, 1);
+      turn.steps.push(step);
+      if (run) {
+        run.used.steps += 1;
+        for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']) run.used[key] += step[key];
+        if (typeof step.cost === 'number') run.used.cost = (run.used.cost || 0) + step.cost;
+      }
+      writeSteps(turn.steps.length - 1);
+      emit({ type: 'step', step });
+    };
+    // Whether the reply as a whole has been put down with the rest of the AI usage.
+    let counted = false;
     // With the Dayjob browser at hand, each message says how the user wants applications sent just now.
     // The memory comes with the first message an engine session gets, and again whenever it has changed since.
     // An empty memory is only said once it has been emptied: the model has no notes to unlearn before that.
@@ -329,7 +524,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
         id: conversation.id, text: message, system: SYSTEM_PROMPT, model, tools: tools.definitions(), signal: controller.signal,
         groups: tools.groups(), preload: preload(conversation, text),
         notes: standing.length ? withNotes('', standing).trim() : '',
-        callTool: (name, input) => runTool(conversation, name, input),
+        callTool: (name, input) => runTool(conversation, name, input), onStep,
         onRound() { mark = turn.text.length; gap = turn.text.length > 0; },
         onThinking() { emit({ type: 'thinking' }); },
         onText(delta) {
@@ -354,6 +549,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       turn.usage = outcome.usage || null;
       conversation.context = outcome.context || null;
       // Counted with the rest of the AI usage where Dayjob records it.
+      counted = true;
       try { repo.logUsage?.({ kind: 'assistant', provider: engineId, model: outcome.model, usage: outcome.usage, turns: outcome.rounds, durationMs: Date.now() - started }); } catch { /* optional */ }
     } catch (error) {
       if (controller.signal.aborted) {
@@ -373,9 +569,28 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       if (!engine.live(conversation.id)) conversation.context = null;
       conversation.updatedAt = iso();
       conversation.usedAt = Date.now();
+      writeSteps(turn.steps.length);
+      // A reply that was stopped or broke off used what its steps used: that counts as well.
+      if (!counted && turn.steps.length) {
+        const total = sumSteps(turn.steps);
+        turn.usage = { inputTokens: total.inputTokens, outputTokens: total.outputTokens, cacheReadTokens: total.cacheReadTokens, cacheWriteTokens: total.cacheWriteTokens };
+        turn.model = turn.model || turn.steps.at(-1).model;
+        try { repo.logUsage?.({ kind: 'assistant', provider: engineId, model: turn.model, usage: turn.usage, turns: turn.steps.length, durationMs: Date.now() - started }); } catch { /* optional */ }
+      }
+      let outcome = null;
+      try { outcome = wrapUp(conversation, turn, { engineId, started }); } catch (error) { log(`[dayjob] assistant: could not note how the application went: ${error.stack || error.message}`); }
+      if (run) {
+        Object.assign(run, { state: 'done', endedAt: iso(), outcome: outcome || run.outcome || 'unclear' });
+        // Its tab is given back: closed when the application went through, left for the user when it did not.
+        try { browser?.endRun?.(conversation.id, { close: run.outcome === 'submitted' }); } catch { /* the browser is gone */ }
+        const parent = run.parent ? conversations.get(run.parent) : null;
+        if (parent) parent.notes.push(`The application you started for ${run.job} has ended: ${ENDED[run.outcome] || run.outcome}${run.reason ? ` (${run.reason})` : ''}.`);
+      }
       try { persist(conversation); } catch (error) { log(`[dayjob] assistant: could not save the conversation: ${error.message}`); }
     }
     emit({ type: 'end', conversation: view(conversation) });
+    // A place in the line is free again.
+    if (run) pump();
   }
 
   // ---------- HTTP ----------
@@ -384,19 +599,47 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     return { settings: settings(), engines: { 'claude-cli': cli, 'anthropic-api': api },
       models: CLAUDE_MODELS.map(model => ({ id: model.id, name: model.name, tag: model.tag || null })),
       defaultModels: Object.fromEntries(ENGINES.map(id => [id, PROVIDERS[id].defaultModel])), kept: store.list(), browser: Boolean(browser), memory: memory.list(),
+      runs: runList().map(runView), parallel: PARALLEL, feedback: { file: feedback.file, folder: feedback.folder },
       tools: tools.list.map(tool => ({ name: tool.name, tier: tool.tier })) };
   }
 
-  // The reply as lines of JSON, one event each, written as they happen. Closing the request stops the reply.
-  async function stream(response, { controller, run }) {
+  // What a reply says goes to everyone listening to its conversation: the request that asked for it, and a pane
+  // that looked in on an application later.
+  const cast = (conversation, event) => { for (const listener of [...conversation.listeners]) listener(event); };
+  const NDJSON = { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' };
+  const writer = response => event => { if (!response.writableEnded && !response.destroyed) response.write(`${JSON.stringify(event)}\n`); };
+  // The reply as lines of JSON, one event each, written as they happen. Closing the request stops the reply, except
+  // in an application's own conversation: that goes on in the background, and is stopped by asking (/stop).
+  async function stream(response, { conversation, controller, run }) {
     let finished = false;
-    response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
-    response.on('close', () => { if (!finished) controller.abort(); });
-    const emit = event => { if (!response.writableEnded && !response.destroyed) response.write(`${JSON.stringify(event)}\n`); };
-    try { await run(emit); } finally {
+    response.writeHead(200, NDJSON);
+    const write = writer(response);
+    conversation.listeners.add(write);
+    response.on('close', () => {
+      conversation.listeners.delete(write);
+      if (!finished && !conversation.run) controller.abort();
+    });
+    try { await run(event => cast(conversation, event)); } finally {
       finished = true;
+      conversation.listeners.delete(write);
       response.end();
     }
+  }
+  // Looking in on a conversation: how it stands now (snapshot), then, while a reply is being made in it, what that
+  // reply says from here on. Closing the request only stops the looking.
+  async function follow(response, conversation) {
+    response.writeHead(200, NDJSON);
+    const write = writer(response);
+    write({ type: 'snapshot', conversation: view(conversation) });
+    if (conversation.flight) {
+      await new Promise(resolve => {
+        const listener = event => { write(event); if (event.type === 'end') done(); };
+        const done = () => { conversation.listeners.delete(listener); resolve(); };
+        conversation.listeners.add(listener);
+        response.on('close', done);
+      });
+    }
+    response.end();
   }
 
   // Tool calls from a conversation's Claude Code process. The token was handed to that process alone.
@@ -421,9 +664,13 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   async function http({ request, response, pathname, method, authorize }) {
     if (pathname === '/api/assistant/mcp') return mcp(request, response);
     if (request.headers['x-dayjob-client'] === 'mcp') throw new HttpError(403, 'The in-app assistant is used from the Dayjob window only.');
-    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/archive|\/close|\/compact)?$/);
+    const match = pathname.match(/^\/api\/assistant\/conversations\/([^/]+)(\/undo|\/keep|\/archive|\/close|\/compact|\/live|\/stop)?$/);
+    const listed = pathname.match(/^\/api\/assistant\/runs\/([^/]+)$/);
+    const runs = () => ({ runs: runList().map(runView), parallel: settings().parallel });
     if (method === 'GET') {
       if (pathname === '/api/assistant') return respond(response, 200, await state());
+      if (pathname === '/api/assistant/runs') return respond(response, 200, runs());
+      if (pathname === '/api/assistant/feedback') return respond(response, 200, feedback.read());
       if (match && !match[2]) return respond(response, 200, view(need(load(match[1]))));
       throw new HttpError(404, 'API endpoint not found.');
     }
@@ -431,6 +678,24 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const input = await readJson(request);
     if (pathname === '/api/assistant/chat' && method === 'POST') return stream(response, begin(input));
     if (pathname === '/api/assistant/settings' && method === 'PATCH') return respond(response, 200, saveSettings(input));
+    // 同时申请: an application of its own for a posting; and taking one off the list (one at work is stopped first).
+    if (pathname === '/api/assistant/applications' && method === 'POST') {
+      const { conversation, already } = startApplication(input.postingId);
+      return respond(response, already ? 200 : 201, { run: runView(conversation), ...runs() });
+    }
+    if (listed && method === 'DELETE') {
+      const conversation = conversations.get(listed[1]);
+      if (conversation?.run) dismiss(conversation);
+      pump();
+      return respond(response, 200, runs());
+    }
+    if (match && method === 'POST' && match[2] === '/live') return follow(response, need(load(match[1])));
+    if (match && method === 'POST' && match[2] === '/stop') {
+      const conversation = need(conversations.get(match[1]));
+      stop(conversation);
+      pump();
+      return respond(response, 200, { ok: true, run: runView(conversation) });
+    }
     // 助手的记忆: the user's own notes for the assistant, read and edited under Settings.
     if (pathname === '/api/assistant/memory' && method === 'POST') { memory.add(input.text, 'user'); return respond(response, 201, { memory: memory.list() }); }
     const note = pathname.match(/^\/api\/assistant\/memory\/([^/]+)$/);
@@ -466,7 +731,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     // Leaving a conversation: one that is not kept is forgotten, a kept one only leaves memory.
     if (match && method === 'POST' && match[2] === '/close') {
       const conversation = conversations.get(match[1]);
-      if (conversation) release(conversation);
+      // An application stays in its list when the pane leaves it.
+      if (conversation && !conversation.run) release(conversation);
       return respond(response, 200, { ok: true });
     }
     if (match && !match[2] && method === 'DELETE') {
@@ -481,7 +747,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   }
 
   return {
-    http, tools, store, settings, memory,
+    http, tools, store, settings, memory, feedback, startApplication,
     // For tests and the desktop shell.
     conversations,
     close() {

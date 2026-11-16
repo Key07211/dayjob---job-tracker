@@ -116,9 +116,12 @@ function setupIpc() {
     verifiedSender(event);
     return { version: app.getVersion(), dataPath: dataDir, isPackaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) };
   });
-  ipcMain.handle('dayjob:open-data-folder', async event => {
+  // what: 'feedback' for the folder of the assistant's feedback file; anything else is the data folder itself.
+  ipcMain.handle('dayjob:open-data-folder', async (event, what) => {
     verifiedSender(event);
-    const error = await shell.openPath(dataDir);
+    const folder = what === 'feedback' ? path.join(dataDir, 'feedback') : dataDir;
+    if (folder !== dataDir) fs.mkdirSync(folder, { recursive: true });
+    const error = await shell.openPath(folder);
     if (error) throw new Error(error);
   });
   ipcMain.handle('dayjob:claude-status', event => { verifiedSender(event); return claude.getStatus(); });

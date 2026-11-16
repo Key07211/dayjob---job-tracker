@@ -296,6 +296,20 @@ test('tools that can wait are declared but kept out of the prompt until the mode
   for (const request of requests) assert.deepEqual(request.tools, tools);
 });
 
+test('the Claude API engine says what every request used, as a step of the reply', async () => {
+  const { send } = apiEngine([
+    { content: [use('t1', 'get_status')], stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: 'Fine.' }], model: 'claude-opus-5-5-20260301', usage: { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 1000 } },
+  ]);
+  const steps = [];
+  const outcome = await send('c1', 'status?', { onStep: step => steps.push(step) });
+  assert.deepEqual(steps, [
+    { kind: 'reply', model: 'claude-opus-5-5', usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 900, cacheWriteTokens: 50 } },
+    { kind: 'reply', model: 'claude-opus-5-5-20260301', usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 1000, cacheWriteTokens: 0 } },
+  ]);
+  assert.deepEqual(outcome.usage, { inputTokens: 107, outputTokens: 23, cacheReadTokens: 1900, cacheWriteTokens: 50 }, 'the steps add up to what the reply used');
+});
+
 test('a group is given again after a summary took its tools out of the conversation', async () => {
   let line = 0;
   const { send, requests } = apiEngine([

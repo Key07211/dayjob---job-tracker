@@ -43,7 +43,8 @@ const number = value => (value === null || value === '' ? undefined : Number.isF
 
 export async function createApp(options = {}) {
   const now = options.now || (() => new Date());
-  const { db, filename } = openDatabase(options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data'));
+  const dataDir = options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data');
+  const { db, filename } = openDatabase(dataDir);
   const repo = createRepository(db, { now });
   const goals = createGoals({ db, repo, now });
   const dashboard = createDashboard({ db, now });
@@ -513,6 +514,8 @@ export async function createApp(options = {}) {
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, log, engines: options.assistantEngines,
     companies: { find: findCompany, follow: followCompany },
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
+    // 问题反馈文件: beside the database; a database in memory has no folder, and keeps its entries in memory too.
+    feedbackDir: dataDir === ':memory:' ? null : path.join(dataDir, 'feedback'),
     baseUrl: () => `http://127.0.0.1:${server.address().port}` });
 
   // 自动收录: an application the Dayjob browser saw go through (something was sent from an application form and the

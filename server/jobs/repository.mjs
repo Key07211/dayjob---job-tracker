@@ -550,6 +550,20 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     const level = !after ? null : before.left > 0 && after.left <= 0 ? 'empty' : before.percent > LOW_PERCENT && after.percent <= LOW_PERCENT ? 'low' : null;
     return { cost, keyId: payer?.id ?? null, alert: level ? { level, id: payer.id, service: payer.service, name: payer.name, kind: after.kind, left: after.left, percent: after.percent } : null };
   }
+  // One step of an assistant reply (see assistant_steps in db.mjs). The cost is what index.mjs worked out for it.
+  function logStep({ at, conversationId, replyAt, step, kind = 'reply', postingId = null, provider, model = null, tools = [], usage = null, cost = null }) {
+    q(`INSERT INTO assistant_steps (at, conversation_id, reply_at, step, kind, posting_id, provider, model, tools, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(at || iso(), String(conversationId), String(replyAt), whole(step), String(kind), postingId, String(provider || 'unknown'), model || null,
+      tools.join(',') || null, usage ? whole(usage.inputTokens) : null, usage ? whole(usage.outputTokens) : null, usage ? whole(usage.cacheReadTokens) : null,
+      usage ? whole(usage.cacheWriteTokens) : null, typeof cost === 'number' ? cost : null);
+  }
+  // The steps of one conversation, oldest first (every reply's when replyAt is not given).
+  function listSteps(conversationId, replyAt = null) {
+    return q(`SELECT at, reply_at, step, kind, posting_id, provider, model, tools, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd
+      FROM assistant_steps WHERE conversation_id = ? AND (? IS NULL OR reply_at = ?) ORDER BY id`).all(String(conversationId), replyAt, replyAt)
+      .map(row => ({ at: row.at, replyAt: row.reply_at, step: row.step, kind: row.kind, postingId: row.posting_id, provider: row.provider, model: row.model, tools: row.tools ? row.tools.split(',') : [],
+        inputTokens: row.input_tokens, outputTokens: row.output_tokens, cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens, cost: row.cost_usd }));
+  }
   // Calls logged before costs were kept get theirs now, once.
   function priceUsage() {
     if (getMeta('usagePriced')) return 0;
@@ -755,7 +769,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     upsertPosting, holdsPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings,
-    saveScore, getScore, unscoredPostingIds, logUsage, priceUsage, usageSummary, usageSpend,
+    saveScore, getScore, unscoredPostingIds, logUsage, logStep, listSteps, priceUsage, usageSummary, usageSpend,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,
   };
