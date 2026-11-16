@@ -13,9 +13,10 @@ import { applicationPatch, applyInput, BROWSER_KEYS, browserInput, JOB_TYPES, ma
 //   browser   works in a page of the Dayjob browser (the desktop app only): opening, reading, filling in, and
 //             clicking. A click that submits or sends waits for the user in the Dayjob window, unless the user has
 //             handed applications over to the assistant (applyMode 'takeover').
-// Anything riskier (deleting, editing a resume, scoring, settings) is not here yet. Saved passwords never are:
+// Anything riskier (deleting, editing a resume, scoring, settings) is not here yet. Passwords never are:
 // signing in is asked of the Dayjob browser, which fills the vault's sign-in on this computer and answers only
-// with how it went. A resume's file is attached the same way: the tools learn its name, never the file.
+// with how it went; and for an account the assistant creates, the Dayjob browser makes the password up, types it
+// in and keeps it in the vault. A resume's file is attached the same way: the tools learn its name, never the file.
 export const TIERS = ['read', 'undoable', 'browser'];
 // Where an application stands, in the order it happens; tools that move it along say which step they were.
 export const APPLY_STEPS = ['open', 'login', 'fill', 'resume', 'questions', 'confirm', 'record'];
@@ -416,6 +417,17 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     failed: ['Dayjob already sent the saved sign-in for this site and the login form came back, so it is not tried again. Ask the user to sign in themselves in the Dayjob window; the saved password may be out of date.', (site => [`${site} 登录没有成功，不再重试`, `The sign-in to ${site} did not go through; not trying again`])],
     unavailable: ['Dayjob cannot sign in on this page (saved sign-ins are only used on https pages). Ask the user to sign in themselves in the Dayjob window.', (() => ['这一页没法代为登录', 'Cannot sign in on this page'])],
   };
+  // 注册新账户: how asking Dayjob to set a new account's password went, for the model and for the chat.
+  const SIGN_UP = {
+    set: ['Dayjob made a password up, put it into the form and kept it in the user\'s vault with this site and the form\'s email or user name. Nothing is sent yet: fill in what is left and click the form\'s button. If the site then says the password does not fit its rules, call this again with length or symbols to match them.',
+      (site => [`为 ${site} 的新账户设好了密码，已存进密码保管`, `Set a password for the new account on ${site} and kept it in the vault`])],
+    'no-form': ['This page has no form with a password box. Find the site\'s sign-up form first (often a "Create account" or "Sign up" link) and read the page again.', (site => [`${site} 这一页没有注册表单`, `No sign-up form on this page of ${site}`])],
+    login: ['The form on this page signs in to an account; it does not create one. Use browser_sign_in here, or find the site\'s sign-up form.', (site => [`${site} 这一页是登录，不是注册`, `This page of ${site} signs in; it does not sign up`])],
+    'no-username': ['The form\'s email or user name is still empty. Fill it in first (browser_type, with the email from the application profile), then call this again.', (() => ['要先填好邮箱或用户名', 'The email or user name comes first'])],
+    'has-account': ['The vault already has a sign-in for this site with that email or user name, so there is an account already. Do not create another: go to the site\'s login page and call browser_sign_in. If that fails, the user signs in themselves or resets the password.',
+      (site => [`密码保管里已经有 ${site} 的这个账户`, `The vault already has this account for ${site}`])],
+    unavailable: ['Dayjob cannot keep a password for this page (the vault only works on https pages, and on a computer that can encrypt it). Ask the user to create the account themselves in the Dayjob window.', (() => ['这一页没法代为设密码', 'Cannot set a password on this page'])],
+  };
   const browserTools = !browser ? [] : [
     {
       name: 'open_application', tier: 'browser', view: 'browser',
@@ -576,6 +588,24 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
         const outcome = await inBrowser('signin', {}, context);
         const known = SIGN_IN[outcome.status] ? outcome.status : 'unavailable';
         return { result: { status: known, site: outcome.site, what: SIGN_IN[known][0], page: outcome.page }, ...(known === 'signed-in' ? { step: 'login' } : {}) };
+      },
+    },
+    {
+      name: 'browser_sign_up', tier: 'browser', view: 'browser',
+      description: 'When you create an account for the user: ask Dayjob to set its password on the sign-up form open in the Dayjob browser. Dayjob makes a strong password up on this '
+        + 'computer, types it into the form\'s password box (and the box that asks for it again) and keeps it in the user\'s password vault with the site and the email or user name '
+        + 'in the form. You learn only how it went (status), never the password, and you never type one yourself. Fill in the email or user name first. It sends nothing: click the '
+        + 'form\'s button afterwards. In manual confirm mode the user is asked first. length and symbols are for a site that states its password rules.',
+      shape: {
+        length: z.number().int().min(8).max(64).optional().describe('How long the password should be when the site says so. Default 20; the box\'s own limit always holds.'),
+        symbols: z.string().max(32).regex(/^[!-/:-@[-`{-~]*$/).optional().describe('The symbols the site allows, or "" when it allows none. Default: !@#$%^&*'),
+      },
+      label: (input, result) => SIGN_UP[result.status][1](result.site || '…'),
+      async run(input, context) {
+        const outcome = await inBrowser('signup', input, context);
+        const known = SIGN_UP[outcome.status] ? outcome.status : 'unavailable';
+        return { result: { status: known, site: outcome.site, what: SIGN_UP[known][0], ...(known === 'set' ? { username: outcome.username, passwordBoxes: outcome.boxes, length: outcome.length } : {}), page: outcome.page },
+          ...(known === 'set' ? { step: 'login' } : {}) };
       },
     },
     {

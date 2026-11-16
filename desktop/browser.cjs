@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { PAGE_SOURCE } = require('./browser-page.cjs');
 const { acceptsFile, autofillScript, keyFor, pickFileField, planFill } = require('./autofill.cjs');
 const { loginScript } = require('./login.cjs');
+const { generatePassword, NEW_PASSWORD } = require('./vault.cjs');
 
 // The Dayjob browser: tabs shown inside the Dayjob window, with their own
 // sign-ins kept on this computer, which the user browses and Claude can drive
@@ -35,6 +36,8 @@ const SENT_MS = 5 * 60 * 1000;
 const APPLIED_NOTE_MS = 3 * 60 * 1000;
 const SEND_WAIT_MS = 2500;
 const SENT_NOTE_MS = 3500;
+// 注册新账户: how long the page says that Dayjob set and kept a new account's password.
+const MADE_NOTE_MS = 8000;
 
 class BrowserError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -213,6 +216,9 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   let lastUser = null;
   let checking = false;
   const declined = new Set();
+  // 注册新账户: the sign-ins Dayjob made a password for since it started (site and user name -> vault id). Only
+  // these can be given another password, when a site did not take the first.
+  const made = new Map();
   // 自动登录: when Dayjob last sent each site's sign-in (step 'user' is the first page of a two-step one), and
   // what the interface shows about it: sending, sent, or not gone through.
   const sent = new Map();
@@ -220,7 +226,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   const setAuto = value => {
     auto = value;
     broadcast();
-    if (value?.state === 'sent') setTimeout(() => { if (auto === value) { auto = null; broadcast(); } }, SENT_NOTE_MS);
+    if (value?.state === 'sent' || value?.state === 'made') setTimeout(() => { if (auto === value) { auto = null; broadcast(); } }, value.state === 'made' ? MADE_NOTE_MS : SENT_NOTE_MS);
   };
   // Only on https pages (and this computer's own, for the smoke test).
   const loginSite = url => {
@@ -1229,6 +1235,65 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         if (!(await sendLogin(tab, entry))) return done('filled');
         return await outcome();
       } finally { checking = false; }
+    },
+    // 注册新账户: the assistant in the Dayjob window is creating an account for the user on the open page and asks
+    // Dayjob to set its password. Dayjob makes one up, puts it into the sign-up form's password box (and the box
+    // that asks for it again) and keeps it in the vault with the site and the form's email or user name. Whoever
+    // asked learns how it went, never the password. Nothing is sent: the form's button is the assistant's next click.
+    //   set          the new password is in the form and in the vault
+    //   no-form      this page has no form with a password box
+    //   login        the form signs in to an account; it does not create one
+    //   no-username  the form's email or user name is still empty (or it asks for none and Dayjob knows none)
+    //   has-account  the vault already has a sign-in for this site and that user name
+    //   unavailable  no vault here, not an https page, or this computer cannot encrypt saved passwords
+    // length, symbols: for a site that says what its passwords must look like. The box's own limits always hold.
+    async signup({ length, symbols } = {}, context = {}) {
+      const tab = current();
+      await reveal();
+      await settle(tab, 0);
+      const url = tab.view.webContents.getURL();
+      const site = loginSite(url);
+      const done = (status, more = {}) => ({ status, site: site || host(url), ...more, page: info(tab) });
+      if (!vault || !site || !vault.available()) return done('unavailable');
+      // Dayjob's own look at the page (自动登录) stays out of the way while the form is looked at or filled.
+      const alone = async work => {
+        for (let turn = 0; turn < 50 && checking; turn += 1) await delay(100);
+        checking = true;
+        try { return await work(); } finally { checking = false; }
+      };
+      const seen = await alone(() => inLogin(tab, 'signup'));
+      if (!seen?.form) return done('no-form');
+      if (!seen.creates) return done('login');
+      // The account's name is what the form holds. A form that does not ask for one (the email went in on the
+      // page before) is for the one typed there, else for the application profile's email.
+      const username = seen.userBox ? seen.username : userFor(site, '') || String((getProfile() || {}).email || '').trim();
+      if (!username) return done('no-username');
+      const key = `${site}\n${username.toLowerCase()}`;
+      const saved = vault.has(site, username);
+      if (saved && made.get(key) !== saved) return done('has-account');
+      // An account in the user's name is theirs to allow, like a click that sends, unless they handed applications over.
+      const auto = await approve(tab, 'account', username, context);
+      if (!tabs.includes(tab) || tab.view.webContents.getURL() !== url) fail(409, 'The page changed while Dayjob was waiting for the user. Call dayjob_browser_read again.');
+      const least = Math.max(NEW_PASSWORD.min, seen.min || 0);
+      const most = Math.max(NEW_PASSWORD.min, Math.min(NEW_PASSWORD.max, seen.max || NEW_PASSWORD.max));
+      const size = Math.min(most, Math.max(least, length || NEW_PASSWORD.length));
+      const password = generatePassword({ length: size, ...(symbols === undefined ? {} : { symbols }) });
+      return await alone(async () => {
+        const put = await inLogin(tab, 'setNew', { password });
+        if (!put?.set) {
+          await inLogin(tab, 'setNew', { password: '' });
+          return done('no-form');
+        }
+        let entry;
+        try { entry = vault.create({ site, username, password, again: saved }); } catch (error) {
+          // A password nobody could find again must not stay in the form.
+          await inLogin(tab, 'setNew', { password: '' });
+          fail(409, `Dayjob could not keep the new password (${error.message}), so it took it out of the form again.`);
+        }
+        made.set(key, entry.id);
+        setAuto({ site, username, state: 'made' });
+        return done('set', { username, boxes: put.boxes, length: size, symbols: /[^A-Za-z0-9]/.test(password), allowed: auto ? 'auto' : 'user' });
+      });
     },
     // A cover letter the assistant wrote goes into the form: as a PDF (or a text file) into the form's cover letter
     // upload, else as text into its cover letter box. attached: true, or false with why (no-field, already, type, failed).

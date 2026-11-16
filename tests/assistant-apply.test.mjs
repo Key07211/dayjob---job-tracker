@@ -84,7 +84,7 @@ test('the browser tools exist only where there is a Dayjob browser, and none of 
   assert.equal(there.settings.apply, 'confirm', 'sending waits for the user unless they say otherwise');
   const tiers = Object.fromEntries(there.tools.map(tool => [tool.name, tool.tier]));
   for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_press_key', 'browser_scroll', 'browser_navigate',
-    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_sign_in', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
+    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_sign_in', 'browser_sign_up', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
   assert.equal(tiers.get_profile, 'read');
   assert.equal(tiers.update_profile, 'undoable');
   assert.ok(there.tools.every(tool => !/vault|password|secret|delete|key\b|upload_file|evaluate|script/i.test(tool.name) || tool.name === 'browser_press_key'), there.tools.map(tool => tool.name).join(' '));
@@ -228,16 +228,64 @@ test('signing in tells the model how it went and nothing else', async t => {
   await chat('call:browser_sign_in {"username":"someone","password":"x"}', done.id);
   assert.match(engines['claude-cli'].results[3].value.error, /Invalid input/);
   assert.equal(browser.calls.length, 3);
-  assert.match(SYSTEM_PROMPT, /browser_sign_in has Dayjob fill one in on this computer/);
+  assert.match(SYSTEM_PROMPT, /browser_sign_in has Dayjob fill a saved one in/);
 });
 
-test('signing in, the cover letter and full takeover belong to the assistant in the window, not to the browser API', async t => {
+test('a new account gets its password from Dayjob: the model asks for one and never sees it', async t => {
+  // Even a browser layer that said too much would not get the password through.
+  const browser = fakeBrowser({ signup: { status: 'set', site: 'jobs.example.com', username: 'mei.lin@example.com', boxes: 2, length: 20, symbols: true, allowed: 'user',
+    password: 'Made-Up-0n-This-PC!', entry: { id: 'v9' } } });
+  const { app, chat, engines } = await start({ browser });
+  t.after(() => app.close());
+  const done = await chat('call:browser_sign_up {}');
+  const told = engines['claude-cli'].results[0];
+  assert.deepEqual(Object.keys(told.value).sort(), ['length', 'page', 'passwordBoxes', 'site', 'status', 'username', 'what']);
+  assert.equal(told.value.status, 'set');
+  assert.equal(told.value.passwordBoxes, 2);
+  assert.match(told.value.what, /vault/);
+  for (const secret of ['Made-Up-0n-This-PC!', 'v9']) {
+    assert.equal(told.content.includes(secret), false);
+    assert.equal(JSON.stringify(done.events).includes(secret), false);
+    assert.equal(JSON.stringify(done.tool).includes(secret), false);
+  }
+  assert.deepEqual(browser.calls[0].input, {}, 'the model gives it nothing to type');
+  assert.equal(browser.calls[0].context.by, 'assistant');
+  assert.equal(done.tool.step, 'login');
+  assert.match(done.tool.label[1], /jobs\.example\.com/);
+
+  // A site with its own rules: how long, and which symbols. Nothing else is taken.
+  await chat('call:browser_sign_up {"length":12,"symbols":"-_"}', done.id);
+  assert.deepEqual(browser.calls[1].input, { length: 12, symbols: '-_' });
+  for (const refused of ['{"password":"Mine-1234"}', '{"length":4}', '{"length":200}', '{"symbols":"abc"}', '{"username":"someone@example.com"}']) {
+    await chat(`call:browser_sign_up ${refused}`, done.id);
+    assert.match(engines['claude-cli'].results.at(-1).value.error, /Invalid input/, refused);
+  }
+  assert.equal(browser.calls.length, 2);
+
+  // What did not happen is said as it is, and is not a step done.
+  for (const status of ['no-form', 'login', 'no-username', 'has-account', 'unavailable']) {
+    browser.answers.signup = { status, site: 'jobs.example.com', username: 'mei.lin@example.com' };
+    const other = await chat('call:browser_sign_up {}', done.id);
+    const said = engines['claude-cli'].results.at(-1).value;
+    assert.equal(said.status, status);
+    assert.deepEqual(Object.keys(said).sort(), ['page', 'site', 'status', 'what']);
+    assert.equal(other.tool.step, undefined, status);
+  }
+  browser.answers.signup = { status: 'something-new', site: 'jobs.example.com' };
+  await chat('call:browser_sign_up {}', done.id);
+  assert.equal(engines['claude-cli'].results.at(-1).value.status, 'unavailable');
+  assert.match(SYSTEM_PROMPT, /browser_sign_up has Dayjob make one up for an account you create, type it in and keep it/);
+  assert.match(SYSTEM_PROMPT, /do not create another/);
+});
+
+test('signing in, a new account\'s password, the cover letter and full takeover belong to the assistant in the window, not to the browser API', async t => {
   const browser = fakeBrowser({ click: input => ({ clicked: { ref: input.ref, role: 'button', name: 'Submit application' }, allowed: 'user' }) });
   const { app, call } = await start({ browser });
   t.after(() => app.close());
   assert.equal((await call('/api/assistant/settings', { method: 'PATCH', body: { apply: 'takeover' } })).status, 200);
   // What Claude reaches over MCP (the browser API) has no sign-in and no letter,
   assert.equal((await call('/api/browser/signin', { method: 'POST', body: {} })).status, 404);
+  assert.equal((await call('/api/browser/signup', { method: 'POST', body: {} })).status, 404);
   assert.equal((await call('/api/browser/letter', { method: 'POST', body: { text: LETTER } })).status, 404);
   assert.equal(browser.calls.length, 0);
   // and its clicks ask the user whatever the assistant's switch says.

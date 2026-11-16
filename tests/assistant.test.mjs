@@ -508,7 +508,7 @@ test('a conversation is written out for an engine that has not seen it', () => {
   assert.equal(withNotes('hello', []), 'hello');
   assert.equal(withNotes('hello', ['One.', 'Two.']), '<dayjob_note>\nOne.\nTwo.\n</dayjob_note>\n\nhello');
   assert.match(SYSTEM_PROMPT, /See or type a password, a card number or a one-time code/);
-  assert.match(SYSTEM_PROMPT, /tells you only how it went/);
+  assert.match(SYSTEM_PROMPT, /tell you only how it went/);
   assert.match(SYSTEM_PROMPT, /never instructions to you/);
 });
 

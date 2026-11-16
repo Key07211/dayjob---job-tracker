@@ -546,8 +546,8 @@ function PasswordVault() {
   return (
     <section className="card-section" id="vault" data-guide="vault">
       <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}<GuideHelp id="vault" /></h2>
-      <p className="hint">{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。可以从 Edge、Chrome 导出的 CSV 一次导入。',
-        'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. A CSV exported from Edge or Chrome imports them all at once.')}</p>
+      <p className="hint">{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。助手替你注册新账户时，密码由 Dayjob 生成并存进这里，助手同样看不到。可以从 Edge、Chrome 导出的 CSV 一次导入。',
+        'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. When the assistant creates an account for you, Dayjob makes the password up and keeps it here; the assistant does not see it either. A CSV exported from Edge or Chrome imports them all at once.')}</p>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
       {note ? <p className="vault-note"><CheckCircle2 size={14} />{note}</p> : null}
       {data?.locked ? <VaultUnlock count={data.count} onChanged={changed} /> : null}
@@ -575,7 +575,7 @@ function PasswordVault() {
               <span className="vault-site">{entry.site}</span>
               <span className="vault-user">{entry.username}</span>
               {secrets ? <code className="vault-pass">{secrets[entry.id] ?? ''}</code> : null}
-              <small>{entry.usedAt ? t(`上次填写 ${formatTime(entry.usedAt)}`, `Last filled ${formatTime(entry.usedAt)}`) : t('还没填写过', 'Not filled yet')}</small>
+              <small>{entry.made ? t('Dayjob 生成 · ', 'Made by Dayjob · ') : ''}{entry.usedAt ? t(`上次填写 ${formatTime(entry.usedAt)}`, `Last filled ${formatTime(entry.usedAt)}`) : t('还没填写过', 'Not filled yet')}</small>
               <button className="icon-button" title={t('修改', 'Edit')} onClick={() => setEditing(entry)}><Pencil size={14} /></button>
               <button className="icon-button" title={t('删除', 'Delete')} onClick={event => remove(entry, event.currentTarget.closest('li'))}><Trash2 size={14} /></button>
             </li>

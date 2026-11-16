@@ -77,9 +77,12 @@ function Approval({ approval }) {
       <ShieldAlert size={18} />
       <p>
         <strong>{approval.by === 'assistant' ? t('助手想先征得你同意', 'The assistant is asking first') : t('Claude 想先征得你同意', 'Claude is asking first')}</strong>
-        {approval.action === 'enter'
-          ? t(`在 ${site} 的“${approval.name}”里按回车，这可能会提交表单。`, `Press Enter in “${approval.name}” on ${site}. This may submit the form.`)
-          : t(`在 ${site} 上点击“${approval.name}”，这可能会提交或发送内容。`, `Click “${approval.name}” on ${site}. This may submit or send something.`)}
+        {approval.action === 'account'
+          ? t(`在 ${site} 用 ${approval.name} 注册一个新账户。密码由 Dayjob 在这台电脑上生成、填进网页并存进密码保管，助手看不到它。`,
+            `Create a new account on ${site} for ${approval.name}. Dayjob makes the password up on this computer, puts it into the page and keeps it in the vault; the assistant never sees it.`)
+          : approval.action === 'enter'
+            ? t(`在 ${site} 的“${approval.name}”里按回车，这可能会提交表单。`, `Press Enter in “${approval.name}” on ${site}. This may submit the form.`)
+            : t(`在 ${site} 上点击“${approval.name}”，这可能会提交或发送内容。`, `Click “${approval.name}” on ${site}. This may submit or send something.`)}
         <span>{t('允许前可以先看一下页面上填写的内容。', 'You can check what is filled in on the page first.')}</span>
       </p>
       <div className="form-actions">
@@ -250,6 +253,13 @@ function LoginStrip({ login, autoLogin }) {
       <p className="browser-kept browser-login" role="status">{auto.state === 'sending' ? <LoaderCircle size={17} className="spin" /> : <CircleCheck size={17} />}
         {auto.state === 'sending' ? t(`正在用 ${auto.username} 登录 ${auto.site}…`, `Signing in to ${auto.site} as ${auto.username}…`)
           : t(`已用 ${auto.username} 自动登录 ${auto.site}。`, `Signed in to ${auto.site} as ${auto.username}.`)}</p>
+    );
+  }
+  // 注册新账户: Dayjob made a password up for an account the assistant is creating, and kept it.
+  if (auto?.state === 'made') {
+    return (
+      <p className="browser-kept browser-login" role="status"><CircleCheck size={17} />
+        {t(`已为 ${auto.site} 的新账户 ${auto.username} 设好密码，并存进了密码保管。`, `Set a password for the new account ${auto.username} on ${auto.site}, and kept it in the vault.`)}</p>
     );
   }
   // While older passwords wait for the vault password, typing it comes first.

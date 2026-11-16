@@ -7,7 +7,7 @@ import { createCipheriv, randomBytes, scryptSync } from 'node:crypto';
 import vaultModule from '../desktop/vault.cjs';
 import loginModule from '../desktop/login.cjs';
 
-const { createVault, siteOf, parseCsv, readPasswordCsv } = vaultModule;
+const { createVault, siteOf, parseCsv, readPasswordCsv, generatePassword, NEW_PASSWORD } = vaultModule;
 const { loginScript } = loginModule;
 
 // Stands in for Electron's safeStorage: the stored text must not be the password.
@@ -280,4 +280,81 @@ test('a forgotten vault password empties the vault', async () => {
   const after = createVault({ file, safeStorage: fakeSafeStorage(), now });
   assert.deepEqual([after.locked(), after.list().count], [false, 0]);
   assert.ok(!fs.readFileSync(file, 'utf8').includes('secret'));
+});
+
+test('a password Dayjob makes up has every kind of character, the asked length and only the allowed symbols', () => {
+  assert.deepEqual(NEW_PASSWORD, { min: 8, max: 64, length: 20 });
+  const seen = new Set();
+  for (let round = 0; round < 200; round += 1) {
+    const made = generatePassword();
+    seen.add(made);
+    assert.equal(made.length, 20);
+    assert.match(made, /^[A-Za-z0-9!@#$%^&*]+$/);
+    for (const kind of [/[a-z]/, /[A-Z]/, /[0-9]/, /[!@#$%^&*]/]) assert.match(made, kind);
+    assert.doesNotMatch(made, /(.)\1\1/, 'no character three times running');
+  }
+  assert.equal(seen.size, 200, 'never the same twice');
+  // A site's own rules: how long, and which symbols (or none).
+  for (let round = 0; round < 50; round += 1) {
+    assert.match(generatePassword({ length: 12, symbols: '-_' }), /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[-_])[A-Za-z0-9_-]{12}$/);
+    assert.match(generatePassword({ length: 16, symbols: '' }), /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9]{16}$/);
+    // Letters, digits and spaces are not symbols: what is left of the list is used.
+    assert.match(generatePassword({ symbols: 'a1 #' }), /^[A-Za-z0-9#]{20}$/);
+  }
+  assert.equal(generatePassword({ length: 3 }).length, 8);
+  assert.equal(generatePassword({ length: 500 }).length, 64);
+  assert.equal(generatePassword({ length: 'many' }).length, 20);
+  assert.equal(generatePassword({ length: 10.9 }).length, 10);
+});
+
+test('the sign-in of a new account is kept even while the vault is closed, and never over a saved one', async () => {
+  const file = vaultFile();
+  const safeStorage = fakeSafeStorage();
+  const vault = createVault({ file, safeStorage, now });
+  const own = vault.save({ site: 'linkedin.com', username: 'Yuan@Example.com', password: 'typed-by-hand' });
+  await vault.setLock({ next: 'Lock1234' });
+  vault.close();
+
+  const made = vault.create({ site: 'https://jobs.example.com/signup', username: ' yuan@example.com ', password: 'Made-Up-0n-This-PC!' });
+  assert.deepEqual(Object.keys(made).sort(), ['createdAt', 'id', 'made', 'site', 'updatedAt', 'usedAt', 'username']);
+  assert.deepEqual([made.site, made.username, made.made], ['jobs.example.com', 'yuan@example.com', true]);
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('Made-Up-0n-This-PC!'), 'sealed on disk like any other');
+  assert.deepEqual([vault.locked(), vault.list().entries, vault.list().count], [true, [], 2], 'the closed vault stays closed and lists nothing');
+  assert.equal(vault.password(made.id), 'Made-Up-0n-This-PC!');
+
+  // has: by host (a domain covers its subdomains) and user name, whatever the case of the email.
+  assert.equal(vault.has('jobs.example.com', 'YUAN@example.com'), made.id);
+  assert.equal(vault.has('www.linkedin.com', 'yuan@example.com'), own.id);
+  assert.equal(vault.has('jobs.example.com', 'someone@example.com'), null);
+  assert.equal(vault.has('example.com', 'yuan@example.com'), null);
+
+  // A sign-in the vault has is never written over, the user's own or one made earlier,
+  assert.throws(() => vault.create({ site: 'linkedin.com', username: 'Yuan@Example.com', password: 'Another-0ne!' }), /already has a sign-in/);
+  assert.throws(() => vault.create({ site: 'jobs.example.com', username: 'yuan@example.com', password: 'Another-0ne!' }), /already has a sign-in/);
+  assert.throws(() => vault.create({ site: 'linkedin.com', username: 'Yuan@Example.com', password: 'Another-0ne!', again: made.id }), /already has a sign-in/);
+  assert.equal(vault.password(own.id), 'typed-by-hand');
+  // except the one just made, when the site did not take its first password.
+  const redone = vault.create({ site: 'jobs.example.com', username: 'yuan@example.com', password: 'Second-Try-22', again: made.id });
+  assert.deepEqual([redone.id, redone.made, vault.password(made.id)], [made.id, true, 'Second-Try-22']);
+  assert.equal(vault.list().count, 2);
+
+  for (const bad of [{ site: 'not a site', username: 'a', password: 'b' }, { site: 'example.com', username: ' ', password: 'b' }, { site: 'example.com', username: 'a', password: '' },
+    { site: 'example.com', username: 'a' }, { site: 'example.com', username: 'a', password: 'x'.repeat(501) }]) assert.throws(() => vault.create(bad), bad.site);
+
+  // It survives a restart and, once the vault is open, is listed as one Dayjob made; the user's own is not.
+  const later = createVault({ file, safeStorage, now });
+  await later.unlock('Lock1234');
+  assert.deepEqual(later.list().entries.map(entry => [entry.site, entry.made === true]), [['jobs.example.com', true], ['linkedin.com', false]]);
+  assert.equal(later.password(made.id), 'Second-Try-22');
+
+  // A computer that cannot encrypt keeps none.
+  const none = createVault({ file: vaultFile(), safeStorage: fakeSafeStorage(false), now });
+  assert.throws(() => none.create({ site: 'example.com', username: 'a', password: 'b' }), /cannot encrypt/);
+});
+
+test('the page script for a sign-up form is plain script text with the password quoted', () => {
+  assert.match(loginScript('signup'), /\.signup\(\)$/);
+  const script = loginScript('setNew', { password: 'a"b</script>\'x' });
+  assert.match(script, /\.setNew\(\{"password":"a\\"b<\/script>'x"\}\)$/);
+  assert.doesNotThrow(() => new Function(script));
 });
