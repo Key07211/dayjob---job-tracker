@@ -153,13 +153,29 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       outcome = { ok: false, error: 'Dayjob could not do that.', tier, view: null };
     } finally { engine?.hold?.(conversation.id, false); }
     const content = clip(JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error }), RESULT_CAP);
+    // A reading of a page comes with the line that stands for it once it is old: in the engine's copy when newer
+    // readings have come, and in the turns kept here, which are what a conversation is handed over from.
+    const stale = outcome.ok && outcome.stale ? JSON.stringify(outcome.stale) : null;
     const record = { id: callId, name, tier: outcome.tier, view: outcome.view, ok: outcome.ok, label: outcome.label || null, error: outcome.ok ? null : outcome.error,
-      input: input ?? {}, summary: clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false,
+      input: input ?? {}, summary: stale || clip(content, SUMMARY_CAP), offset: live.turn.text.length, undone: false,
       ...(outcome.ok && outcome.step ? { step: outcome.step } : {}), ...(outcome.ok && outcome.facts ? { facts: outcome.facts } : {}), ...(outcome.ok && outcome.detail ? { detail: outcome.detail } : {}) };
     if (outcome.ok && outcome.undo) conversation.actions.set(callId, outcome.undo);
     live.turn.tools.push(record);
     live.emit({ type: 'tool', phase: 'done', id: callId, tool: toolView(conversation, record), changed: Boolean(outcome.changed), applied: Boolean(outcome.applied), ui: outcome.ui || null });
-    return { ok: outcome.ok, content };
+    return { ok: outcome.ok, content, ...(stale ? { stale } : {}) };
+  }
+
+  // The groups of tools a conversation plainly needs from its first request (the others load when the model asks,
+  // see engine-api.mjs): the ones its earlier turns used, and the ones the new message is about. A wrong guess
+  // costs little either way: one call to load a group, or a group that came along unused.
+  const WANTS = {
+    apply: /投|申请|应聘|网申|浏览器|网页|网站|页面|链接|登录|注册|求职信|表单|apply|application|browser|web ?page|website|\bsite\b|\bform\b|sign[ -]?(in|up)|log[ -]?in|cover letter|https?:\/\/|www\./i,
+    searches: /搜索|关键词|抓取|公司|关注|招聘页|search|keyword|fetch|compan|follow|job board|greenhouse|lever|ashby/i,
+  };
+  function preload(conversation, text) {
+    const groups = tools.groups();
+    const used = new Set(conversation.turns.flatMap(turn => turn.tools || []).map(tool => tool.name));
+    return Object.keys(groups).filter(group => WANTS[group]?.test(text) || groups[group].tools.some(name => used.has(name)));
   }
 
   async function undo(conversationId, actionId) {
@@ -311,6 +327,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
       conversation.live = { turn, emit };
       const outcome = await engine.send({
         id: conversation.id, text: message, system: SYSTEM_PROMPT, model, tools: tools.definitions(), signal: controller.signal,
+        groups: tools.groups(), preload: preload(conversation, text),
         notes: standing.length ? withNotes('', standing).trim() : '',
         callTool: (name, input) => runTool(conversation, name, input),
         onRound() { mark = turn.text.length; gap = turn.text.length > 0; },
