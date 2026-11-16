@@ -296,6 +296,28 @@ test('tools that can wait are declared but kept out of the prompt until the mode
   for (const request of requests) assert.deepEqual(request.tools, tools);
 });
 
+test('a group is given again after a summary took its tools out of the conversation', async () => {
+  let line = 0;
+  const { send, requests } = apiEngine([
+    { content: [use('t1', LOADER, { group: 'searches' })], stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: 'Loaded.' }] },
+    { content: [{ type: 'text', text: '<summary>The user is changing a saved search.</summary>' }] },
+    { content: [use('t2', LOADER, { group: 'searches' })], stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: 'Nothing to sum up yet.' }] },
+    { content: [{ type: 'text', text: 'Loaded again.' }] },
+  ], { compactAt: () => line });
+  await send('c1', 'change my search');
+  line = 1;
+  await send('c1', 'go on');
+  // The second message found the conversation over the line: it was summarised, and the summary names no tools.
+  assert.equal(requests[3].messages.length, 1);
+  assert.match(requests[3].messages[0].content, /changing a saved search/);
+  // (Still over the line after one round, the reply is asked for a summary once more and gives none.)
+  assert.deepEqual(requests[5].messages.at(-1).content, [{ type: 'tool_result', tool_use_id: 't2',
+    content: [{ type: 'tool_reference', tool_name: 'list_searches' }, { type: 'tool_reference', tool_name: 'save_search' }] }]);
+  assert.deepEqual(requests[5].tools, requests[0].tools);
+});
+
 test('a conversation that plainly needs a group has it from the start, and a model Dayjob does not know gets every tool', async () => {
   const some = apiEngine([{ content: [{ type: 'text', text: 'Hi.' }] }]);
   await some.send('c1', 'apply for me', { preload: ['apply'] });

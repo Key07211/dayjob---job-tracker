@@ -77,8 +77,7 @@ export const compactLine = model => Math.min(167_000, contextWindow(model) - 93_
 export function createApiEngine({ getSettings, createClient = options => new Anthropic(options), maxRounds = 80, compactAt = compactLine, clock = Date.now }) {
   // conversation id -> the messages sent so far, exactly as the API returned them (thinking blocks included);
   // context: how many tokens they came to at the last reply; tools: the tools as first sent; hidden: the groups
-  // that wait; loaded: the groups the model has asked for; reads: the page readings in the messages, oldest first;
-  // sentAt: when the last request left.
+  // that wait; reads: the page readings in the messages, oldest first; sentAt: when the last request left.
   const sessions = new Map();
   const key = () => keyInUse(getSettings().ai);
   // Set once the API has refused tools that load later: from then on every conversation gets all of them at once.
@@ -154,7 +153,7 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
       if (!session) {
         // Tools wait only on a model Dayjob knows takes that (every Claude model in its list does).
         const { list, hidden } = arrange(tools, !plainTools && modelInfo('anthropic-api', model) ? groups : null, preload);
-        session = { messages: [], context: 0, tools: list, hidden, loaded: new Set(), reads: [], sentAt: 0 };
+        session = { messages: [], context: 0, tools: list, hidden, reads: [], sentAt: 0 };
       }
       sessions.set(id, session);
       // The cache has run out: what is sent now is paid for in full, so the old page readings are cut first.
@@ -268,8 +267,10 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
             // The loader is answered here: the API puts the definitions of the tools named in the result into the prompt.
             if (call.name === LOADER) {
               const group = session.hidden?.get(call.input?.group);
-              const fresh = group && !session.loaded.has(call.input.group);
-              if (fresh) session.loaded.add(call.input.group);
+              // Loaded already means the conversation as it stands names the group's tools (a summary, or a message
+              // that was taken back, takes that with it, and then the group is given again).
+              const named = block => block.type === 'tool_result' && Array.isArray(block.content) && block.content.some(item => item.type === 'tool_reference' && item.tool_name === group.names[0]);
+              const fresh = group && !results.some(named) && !session.messages.some(message => message.role === 'user' && Array.isArray(message.content) && message.content.some(named));
               results.push(fresh ? { type: 'tool_result', tool_use_id: call.id, content: group.names.map(name => ({ type: 'tool_reference', tool_name: name })) }
                 : { type: 'tool_result', tool_use_id: call.id, content: group || !session.hidden ? 'These tools are loaded.' : `There is no such group. Groups: ${[...session.hidden.keys()].join(', ')}.`,
                   ...(group || !session.hidden ? {} : { is_error: true }) });

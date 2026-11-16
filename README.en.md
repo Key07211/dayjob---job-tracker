@@ -310,6 +310,15 @@ Every conversation can be archived or deleted. The buttons are at the right of t
 - Once the context is half way to that size, a line above the chat box says how full it is, with **Compact now** beside it.
 - Writing the summary is one more model call and counts toward your usage. What tools returned at the time is not in the summary, so the assistant looks things up again when it needs them; its memory and the apply mode (Ask me first / Full takeover) are told to it again after a compaction.
 
+**A conversation is kept small.** Every request sends the whole conversation to the model again, so whatever is in it is paid for many times. For that:
+
+- **Pages are read in few words**: each link, button and field on a page is one line (its ref, its kind, its name, and what is filled in, checked or required); a line of the page's text that only repeats a name in that list is left out (on a form nearly all the text is labels); links on a form come without their address; and the job data a page carries keeps its facts without a second copy of the description. When it needs the whole page as it is, the assistant asks for it.
+- **Old page readings become one line** (Claude API engine): only the last two readings of a page stay in the conversation; each older one is cut to a line saying the page was read before. This happens when you send a message more than 5 minutes after the last one: by then the cache on Anthropic's side has run out and the whole conversation is priced in full once more, so cutting the old readings first saves exactly that. During a reply nothing already sent is changed, because a change empties the cache, which costs far more than carrying a few old readings along.
+- **Tools load when they are needed** (Claude API engine): the tools for applying in the Dayjob browser are one group, the tools for searches and company job boards another, and a conversation starts with the everyday lookups only. The assistant asks for a group when it needs one, and a message that is plainly about applying or about searches brings its group from the start. A conversation that only looks things up sends about 60% less tool description with every request.
+- The assistant is also told to read a page again only when it has really changed, not after every field.
+
+The Claude Code engine manages its own context, so the two items in the middle do not apply to it; the short page readings apply to both engines.
+
 Choose the engine under **Settings → Assistant**. You can switch at any time and the open conversation carries on:
 
 | Engine | Notes |
