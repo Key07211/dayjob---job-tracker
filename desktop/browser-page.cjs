@@ -119,7 +119,26 @@ function install(makeHidden, pickOption) {
     if (wholeText(element).length > 160) return false;
     if (element.closest(FIELDS) || element.querySelector(`${FIELDS}, ${LOOSE}`)) return false;
     if (element.tagName === 'LABEL' && element.control) return false;
-    return Boolean(name(element));
+    return Boolean(name(element)) && !namesControl(element);
+  }
+  // The words beside a checkbox or a radio button take a click too, but they are that control's name and not a
+  // second thing to click: they are in its label, or it says it is labelled by them, or the nearest control
+  // around reads the same.
+  function namesControl(element) {
+    if (element.closest('label')?.control) return true;
+    const root = element.getRootNode();
+    const said = name(element).toLowerCase();
+    for (let box = element, depth = 0; box && depth < 6; box = box.parentElement, depth += 1) {
+      if (box.id && depth < 3) {
+        let named = [];
+        try { named = [...root.querySelectorAll(`[aria-labelledby~="${CSS.escape(box.id)}"]`)]; } catch { /* a root that cannot be searched */ }
+        if (named.some(control => control.matches(FIELDS))) return true;
+      }
+      if (box === element) continue;
+      const near = box.querySelectorAll(FIELDS);
+      if (near.length) return near.length <= 12 && [...near].some(control => name(control).toLowerCase() === said);
+    }
+    return false;
   }
   // Every control a person could use on the page just now, in page order.
   function controls(found) {
@@ -513,6 +532,7 @@ function install(makeHidden, pickOption) {
       if (!at || !reaches(element, point, at.hit)) {
         point.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         at = spot();
+        info.moved = true;
       }
       if (!reaches(element, point, at.hit)) info.coveredBy = at.hit ? `${at.hit.tagName.toLowerCase()} “${textOf(at.hit).slice(0, 80) || name(at.hit) || at.hit.className}”` : 'nothing (outside the window)';
       const offset = frameOffset(point);
