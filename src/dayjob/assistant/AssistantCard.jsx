@@ -16,15 +16,18 @@ import { assistant, useAssistant } from './store.js';
 // true while a question waits for the user before something is sent.
 export function AssistantCard({ form, asking = false, onForm, large = true }) {
   const { t } = useI18n();
-  const { conversation, busy, phase } = useAssistant();
+  const { conversation, busy, phase, runs } = useAssistant();
   const scale = large ? 2 : 1;
   useEffect(() => { void assistant.refresh(); }, []);
   const turns = conversation?.turns || [];
   const run = applyRun(turns);
+  const under = runs.filter(entry => entry.state !== 'done').length;
   const applying = run && run.turn >= turns.length - 3 && run.reached < APPLY_STEPS.indexOf('record') && (busy || asking);
   const state = asking ? t('等你确认', 'Waiting for you')
     : applying ? t(`正在投递 ${Math.min(run.reached + 2, APPLY_STEPS.length)}/${APPLY_STEPS.length}`, `Applying ${Math.min(run.reached + 2, APPLY_STEPS.length)}/${APPLY_STEPS.length}`)
-      : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : phase === 'compacting' ? t('在压缩上文…', 'Compacting…') : '';
+      : phase === 'thinking' ? t('在想…', 'Thinking…') : phase === 'speaking' ? t('在回答…', 'Answering…') : phase === 'tool' ? t('在操作…', 'Working…') : phase === 'compacting' ? t('在压缩上文…', 'Compacting…')
+        // 同时申请: applications going on in the background, whatever the chat shows.
+        : under ? t(`${under} 个申请进行中`, `${under} ${under === 1 ? 'application' : 'applications'} under way`) : '';
   const toggle = wanted => onForm(form === wanted ? 'closed' : wanted);
   return (
     <section className={`assistant-card${form !== 'closed' ? ' on' : ''}${busy ? ' busy' : ''}${asking ? ' asking' : ''}${state ? ' stated' : ''}`} aria-label={t('助手', 'Assistant')}>

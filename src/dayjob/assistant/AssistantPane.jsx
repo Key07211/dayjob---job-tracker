@@ -9,6 +9,7 @@ import { cue } from '../groove/sound.js';
 import { APPLY_STEPS, applyRun, stepStates } from './apply.js';
 import { Gramophone } from './Gramophone.jsx';
 import { guide } from '../guide/store.js';
+import { RunsStrip, StepUsage } from './Runs.jsx';
 import { assistant, useAssistant } from './store.js';
 
 const desktopBrowser = typeof window !== 'undefined' ? window.dayjobDesktop?.browser : undefined;
@@ -42,6 +43,7 @@ const ERRORS = {
   'context-full': ['这段对话太长，模型放不下了。再发一次：助手会从摘要接着来。', 'This conversation grew too long for the model. Send the message again: the assistant will go on from a summary.'],
   'no-summary': ['助手这次没有写出摘要，上文没有压缩。再试一次。', 'The assistant did not write a summary, so nothing was compacted. Try again.'],
   internal: ['助手出了点问题，再试一次。', 'The assistant ran into a problem. Try again.'],
+  'busy-here': ['助手还在回答这段对话。等它说完，或者先点停止，再去看那个申请。', 'The assistant is still answering here. Wait for it, or stop it, before opening that application.'],
 };
 // "/compact", alone or followed by what the summary should keep an eye on, compacts the conversation, as in Claude Code.
 const COMPACT_COMMAND = /^\/compact(?:\s+([\s\S]*))?$/i;
@@ -96,7 +98,8 @@ function ApplySteps({ run, asking, busy }) {
 
 // The question before something is sent, with what is about to go. Allowing takes a held press, so a stray click
 // never sends an application; it is the same question the browser shows above the page, and either place answers it.
-function ConfirmCard({ approval, run }) {
+// onShow: brings the page the question is about into view (an application of its own works in a tab that need not be on show).
+function ConfirmCard({ approval, run, onShow = null }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const card = useRef(null);
@@ -138,8 +141,9 @@ function ConfirmCard({ approval, run }) {
         <button type="button" className="button primary" disabled={busy} onPointerDown={startHold} onPointerUp={stopHold} onPointerLeave={stopHold} onKeyDown={startHold} onKeyUp={stopHold}>
           {sending ? t('按住投递', 'Hold to send') : t('按住允许', 'Hold to allow')}</button>
         <button type="button" className="button" disabled={busy} onClick={() => answer(false)}>{sending ? t('先别投', 'Not yet') : t('不允许', 'Deny')}</button>
+        {onShow ? <button type="button" className="button" onClick={onShow}><Globe size={14} />{t('看页面', 'See the page')}</button> : null}
       </div>
-      <small>{t('可以先看一眼页面上填好的内容。10 分钟没有回答，就什么都不发。', 'Check what is filled in on the page first. With no answer in 10 minutes, nothing is sent.')}</small>
+      <small>{t(`可以先看一眼页面上填好的内容。${approval.minutes || 10} 分钟没有回答，就什么都不发。`, `Check what is filled in on the page first. With no answer in ${approval.minutes || 10} minutes, nothing is sent.`)}</small>
     </div>
   );
 }
@@ -203,6 +207,7 @@ function Reply({ turn, busy, openItem }) {
       {waiting ? <i className="asst-dots" role="status" aria-label={t('正在想', 'Thinking')}><b /><b /><b /></i> : null}
       {turn.stopped ? <p className="asst-note">{t('已停止', 'Stopped')}</p> : null}
       {turn.error ? <p className="asst-note error"><TriangleAlert size={14} />{known ? t(...known) : serverText(turn.error)}</p> : null}
+      <StepUsage turn={turn} />
     </div>
   );
 }
@@ -290,7 +295,7 @@ function HistoryList({ kept, currentId, onPick }) {
 // browser's state, for the question it asks before something is sent.
 export function AssistantPane({ form = 'side', onForm, onClose, openItem, browser = null }) {
   const { t } = useI18n();
-  const { info, conversation, busy, phase, failure, draft } = useAssistant();
+  const { info, conversation, busy, phase, failure, draft, runs } = useAssistant();
   const short = useShortWindow();
   const [showHistory, setShowHistory] = useState(false);
   const scroller = useRef(null);
@@ -302,7 +307,12 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
   const engineState = engine ? info.engines[engine] : null;
   const keptCount = (info?.kept || []).filter(item => !item.archivedAt).length;
   const archived = Boolean(conversation?.archivedAt);
-  const approval = browser?.approval?.by === 'assistant' ? browser.approval : null;
+  // The question that belongs to this conversation. Several can wait at once, one for each application; one that no
+  // application asked (nobody in the list) is this conversation's when it is not an application itself.
+  const approvals = (browser?.approvals || (browser?.approval ? [browser.approval] : [])).filter(item => item.by === 'assistant');
+  const approval = approvals.find(item => item.run && item.run === conversation?.id) || (conversation?.run ? null : approvals.find(item => !runs.some(entry => entry.id === item.run))) || null;
+  const queued = conversation?.run?.state === 'queued' && !busy;
+  const showPage = approval?.tabId && desktopBrowser ? () => { desktopBrowser.command('switch', approval.tabId).catch(() => {}); openItem('browser'); } : null;
   const run = applyRun(turns);
   const showRun = run && run.turn >= turns.length - 3;
   const setDraft = assistant.setDraft;
@@ -359,7 +369,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
     <aside className={`assistant-pane${full ? ' full' : ''}`} aria-label={t('助手', 'Assistant')}>
       {full ? (
         <nav className="asst-side" aria-label={t('保留的对话', 'Kept conversations')}>
-          <button type="button" className="button block" disabled={!turns.length} onClick={fresh}><SquarePen size={15} />{t('新对话', 'New conversation')}</button>
+          <button type="button" className="button block" disabled={!turns.length && !conversation?.run} onClick={fresh}><SquarePen size={15} />{t('新对话', 'New conversation')}</button>
           <h2>{t('保留的对话', 'Kept conversations')}</h2>
           <HistoryList kept={info?.kept || []} currentId={conversation?.id} onPick={pick} />
         </nav>
@@ -371,7 +381,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
             <strong>{t('助手', 'Assistant')}</strong>
             <small aria-live="polite">{status}</small>
           </div>
-          <button type="button" className="icon-button asst-new" title={t('新对话', 'New conversation')} aria-label={t('新对话', 'New conversation')} disabled={!turns.length} onClick={fresh}><SquarePen size={17} /></button>
+          <button type="button" className="icon-button asst-new" title={t('新对话', 'New conversation')} aria-label={t('新对话', 'New conversation')} disabled={!turns.length && !conversation?.run} onClick={fresh}><SquarePen size={17} /></button>
           <button type="button" className="icon-button asst-compact-now" title={compactTitle} aria-label={t('压缩上文', 'Compact the conversation')} disabled={busy || !conversation?.compactable} onClick={() => compact()}><FoldVertical size={17} /></button>
           <button type="button" className={`icon-button asst-history-toggle${showHistory ? ' on' : ''}`} title={t('保留的对话', 'Kept conversations')} aria-label={t('保留的对话', 'Kept conversations')} aria-expanded={showHistory}
             onClick={() => { setShowHistory(value => !value); if (!showHistory) void assistant.refresh(); }}><History size={17} />{keptCount ? <em>{keptCount}</em> : null}</button>
@@ -385,6 +395,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
             <HistoryList kept={info?.kept || []} currentId={conversation?.id} onPick={pick} />
           </div>
         ) : null}
+        <RunsStrip approvals={approvals} currentId={conversation?.id || null} />
         {showRun ? <ApplySteps run={run} asking={Boolean(approval)} busy={busy} /> : null}
         {turns.length ? (
           <div className={`asst-keep${archived ? ' archived' : conversation.kept ? ' kept' : ''}`}>
@@ -404,7 +415,14 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
         <div className="asst-scroll" ref={scroller} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }}>
           {turns.length ? turns.map((turn, index) => (turn.role === 'compact' ? <Compacted key={`compact-${turn.at}`} turn={turn} />
             : turn.role === 'user' ? <div key={index} className="asst-said"><p>{turn.text}</p></div>
-              : <Reply key={index} turn={turn} busy={busy} openItem={openItem} />)) : (
+              : <Reply key={index} turn={turn} busy={busy} openItem={openItem} />)) : conversation?.run ? (
+            <div className="asst-empty">
+              <Gramophone key={short ? 'short' : 'tall'} scale={short ? 2 : 3} label={t('助手留声机', 'Assistant gramophone')} />
+              <p><strong>{conversation.run.job}</strong></p>
+              <p>{queued ? t('这个申请在排队。前面的做完一个，它就自己开始。', 'This application is waiting in line. It starts by itself when one before it is done.')
+                : conversation.run.state === 'done' ? t('这个申请没有开始就停下了。', 'This application was stopped before it started.') : t('马上开始…', 'Starting…')}</p>
+            </div>
+          ) : (
             <div className="asst-empty">
               <Gramophone key={short ? 'short' : 'tall'} scale={short ? 2 : 3} label={t('助手留声机', 'Assistant gramophone')} />
               <p>{info?.browser
@@ -419,7 +437,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
             </div>
           )}
           {phase === 'compacting' ? <p className="asst-note asst-compacting" role="status"><i className="asst-dots" aria-hidden="true"><b /><b /><b /></i>{t('正在把上文压缩成摘要…', 'Compacting the conversation into a summary…')}</p> : null}
-          {approval ? <ConfirmCard key={approval.id} approval={approval} run={showRun ? run : null} /> : null}
+          {approval ? <ConfirmCard key={approval.id} approval={approval} run={showRun ? run : null} onShow={showPage} /> : null}
         </div>
         {failure ? <p className="notice error asst-failure" role="alert">{failureText}<button type="button" className="icon-button" aria-label={t('关闭', 'Dismiss')} onClick={() => assistant.clearFailure()}><X size={14} /></button></p> : null}
         {engineState && !engineState.available ? (
@@ -437,7 +455,7 @@ export function AssistantPane({ form = 'side', onForm, onClose, openItem, browse
         ) : null}
         {info?.browser ? <ApplySwitch mode={info.settings.apply} /> : null}
         <form className="asst-compose" onSubmit={event => { event.preventDefault(); send(); }}>
-          <textarea ref={field} rows={1} value={draft} maxLength={8000} placeholder={t('问点什么，或让它帮你做', 'Ask something, or hand it a job')} title={t('输入 /compact 可以压缩上文', 'Type /compact to compact the conversation')} aria-label={t('给助手的消息', 'Message to the assistant')}
+          <textarea ref={field} rows={1} value={draft} maxLength={8000} disabled={queued} placeholder={queued ? t('轮到这个申请后才能说话', 'You can write once this application has started') : t('问点什么，或让它帮你做', 'Ask something, or hand it a job')} title={t('输入 /compact 可以压缩上文', 'Type /compact to compact the conversation')} aria-label={t('给助手的消息', 'Message to the assistant')}
             onChange={event => setDraft(event.target.value)} onKeyDown={onKeyDown} />
           {busy
             ? <button type="button" className="asst-send stop" title={t('停止', 'Stop')} aria-label={t('停止', 'Stop')} onClick={() => assistant.stop()}><Square size={14} /></button>

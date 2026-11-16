@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, X } from 'lucide-react';
+import { Bookmark, BookmarkMinus, CircleCheck, EyeOff, Globe, Inbox, RefreshCw, RotateCcw, Send, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { api, query } from '../api.js';
 import { label, recentTime, relativeDay, salaryText } from './format.js';
 import { feedNote } from './run-outcome.js';
@@ -17,6 +17,8 @@ import { E8, Q, flipList, flyTo, keyBump } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { Select } from './groove/Picker.jsx';
+import { ApplyButton } from './assistant/Runs.jsx';
+import { assistant, useAssistant } from './assistant/store.js';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
 const SINCE = [{ id: '', label: ['全部时间', 'Any time'] }, { id: '1', label: ['今天抓取', 'Found today'] }, { id: '3', label: ['近 3 天', 'Last 3 days'] }, { id: '7', label: ['近 7 天', 'Last 7 days'] }];
@@ -38,7 +40,8 @@ function useDebounced(value, delay) {
   return current;
 }
 
-export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null, lastRun = null }) {
+// browser: the Dayjob browser's state, for the questions the assistant's applications wait on.
+export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focus = null, lastRun = null, browser = null }) {
   const { t } = useI18n();
   // Today says where the jobs of the newest search went when not all of them were new (most often: Dayjob had them
   // already), so a search that "found 32" and added none is explained where the user looks for them.
@@ -234,6 +237,11 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     setSelected(item.id);
     setMenu(current => ({ n: (current?.n || 0) + 1, item, row, at: keyboard ? { x: box.left + 56, y: box.top + 34 } : { x: event.clientX, y: event.clientY } }));
   }
+  // 让助手申请: on every job that can still be applied to, where there is a Dayjob browser to do it in.
+  const { runs } = useAssistant();
+  const approvals = browser?.approvals || [];
+  const canApply = item => hasBrowser && !item.application && !item.closedAt && Boolean(item.jobUrl);
+  useEffect(() => { if (hasBrowser) void assistant.refreshRuns(); }, []);
   const menuItems = item => {
     if (item.application) return [{ id: 'track', icon: <CircleCheck size={15} />, label: t('查看投递追踪', 'View tracking'), run: () => setView('applications') }];
     const saved = item.status === 'saved';
@@ -242,6 +250,10 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
         : { id: 'save', icon: <Bookmark size={15} />, label: t('收藏', 'Save'), run: () => { cue('fav'); setStatus(item, 'saved'); } },
       { id: 'apply', icon: <CircleCheck size={15} />, label: t('我已投递…', 'I applied…'), hint: t('在右边填投递日期后确认', 'Confirm with the date on the right'),
         run: () => { setSelected(item.id); setApplyAsk(current => ({ id: item.id, n: (current?.n || 0) + 1 })); } },
+      ...(canApply(item) ? [runs.some(run => run.postingId === item.id && run.state !== 'done')
+        ? { id: 'assistant-run', icon: <Send size={15} />, label: t('看助手的申请进度', 'See the assistant\'s application'), run: () => assistant.openRun(runs.find(run => run.postingId === item.id).id) }
+        : { id: 'assistant-apply', icon: <Send size={15} />, label: t('让助手申请', 'Have the assistant apply'), hint: t('助手在 Dayjob 浏览器里替你申请，可以同时申请几个', 'The assistant applies in the Dayjob browser; several can run at once'),
+          run: () => { setScoringMessage(''); assistant.apply(item.id).catch(failure => setScoringMessage(failure.message)); } }] : []),
       { id: 'open', icon: <Globe size={15} />, label: t('打开原帖', 'Open posting'), fx: 'open',
         run: () => (hasBrowser ? openInBrowser(item.jobUrl, setView) : window.open(item.jobUrl, '_blank', 'noreferrer')) },
       '-',
@@ -324,7 +336,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
           ) : null}
           {result.items.map((item, index) => (
             <div key={`${item.id}-${wave}`} data-id={item.id} role="listitem"
-              className={`posting-item ${item.id in returning ? 'returning' : item.id in folding ? 'folding' : 'enter'}${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}`}
+              className={`posting-item ${item.id in returning ? 'returning' : item.id in folding ? 'folding' : 'enter'}${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}${canApply(item) && !picking ? ' can-apply' : ''}`}
               style={leaving[item.id] ? undefined : { animationDelay: `${(folding[item.id] ?? returning[item.id] ?? Math.min(index, 12)) * E8}ms` }}>
               {ripples[item.id]?.length ? <span className="ripples" aria-hidden="true">{ripples[item.id].map(ring => (ring.kind === 'chord'
                 ? [0, 1, 2].map(k => <i key={`${ring.id}-${k}`} className="rp chord" style={{ animationDelay: `${k * (BEAT / 8)}ms` }} />)
@@ -354,6 +366,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                 </div>
                 <ScoreBadge score={item.score} compact landed={landed.has(item.id)} />
               </button>
+              {canApply(item) && !picking ? <ApplyButton item={item} approvals={approvals} onError={setScoringMessage} /> : null}
             </div>
           ))}
           {result.total > result.items.length ? <p className="list-more">{t(`显示前 ${result.items.length} 个，共 ${result.total} 个。用筛选缩小范围。`, `Showing ${result.items.length} of ${result.total}. Use the filters to narrow it down.`)}</p> : null}
