@@ -511,9 +511,12 @@ test('a reply that outgrows the line while working is compacted between two roun
     { content: [toolUse('t2')], stop_reason: 'tool_use' },
     { content: [{ type: 'text', text: 'Two jobs.' }] },
   ], { compactAt: () => 1000 });
-  const first = sent('c1', 'what is new?');
+  const steps = [];
+  const first = sent('c1', 'what is new?', { onStep: step => steps.push(step) });
   const outcome = await first.reply;
   assert.equal(first.heard.text, 'Looking.Two jobs.');
+  assert.deepEqual(steps.map(step => step.kind), ['reply', 'compact', 'reply', 'reply'], 'the request for the summary is a step too, told apart from the others');
+  assert.ok(steps.every(step => step.model === 'claude-opus-5-5' && step.usage.inputTokens === 100 && step.usage.cacheReadTokens === 900));
   assert.deepEqual(first.heard.compacts, [{ trigger: 'auto', summary: 'Was looking things up.', before: 1070 + estimateTokens('{"total":2}') }]);
   assert.equal(first.heard.calls.length, 2);
   assert.equal(outcome.rounds, 3);

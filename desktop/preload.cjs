@@ -8,7 +8,7 @@ const listen = (channel, callback) => {
 
 contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
   getInfo: () => ipcRenderer.invoke('dayjob:get-info'),
-  openDataFolder: () => ipcRenderer.invoke('dayjob:open-data-folder'),
+  openDataFolder: what => ipcRenderer.invoke('dayjob:open-data-folder', what === 'feedback' ? 'feedback' : undefined),
   getClaudeStatus: () => ipcRenderer.invoke('dayjob:claude-status'),
   checkClaude: () => ipcRenderer.invoke('dayjob:check-claude'),
   connectClaude: () => ipcRenderer.invoke('dayjob:connect-claude'),

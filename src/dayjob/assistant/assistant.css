@@ -214,3 +214,66 @@
   .asst-dots b, .asst-confirm { animation: none !important; }
   .assistant-card, .assistant-card-forms button, .asst-compose, .asst-send, .asst-history-fold svg { transition: none; }
 }
+
+/* 同时申请. On a job in the Today list: the button that has the assistant apply to it, and, once it has started,
+   how the application stands. It sits in the row's last corner, under the score, which moves up to make room. */
+.posting-item > .row-apply { position: absolute; right: 16px; bottom: 9px; z-index: 2; display: inline-flex; align-items: center; gap: 5px; height: 23px; padding: 0 9px 0 8px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--card); color: var(--text); font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; transition: border-color 156ms, color 156ms, background-color 156ms; }
+.posting-item > .row-apply:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.posting-item > .row-apply:disabled { opacity: .6; }
+.posting-item > .row-apply .asst-dots { height: 12px; gap: 3px; color: inherit; }
+.posting-item > .row-apply .asst-dots b { width: 4px; height: 4px; }
+.posting-item > .row-apply.queued { color: var(--muted); }
+.posting-item > .row-apply.working { border-color: var(--step-hi); }
+.posting-item > .row-apply.asking, .posting-item > .row-apply.handover { background: var(--amber-soft); border-color: var(--step-hi); }
+.posting-item > .row-apply.unsure { border-color: var(--step-hi); }
+.posting-item > .row-apply.sent { color: var(--green); border-color: var(--green); }
+.posting-item > .row-apply.unsent { color: var(--red); border-color: var(--red); }
+.posting-item.can-apply .posting-row .score-badge { align-self: flex-start; }
+.posting-item.can-apply .row-meta { padding-right: 52px; min-height: 20px; }
+
+/* In the pane: the applications under way, above the conversation. */
+.asst-runs { flex: none; border-top: 1px solid var(--line); background: var(--surface); font-size: 12.5px; }
+.assistant-pane.full .asst-main > .asst-runs { margin: 0 12px 8px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.asst-runs-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 12px 7px 10px; text-align: left; color: var(--text); }
+.asst-runs-head svg { flex: none; color: var(--muted); transition: transform 156ms; }
+.asst-runs-head.open svg { transform: rotate(90deg); }
+.asst-runs-head small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.asst-runs.asking .asst-runs-head small { color: var(--text); font-weight: 600; }
+.asst-runs ul { list-style: none; margin: 0; padding: 0 6px 6px; display: flex; flex-direction: column; gap: 2px; max-height: 168px; overflow-y: auto; }
+.asst-runs li { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.asst-runs li.current { background: var(--green-soft); }
+.asst-runs li.asking, .asst-runs li.handover { background: var(--amber-soft); }
+.asst-run-open { flex: 1; min-width: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 1px 7px; padding: 5px 4px 5px 8px; border-radius: 8px; text-align: left; }
+.asst-run-open:hover { background: var(--soft); }
+.asst-run-open > svg, .asst-run-open > .asst-dots { grid-row: span 2; justify-self: center; color: var(--muted); }
+.asst-run-open > .asst-dots { gap: 2px; }
+.asst-run-open > .asst-dots b { width: 4px; height: 4px; }
+.asst-runs li.sent .asst-run-open > svg { color: var(--green); }
+.asst-runs li.unsent .asst-run-open > svg { color: var(--red); }
+.asst-run-job { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.asst-run-open small { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.asst-runs li .icon-button { flex: none; width: 26px; height: 26px; }
+
+/* Under a reply: what it used, and each step of it. */
+.asst-usage { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.asst-usage > button { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 1px 0; color: inherit; font-family: var(--mono); font-size: 11.5px; text-align: left; }
+.asst-usage > button:hover { color: var(--text); }
+.asst-usage > button svg { flex: none; transition: transform 156ms; }
+.asst-usage > button.open svg { transform: rotate(90deg); }
+.asst-usage-steps { list-style: none; margin: 4px 0 0; padding: 4px 0; max-height: 280px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.asst-usage-steps li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 0 4px; padding: 3px 9px 3px 5px; font-family: var(--mono); font-size: 11px; line-height: 1.45; }
+.asst-usage-steps li + li { border-top: 1px solid var(--line); }
+.asst-usage-steps b { grid-row: span 2; text-align: right; padding-right: 4px; color: var(--muted); font-weight: 600; }
+.asst-usage-steps span { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.asst-usage-steps i { font-style: normal; color: var(--muted); white-space: nowrap; }
+.asst-usage-steps small { grid-column: 2 / -1; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Settings: the feedback file. */
+.feedback-row .feedback-path { display: block; margin-top: 4px; font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; user-select: all; }
+.feedback-text { flex-basis: 100%; max-height: 360px; overflow: auto; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-row > .hint { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .posting-item > .row-apply, .asst-runs-head svg, .asst-usage > button svg { transition: none; }
+}

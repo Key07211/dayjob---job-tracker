@@ -382,7 +382,8 @@ function App() {
   const room = windowWidth - (assistantOpen ? ASSISTANT_WIDTH : 0);
   const canSide = room >= SIDE_MIN_WINDOW;
   const wide = browserOpen && (browserWide || !canSide);
-  const asking = browser?.approval?.by === 'assistant';
+  // A question from the assistant waits for the user (several can, one for each application it works on).
+  const asking = (browser?.approvals || (browser?.approval ? [browser.approval] : [])).some(item => item.by === 'assistant');
   const pianoKeys = VIEWS.map(item => ({
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
     active: item.id === 'browser' ? browserOpen : view === item.id && !wide && !assistantFull,
@@ -469,8 +470,8 @@ function App() {
           {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
             <>
               {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} lastRun={status?.runs?.find(run => run.finishedAt) || null} /> : null}
-              {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} /> : null}
+              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} browser={browser} lastRun={status?.runs?.find(run => run.finishedAt) || null} /> : null}
+              {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} browser={browser} /> : null}
               {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
               {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
               {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}

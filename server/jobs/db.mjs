@@ -220,6 +220,30 @@ const migrations = [
   `
   ALTER TABLE resumes ADD COLUMN file BLOB;
   `,
+  // What each step of an assistant reply used: one row for every request to the model, with the tools that
+  // request then ran. conversation_id and reply_at name the reply; posting_id is the job being applied to, when
+  // there is one (not a foreign key, so the log outlives the posting). The reply as a whole is a row in ai_usage.
+  `
+  CREATE TABLE assistant_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    reply_at TEXT NOT NULL,
+    step INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    posting_id TEXT,
+    provider TEXT NOT NULL,
+    model TEXT,
+    tools TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    cost_usd REAL
+  );
+  CREATE INDEX assistant_steps_at ON assistant_steps (at);
+  CREATE INDEX assistant_steps_reply ON assistant_steps (conversation_id, reply_at, step);
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

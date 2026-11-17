@@ -4,6 +4,7 @@ import { useI18n } from '../../i18n.jsx';
 import { Select } from '../groove/Picker.jsx';
 import { ApplySwitch } from './AssistantPane.jsx';
 import { GuideHelp } from '../guide/GuideHelp.jsx';
+import { ApplyingSettings } from './Runs.jsx';
 import { assistant, useAssistant } from './store.js';
 
 const ENGINES = [
@@ -113,6 +114,7 @@ export function AssistantSettings({ hasKey, focus }) {
             : t('手动确认：提交之前，对话里会出现一张卡片，按住“投递”才会发出去。这个开关也在对话框旁边。', 'Ask me first: before anything is sent, a card appears in the chat and it goes out only when you hold “Send”. The same switch sits beside the chat box.')}</small>
         </div>
       ) : null}
+      <ApplyingSettings />
       <Memory notes={info.memory || []} focused={focus === 'assistant-memory'} />
     </section>
   );

@@ -142,7 +142,7 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
     // groups, preload: the tools that can wait and the groups wanted at once (see arrange); they count when the
     // conversation starts here and not after. A tool result may come with `stale`, the line that stands for it once
     // it is an old reading of a page.
-    async send({ id, text, system, model: wanted, tools, groups = null, preload = [], callTool, onText, onThinking, onRound, onDiscard, onCompacting = () => {}, onCompact = () => {}, notes = '', compacting = false, signal }) {
+    async send({ id, text, system, model: wanted, tools, groups = null, preload = [], callTool, onText, onThinking, onRound, onDiscard, onCompacting = () => {}, onCompact = () => {}, onStep = () => {}, notes = '', compacting = false, signal }) {
       const using = key();
       if (!using.apiKey) throw new AssistantError('no-key', 'Add an Anthropic API key in Settings.');
       const model = modelFor('anthropic-api', wanted);
@@ -191,12 +191,14 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
         mended = true;
         return true;
       };
-      const count = message => {
+      // Every request that answered is a step of the reply: what it used is added up, and passed on by itself
+      // (kind: 'reply', or 'compact' for the request that wrote a summary).
+      const count = (message, kind = 'reply') => {
         served = message.model || served;
-        usage.inputTokens += message.usage?.input_tokens || 0;
-        usage.outputTokens += message.usage?.output_tokens || 0;
-        usage.cacheReadTokens += message.usage?.cache_read_input_tokens || 0;
-        usage.cacheWriteTokens += message.usage?.cache_creation_input_tokens || 0;
+        const used = { inputTokens: message.usage?.input_tokens || 0, outputTokens: message.usage?.output_tokens || 0,
+          cacheReadTokens: message.usage?.cache_read_input_tokens || 0, cacheWriteTokens: message.usage?.cache_creation_input_tokens || 0 };
+        for (const key of Object.keys(used)) usage[key] += used[key];
+        onStep({ kind, model: served, usage: used });
         return (message.usage?.input_tokens || 0) + (message.usage?.cache_read_input_tokens || 0) + (message.usage?.cache_creation_input_tokens || 0) + (message.usage?.output_tokens || 0);
       };
       // Asks for a summary at the end of the conversation as it stands and puts the summary in its place. The
@@ -216,7 +218,7 @@ export function createApiEngine({ getSettings, createClient = options => new Ant
           onThinking();
           return '';
         }
-        count(message);
+        count(message, 'compact');
         const summary = message.stop_reason === 'refusal' ? '' : summaryOf(message.content.filter(block => block.type === 'text').map(block => block.text).join('\n'));
         if (!summary) { onThinking(); return ''; }
         const before = session.context;

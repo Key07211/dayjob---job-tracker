@@ -59,7 +59,9 @@ export function useBrowserState(setView) {
   return state;
 }
 
-function Approval({ approval }) {
+// elsewhere: the question is about a page in another tab than the one on show (an application the assistant works
+// on in a tab of its own); the bar then says which job it is for and offers to go there.
+function Approval({ approval, elsewhere = false }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const bar = useRef(null);
@@ -83,9 +85,11 @@ function Approval({ approval }) {
           : approval.action === 'enter'
             ? t(`在 ${site} 的“${approval.name}”里按回车，这可能会提交表单。`, `Press Enter in “${approval.name}” on ${site}. This may submit the form.`)
             : t(`在 ${site} 上点击“${approval.name}”，这可能会提交或发送内容。`, `Click “${approval.name}” on ${site}. This may submit or send something.`)}
+        {approval.job ? <span>{elsewhere ? t(`这是另一个标签页里的申请：${approval.job}。`, `This is for an application in another tab: ${approval.job}.`) : t(`申请：${approval.job}。`, `Application: ${approval.job}.`)}</span> : null}
         <span>{t('允许前可以先看一下页面上填写的内容。', 'You can check what is filled in on the page first.')}</span>
       </p>
       <div className="form-actions">
+        {elsewhere ? <button className="button" onClick={() => desktop.command('switch', approval.tabId).catch(() => {})} disabled={busy}>{t('看那一页', 'Go to that page')}</button> : null}
         <button className="button" onClick={() => answer(false)} disabled={busy}>{t('拒绝', 'Deny')}</button>
         <button className="button primary" data-fx="pop" onClick={() => answer(true)} disabled={busy}><CircleCheck size={15} />{t('允许', 'Allow')}</button>
       </div>
@@ -778,7 +782,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
         <input ref={address} className="browser-address" value={typed ?? shownUrl} spellCheck={false} placeholder={t('输入网址或搜索', 'Enter an address or search')}
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
-      {state.approval ? <Approval key={state.approval.id} approval={state.approval} /> : null}
+      {state.approval ? <Approval key={state.approval.id} approval={state.approval} elsewhere={Boolean(state.approval.tabId && state.approval.tabId !== state.activeId)} /> : null}
       {state.applied && !state.approval ? <AppliedStrip key={state.applied.id} applied={state.applied} openItem={openItem} /> : null}
       {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.closed} onKept={setKept} />
         : kept ? <p className="browser-kept" role="status"><CircleCheck size={17} />{t(`已把 ${kept} 的密码存进密码箱。`, `Saved the password for ${kept} in the vault.`)}</p>

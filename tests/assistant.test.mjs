@@ -91,7 +91,7 @@ test('the assistant reports its engines, its models and tools that stay away fro
   t.after(() => app.close());
   const { status, body } = await call('/api/assistant');
   assert.equal(status, 200);
-  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm' });
+  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3 });
   assert.equal(body.browser, false, 'no Dayjob browser outside the desktop app');
   assert.equal(body.engines['claude-cli'].available, true);
   assert.equal(body.engines['anthropic-api'].available, true);
@@ -420,7 +420,7 @@ test('switching the engine or its model hands the conversation to the new one', 
   assert.equal(engines['claude-cli'].seen.length, 1);
 
   assert.deepEqual((await call('/api/assistant/settings', { method: 'PATCH', body: { engine: 'anthropic-api' } })).body,
-    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm' });
+    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3 });
   const second = await chat('two', first.id);
   assert.equal(second.events[0].engine, 'anthropic-api');
   assert.equal(second.reply.engine, 'anthropic-api');
@@ -648,6 +648,57 @@ test('one Claude Code process serves a conversation: it streams text once and is
   assert.equal(started.child.killed, true);
   assert.equal(fs.existsSync(started.options.cwd), false, 'the token file goes with the process');
   assert.equal(engine.conversationFor(token), null);
+});
+
+test('Claude Code says what each message of a reply used, as a step of its own', async () => {
+  const used = (input, output, read, write) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: read, cache_creation_input_tokens: write });
+  const start = (id, usage) => ({ type: 'stream_event', event: { type: 'message_start', message: { id, model: 'claude-opus-5-5', usage } } });
+  const whole = (id, usage, content) => ({ type: 'assistant', message: { id, model: 'claude-opus-5-5', usage, content } });
+  const result = { type: 'result', subtype: 'success', is_error: false, result: 'Done.', num_turns: 2,
+    model_usage_since_last_result: { 'claude-opus-5-5': { inputTokens: 60, outputTokens: 72, cacheReadInputTokens: 18500, cacheCreationInputTokens: 580 } } };
+  const call = [{ type: 'tool_use', id: 't1', name: 'mcp__dayjob_app__get_status', input: {} }];
+  // The stream's own lines: what went in when a message starts, what came out when it ends, and the whole message
+  // in between, which knows no more than the start did.
+  const order = [];
+  const streamed = cliEngine(({ say }) => {
+    say({ type: 'system', subtype: 'init', model: 'claude-opus-5-5', mcp_servers: [{ name: 'dayjob_app', status: 'connected' }] });
+    say(start('m1', used(40, 1, 9000, 500)));
+    say(whole('m1', used(40, 1, 9000, 500), call));
+    say({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 60 } } });
+    say({ type: 'stream_event', event: { type: 'message_stop' } });
+    say(start('m2', used(20, 1, 9500, 80)));
+    say(delta('Done.'));
+    say(whole('m2', used(20, 1, 9500, 80), [{ type: 'text', text: 'Done.' }]));
+    say({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 12 } } });
+    say(result);
+  });
+  const steps = [];
+  const first = streamed.sent('c1', 'status?', { onStep: step => { steps.push(structuredClone(step)); order.push('step'); }, onText: () => order.push('text') });
+  const outcome = await first.reply;
+  assert.deepEqual(steps, [
+    { kind: 'reply', model: 'claude-opus-5-5', usage: { inputTokens: 40, outputTokens: 60, cacheReadTokens: 9000, cacheWriteTokens: 500 } },
+    { kind: 'reply', model: 'claude-opus-5-5', usage: { inputTokens: 20, outputTokens: 12, cacheReadTokens: 9500, cacheWriteTokens: 80 } },
+  ]);
+  assert.deepEqual(order, ['step', 'text', 'step'], 'a message is passed on when it ends: the first before the second says anything, the last with the result');
+  assert.deepEqual(outcome.usage, { inputTokens: 60, outputTokens: 72, cacheReadTokens: 18500, cacheWriteTokens: 580 }, 'the steps add up to what the reply used');
+
+  // Without those lines the whole messages are all there is: one is over when the next begins, or the reply ends.
+  const plain = cliEngine(({ say }) => {
+    say(whole('m1', used(40, 60, 9000, 500), call));
+    say({ type: 'assistant', message: { id: 'note', model: '<synthetic>', usage: used(0, 0, 0, 0), content: [] } });
+    say(whole('m2', used(20, 12, 9500, 80), [{ type: 'text', text: 'Done.' }]));
+    say(result);
+  });
+  const again = [];
+  await plain.sent('c2', 'status?', { onStep: step => again.push(structuredClone(step)) }).reply;
+  assert.deepEqual(again, steps);
+
+  // A reply with no usage on its messages has no steps; it is still counted through its result.
+  const bare = cliEngine(({ say }) => answered(say, 'm1', 'Hi.'));
+  const none = [];
+  const counted = await bare.sent('c3', 'hi', { onStep: step => none.push(step) }).reply;
+  assert.deepEqual(none, []);
+  assert.deepEqual(counted.usage, { inputTokens: 12, outputTokens: 7, cacheReadTokens: 300, cacheWriteTokens: 40 });
 });
 
 test('Claude Code text that never came as deltas is still shown, and a typed model is passed on', async () => {

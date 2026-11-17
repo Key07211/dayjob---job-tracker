@@ -116,9 +116,12 @@ function setupIpc() {
     verifiedSender(event);
     return { version: app.getVersion(), dataPath: dataDir, isPackaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) };
   });
-  ipcMain.handle('dayjob:open-data-folder', async event => {
+  // what: 'feedback' for the folder of the assistant's feedback file; anything else is the data folder itself.
+  ipcMain.handle('dayjob:open-data-folder', async (event, what) => {
     verifiedSender(event);
-    const error = await shell.openPath(dataDir);
+    const folder = what === 'feedback' ? path.join(dataDir, 'feedback') : dataDir;
+    if (folder !== dataDir) fs.mkdirSync(folder, { recursive: true });
+    const error = await shell.openPath(folder);
     if (error) throw new Error(error);
   });
   ipcMain.handle('dayjob:claude-status', event => { verifiedSender(event); return claude.getStatus(); });
@@ -891,6 +894,50 @@ async function smokeBrowser(token) {
     steps.assistantDeclined = (await asked) === 409 && Boolean(pageAt(`${base}/jobs/7`));
     const taken = await browser.agent('click', { ref: sendRef }, { by: 'assistant', takeover: true });
     steps.takeover = taken.allowed === 'auto' && /full takeover/.test(taken.note || '') && taken.page.url.startsWith(`${base}/submitted?name=Asked+First`);
+    // 同时申请: two applications, each in a tab of its own, worked on at once while the user looks at another page.
+    const shown = browser.state().activeId;
+    const runA = { by: 'assistant', run: { key: 'run-a', own: true, job: 'Smoke Co · Data Analyst' } };
+    const runB = { by: 'assistant', run: { key: 'run-b', own: true, job: 'Smoke Co · Research Analyst' } };
+    const noPageYet = await browser.agent('read', {}, runA).then(() => 0, error => error.status);
+    const [openA, openB] = await Promise.all([browser.agent('open', { url: `${base}/jobs/7?run=a` }, runA), browser.agent('open', { url: `${base}/jobs/7?run=b` }, runB)]);
+    steps.runsOwnTabs = noPageYet === 409 && openA.page.id !== openB.page.id && ![openA.page.id, openB.page.id].includes(shown) && browser.state().activeId === shown
+      && browser.state().runs.map(run => `${run.key}:${run.tabId}:${run.busy}`).join() === `run-a:${openA.page.id}:true,run-b:${openB.page.id}:true`;
+    const [readA, readB] = await Promise.all([browser.agent('read', {}, runA), browser.agent('read', {}, runB)]);
+    const refIn = (read, name) => read.elements.find(item => item.name === name).ref;
+    await Promise.all([browser.agent('type', { ref: refIn(readA, 'Full name'), text: 'Run A' }, runA), browser.agent('type', { ref: refIn(readB, 'Full name'), text: 'Run B' }, runB)]);
+    // A tab that is not on show still takes the real mouse, and its page keeps drawing.
+    await browser.agent('click', { ref: refIn(readB, 'Email') }, runB);
+    const inB = await pageAt(`${base}/jobs/7?run=b`).executeJavaScript(`Promise.race([new Promise(resolve => requestAnimationFrame(() => resolve('drawn'))), new Promise(resolve => setTimeout(() => resolve('still'), 2000))])
+      .then(frame => [document.activeElement.name, document.querySelector('[name=name]').value, frame].join('|'))`);
+    const inA = await pageAt(`${base}/jobs/7?run=a`).executeJavaScript("document.querySelector('[name=name]').value");
+    steps.runsWorkUnseen = inB === 'email|Run B|drawn' && inA === 'Run A' && browser.state().activeId === shown;
+    // Both reach the button that sends. Each waits on a question of its own, and neither holds up anyone else.
+    const settled = promise => promise.then(value => value, error => ({ status: error.status }));
+    const sendA = settled(browser.agent('click', { ref: refIn(readA, 'Submit application') }, runA));
+    const sendB = settled(browser.agent('click', { ref: refIn(readB, 'Submit application') }, runB));
+    const waiting = key => browser.state().approvals.find(item => item.run === key);
+    steps.runsAskTogether = await until(() => browser.state().approvals.length === 2, 5000) && waiting('run-a').tabId === openA.page.id && waiting('run-b').tabId === openB.page.id
+      && waiting('run-a').job === 'Smoke Co · Data Analyst' && waiting('run-b').minutes === 60;
+    const meanwhile = await Promise.race([browser.agent('read', {}, byAssistant).then(read => read.page.id), new Promise(resolve => setTimeout(() => resolve('held up'), 4000))]);
+    browser.answer(waiting('run-b').id, true);
+    const sentB = await sendB;
+    const stillAsked = browser.state().approvals.map(item => item.run).join();
+    browser.answer(waiting('run-a').id, false);
+    const sentA = await sendA;
+    steps.runsAnswered = meanwhile === shown && sentB.allowed === 'user' && sentB.page.id === openB.page.id && sentB.page.url.startsWith(`${base}/submitted?name=Run+B`)
+      && stillAsked === 'run-a' && sentA.status === 409 && Boolean(pageAt(`${base}/jobs/7?run=a`)) && browser.state().activeId === shown;
+    // Nobody else acts in a tab an application is busy in. Once its reply is over they may; one that was sent has
+    // its tab closed, one that was not keeps it for the user.
+    browser.command('switch', openA.page.id);
+    const keptOut = await post('read');
+    browser.endRun('run-a');
+    const letIn = await post('read');
+    browser.command('switch', shown);
+    browser.endRun('run-b', { close: true });
+    steps.runsEnd = keptOut.status === 409 && /belongs to an application/.test((await keptOut.json()).error) && letIn.status === 200
+      && !browser.state().tabs.some(tab => tab.id === openB.page.id) && browser.state().tabs.some(tab => tab.id === openA.page.id) && browser.state().runs.length === 1;
+    browser.endRun('run-a', { forgotten: true });
+    browser.command('close', openA.page.id);
     // 全部删除: every saved password goes, the vault password stays.
     steps.vaultCleared = vault.clear().count === 0 && vault.list().lock && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('two@example.com');
   } catch (error) {
@@ -903,7 +950,7 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);
@@ -1095,7 +1142,9 @@ async function boot() {
     allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
     // The Python with JobSpy that the installed app carries beside app.asar (scripts/build-jobspy.mjs).
     jobspyDir: app.isPackaged ? path.join(process.resourcesPath, 'jobspy') : undefined,
-    browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))) } });
+    browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))),
+      // 同时申请: an application's reply is over, or its conversation is gone (see endRun in browser.cjs).
+      endRun: (key, options) => browser?.endRun(key, options) } });
   // What the window speaks when it opens: the language saved earlier, or the system's on a first launch.
   language = service.repo.languageChosen() ? service.repo.getSettings().language : null;
   smokeLanguage = language || systemLanguage();
