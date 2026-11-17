@@ -132,6 +132,15 @@ export async function createApp(options = {}) {
     if (posting?.status !== 'saved' || !posting.resumeId || posting.score) return;
     scorer.score(postingId).catch(error => log(`[dayjob] scoring ${postingId}: ${error.message}`));
   }
+  // Jobs the assistant read from a web page are scored the way a fetch's new jobs are: by themselves in the
+  // automatic mode, after a batch that is already running. -> whether scoring was started.
+  function scoreAdded(ids) {
+    if (!ids.length || repo.getSettings().ai.scoreMode !== 'auto') return false;
+    const begin = () => { void startScoring(ids, ids.length); };
+    if (scoringBatch) void scoringBatch.finally(begin);
+    else begin();
+    return true;
+  }
   // A company's own board, checked and put on the daily list. -> the company, how many jobs its board lists now
   // (listed), how many of those the enabled searches keep (matching), and whether it was on the list already.
   async function followCompany(input) {
@@ -511,7 +520,7 @@ export async function createApp(options = {}) {
     throw new HttpError(404, 'API endpoint not found.');
   }
 
-  const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, log, engines: options.assistantEngines,
+  const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, log, engines: options.assistantEngines,
     companies: { find: findCompany, follow: followCompany },
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
     // 问题反馈文件: beside the database; a database in memory has no folder, and keeps its entries in memory too.

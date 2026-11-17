@@ -6,6 +6,9 @@ import { SITE_IDS } from '../jobs/scrapers/index.mjs';
 import { APPLICANT_FIELDS } from '../jobs/applicant.mjs';
 import { applicationPatch, applyInput, BROWSER_KEYS, browserInput, JOB_TYPES, manualApplication, monthParam, searchInput, settingsPatch } from '../validation.mjs';
 import { leanReading, staleReading } from './page-lean.mjs';
+import { posting as toPosting, postingId } from '../jobs/normalize.mjs';
+import { companyJobMatches } from '../jobs/matching.mjs';
+import { fuller, jobTypeOf, pageIsAbout, siteName, webJob } from '../jobs/web-jobs.mjs';
 
 // What the in-app assistant can do, for both engines (Claude Code reaches these
 // through MCP, the Claude API as tool calls). Each tool has a tier:
@@ -64,7 +67,7 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
@@ -674,6 +677,135 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
+  // ---------- 读岗位: jobs read from a web page, into Today ----------
+  // The model reads a list of jobs once and passes on what a card says (title, company, place, link). Dayjob then
+  // reads each job's own page itself, in the Dayjob browser where the user is signed in, and keeps the description
+  // from there: it never passes through the model. What is added is a posting like any other (status new, so it is
+  // in Today), told apart by its site and its id on that site, so that
+  // - a job Dayjob holds already, from a fetch or from an earlier reading, is that same posting: it keeps its
+  //   status (one the user removed stays removed) and only gains what it lacked;
+  // - a job another site also lists is kept as its twin, out of the lists, the way a fetch keeps one;
+  // - no fetch is started and none is touched: the daily fetch meets these postings as ones it already knows.
+  const WHY = {
+    'missing-ref': 'That ref is not on the page any more. Read the page again and use the refs of that reading.',
+    'no-link': 'That ref is not a link to a job. Give the job\'s link, or open the job and add it with its title and company alone.',
+    'bad-link': 'That is not a web link Dayjob can open.',
+    'not-loaded': 'The job\'s page did not load.',
+    stopped: 'The user stopped the reply before this one was read.',
+    'too-many': 'Too many for one call: add it in the next one.',
+  };
+  const jobTools = [
+    {
+      name: 'add_postings', tier: 'undoable', view: 'feed',
+      description: 'Put jobs you read on a web page into Today, the list of new postings, so that Dayjob scores and tracks them like the ones it fetches. For jobs on sites the daily fetch '
+        + 'does not ask (Handshake, a school\'s or a company\'s careers site, any job board open in the Dayjob browser), and for a job the user pastes into the chat. For each job give the '
+        + 'title and the company as the page shows them, the location when it is shown, and where the job is: url (its link\'s address), or ref (the ref of its link in the page you read '
+        + 'last, when the reading shows no address), or neither for the job whose own page is open now. '
+        + (browser ? 'Dayjob then opens each job\'s page itself, in a tab of its own, and keeps the description from there: do not open or read the jobs one by one, and do not pass '
+          + 'descriptions along. ' : 'There is no Dayjob browser here, so give each job\'s url, and its description when the user gave it. ')
+        + 'Up to 12 jobs a call. onlyMatching: true keeps only the jobs one of the user\'s enabled searches would keep (title keywords, location, job type): use it when the user wants what '
+        + 'suits their searches and has not picked the jobs. A job Dayjob already has is not added twice, whatever site it came from, and a job the user removed stays removed. The result '
+        + 'says for each job whether it was added, was there already (and how it stands), or was left out and why.',
+      shape: {
+        jobs: z.array(z.strictObject({
+          title: z.string().min(1).max(240), company: z.string().min(1).max(160), location: z.string().max(160).optional(),
+          url: z.string().max(2048).optional().describe('The job\'s own link, when the reading shows its address.'),
+          ref: ref.optional().describe('The ref of the job\'s link in the page read last, when the reading shows no address.'),
+          jobType: z.enum(JOB_TYPES).optional(), isRemote: z.boolean().optional(),
+          datePosted: z.string().regex(/^\d{4}-\d\d-\d\d$/).optional().describe('YYYY-MM-DD, when the page says it.'),
+          description: z.string().max(20000).optional().describe('The posting\'s text, only when the user gave it in the chat and no page can be read.'),
+        })).min(1).max(12),
+        onlyMatching: z.boolean().optional(),
+      },
+      label: (input, result) => (result.added ? [`往今日岗位加了 ${result.added} 个岗位${result.site ? `（${result.site}）` : ''}`, `Added ${result.added} ${result.added === 1 ? 'job' : 'jobs'} to Today${result.site ? ` (${result.site})` : ''}`]
+        : result.already ? [`这 ${result.already} 个岗位 Dayjob 已经有了`, `Dayjob already had ${result.already === 1 ? 'this job' : `these ${result.already} jobs`}`]
+          : ['没有岗位加进今日岗位', 'No job was added to Today']),
+      async run(input, context) {
+        const searches = repo.listSearches().filter(search => search.enabled);
+        const cards = input.jobs.map(job => {
+          const card = { title: job.title.trim(), company: job.company.trim(), location: (job.location || '').trim() || null, jobType: job.jobType || null, isRemote: job.isRemote ?? null };
+          const search = searches.find(item => companyJobMatches(card, item)) || null;
+          return { job, card, search, skip: input.onlyMatching && !search ? 'None of the enabled searches keeps a job like this.' : !browser && !job.url ? 'Give this job\'s link (url).' : null };
+        });
+        // The pages Dayjob reads itself: every job that is kept and came without its text.
+        const visits = cards.filter(item => !item.skip && browser && !(item.job.description && item.job.url));
+        if (visits.length) {
+          const read = await inBrowser('jobs', { items: visits.map(({ job }) => (job.url ? { url: job.url } : job.ref ? { ref: job.ref } : {})) }, context);
+          visits.forEach((item, index) => { item.seen = read.jobs?.[index] || { error: 'not-loaded' }; });
+        }
+        const inserted = [];
+        const score = [];
+        let merged = false;
+        let from = '';
+        const jobs = cards.map(({ job, card, search, skip, seen }) => {
+          const line = { title: card.title, company: card.company };
+          if (skip) return { ...line, state: 'skipped', note: skip };
+          // A page that did not load still leaves what the list said about the job, when the list gave its link.
+          if (seen?.error && !(seen.error === 'not-loaded' && job.url)) return { ...line, state: 'failed', note: WHY[seen.error] || 'Its page could not be read.' };
+          // The link the job is known by: where its page ended up, unless that is another site (a sign-in, say).
+          const asked = seen?.asked || job.url || '';
+          const landed = seen?.url || '';
+          const sameSite = (() => { try { return !asked || new URL(landed).hostname === new URL(asked).hostname; } catch { return false; } })();
+          const link = webJob(seen?.error || !landed || !sameSite || (seen.gate && asked) ? asked : landed);
+          if (!link) return { ...line, state: 'failed', note: WHY['bad-link'] };
+          // What the page says is kept when the page is about this job; a sign-in page or a search is not.
+          const about = Boolean(seen && !seen.error && pageIsAbout(card, seen));
+          const own = about && seen.structured;
+          let item;
+          try {
+            item = toPosting({ site: link.site, externalId: link.externalId, jobUrl: link.jobUrl,
+              title: own ? fuller(card.title, seen.title) : card.title, company: own ? fuller(card.company, seen.company) : card.company,
+              location: card.location || (own ? seen.location : null) || null, isRemote: card.isRemote ?? (own && seen.remote ? true : null),
+              jobType: card.jobType || (own ? jobTypeOf(seen.employmentType) : null), datePosted: job.datePosted || (own ? /^\d{4}-\d\d-\d\d/.exec(seen.datePosted || '')?.[0] : null) || null,
+              description: job.description || (about ? String(seen.description || '').slice(0, own ? 100000 : 30000) : null) || null });
+          } catch (error) { return { ...line, state: 'failed', note: error.message }; }
+          from ||= siteName(link.jobUrl);
+          const kept = item.description ? {} : { description: 'none', note: seen?.gate ? 'Its page asks to sign in, so no description was kept. Once the user has signed in in the Dayjob browser, add it again for the description.'
+            : seen?.error ? 'Its page did not load, so no description was kept.' : seen ? 'Its page did not look like this job, so no description was kept.' : undefined };
+          const REMOVED = 'The user removed this job; it stays removed.';
+          const had = repo.getPosting(postingId(item));
+          if (!had) {
+            // The same job, known by another link on the same site: that one stands.
+            const same = repo.findSameJob(item);
+            if (same && same.site === item.site) return { ...line, state: 'already', id: same.id, status: same.status, ...(same.status === 'dismissed' ? { note: REMOVED } : {}) };
+          }
+          if (had) {
+            // A posting Dayjob holds keeps what it has and only gains what it lacked: seen again now, so open.
+            const lacks = key => (had[key] === null || had[key] === undefined || had[key] === '' ? item[key] : null);
+            repo.upsertPosting({ ...item, title: had.title, jobUrl: had.jobUrl, company: lacks('company'), location: lacks('location'), city: null, state: null, country: null,
+              isRemote: lacks('isRemote'), jobType: lacks('jobType'), description: lacks('description'), emails: had.emails || [] }, search?.id || null);
+            merged ||= Boolean(item.description && !had.description) || Boolean(had.closedAt);
+            return { ...line, state: 'already', id: had.id, status: had.status, ...(had.status === 'dismissed' ? { note: REMOVED } : {}) };
+          }
+          const stored = repo.upsertPosting(item, search?.id || null);
+          inserted.push(stored.id);
+          if (stored.duplicate) {
+            const twin = repo.getPosting(repo.getPosting(stored.id)?.duplicateOf || '');
+            return { ...line, state: 'already', id: twin?.id || stored.id, status: twin?.status || 'new',
+              note: `Dayjob has this job from ${twin?.site || 'another site'}; the two are kept as one.${twin?.status === 'dismissed' ? ` ${REMOVED}` : ''}` };
+          }
+          score.push(stored.id);
+          return { ...line, state: 'added', id: stored.id, ...(search ? { search: search.name } : {}), ...kept };
+        });
+        const count = state => jobs.filter(item => item.state === state).length;
+        const scoring = score.length && scoreAdded(score) ? 'started' : repo.getSettings().ai.scoreMode === 'auto' ? undefined : 'not automatic: the user scores jobs themselves';
+        const result = { ...(from ? { site: from } : {}), added: count('added'), already: count('already'), skipped: count('skipped'), failed: count('failed'), jobs, ...(score.length && scoring ? { scoring } : {}) };
+        if (!inserted.length) return { result, changed: merged };
+        return { result, changed: true,
+          // Only what is still as it was added goes: a job the user has saved or applied to since stays.
+          undo() {
+            let removed = 0;
+            for (const id of inserted) {
+              const now = repo.getPosting(id);
+              if (!now) continue;
+              if (now.status !== 'new' || repo.applicationForPosting(id)) continue;
+              if (repo.removePosting(id)) removed += 1;
+            }
+            if (!removed) throw new HttpError(409, CHANGED);
+          } };
+      },
+    },
+  ];
   const sameBoard = (company, board) => company.ats === board.ats && company.slug.toLowerCase() === board.slug.toLowerCase();
   const companyTools = !companies ? [] : [
     {
@@ -754,16 +886,16 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
-  tools.push(...companyTools, ...profileTools, ...memoryTools, ...browserTools, ...applyingTools);
+  tools.push(...jobTools, ...companyTools, ...profileTools, ...memoryTools, ...browserTools, ...applyingTools);
 
   const byName = new Map(tools.map(tool => [tool.name, { ...tool, schema: z.strictObject(tool.shape) }]));
   // The tools a conversation can do without until it turns to what they are for. The Claude API engine keeps them
   // out of the prompt until the model asks for the group (engine-api.mjs); everything else is always at hand.
   const GROUPS = {
     apply: { about: 'working in the Dayjob browser and applying to a job there (open_application and every browser_ tool: open, read, click, type, select, autofill, sign in, create '
-      + 'an account, attach the resume, cover letter), start_applications for several jobs at once, report_application for how one went, and update_profile, which saves an answer '
-      + 'the user gave into the application profile',
-      has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs'].includes(tool.name) },
+      + 'an account, attach the resume, cover letter), start_applications for several jobs at once, report_application for how one went, add_postings, which puts jobs read on a '
+      + 'web page (Handshake, a careers site) into Today, and update_profile, which saves an answer the user gave into the application profile',
+      has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs', 'add_postings'].includes(tool.name) },
     searches: { about: 'what Dayjob fetches every day (list_searches, save_search and run_search for saved searches; find_company_board and follow_company for a company\'s own job board)',
       has: tool => ['list_searches', 'save_search', 'run_search', 'find_company_board', 'follow_company'].includes(tool.name) },
   };
