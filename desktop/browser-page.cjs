@@ -740,6 +740,21 @@ function install(makeHidden, pickOption) {
       return { scrollY: Math.round(scroller.scrollTop), scrollHeight: scroller.scrollHeight, viewportHeight: window.innerHeight };
     },
 
+    // 读岗位: where a link in a list of jobs leads (the link itself, the one around it, or the one inside it).
+    link({ ref }) {
+      const element = find(ref);
+      if (!element) return { error: 'missing' };
+      const anchor = element.closest('a[href]') || element.querySelector('a[href]');
+      return anchor && /^https?:/i.test(anchor.href) ? { url: anchor.href } : { error: 'no-link', role: role(element), name: name(element) };
+    },
+    // What a job's own page says about the job, for Dayjob to keep (extract), and whether the page is asking to
+    // sign in instead of showing it.
+    job() {
+      const seen = this.extract();
+      const gate = Boolean([...document.querySelectorAll('input[type="password"]')].some(shown));
+      return { ...seen, gate };
+    },
+
     // What the "Add to Dayjob" button saves.
     extract() {
       const job = jobPosting();

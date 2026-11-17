@@ -488,6 +488,22 @@ const QUIET_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="ut
 <body><h1>Your application</h1><form action="/applied" method="get"><label>First name <input name="first" required></label>
 <label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label> <button>Submit application</button></form></body></html>`;
 
+// A list of jobs as a board shows it, a job whose page says a good deal about it, and one whose page puts its text
+// up after it has loaded: for Dayjob reading several jobs' own pages in one go.
+const BOARD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Jobs · Smoke Board</title></head>
+<body><h1>Jobs for you</h1><ul><li><a href="/jobs/long"><b>Operations Analyst</b> <span>Smoke Co · Oakland, CA</span></a></li>
+<li><a href="/jobs/late">Late Analyst</a></li><li><a href="/login">Members only analyst</a></li>
+<li><button type="button">Card without a link</button></li></ul></body></html>`;
+const LONG_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Operations Analyst · Smoke Co</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Operations Analyst","datePosted":"2026-11-10",
+"hiringOrganization":{"@type":"Organization","name":"Smoke Co"},"employmentType":"INTERN",
+"jobLocation":{"@type":"Place","address":{"addressLocality":"Oakland","addressRegion":"CA","addressCountry":"US"}},
+"description":"${'Keep the warehouse numbers straight, week after week. '.repeat(6)}"}</script></head>
+<body><h1>Operations Analyst</h1><p>Keep the warehouse numbers straight.</p></body></html>`;
+const LATE_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Late Analyst · Slow Co</title></head>
+<body><main><h1>Late Analyst</h1><div id="text">Loading…</div></main><script>setTimeout(() => {
+document.getElementById('text').textContent = 'Slow Co is hiring a Late Analyst. ' + 'You will count what arrives after the page has loaded. '.repeat(10); }, 1200);</script></body></html>`;
+
 // A login form and a sign-up form, for the password vault. Signing in posts,
 // so the password never shows in an address.
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
@@ -540,6 +556,9 @@ async function smokeBrowser(token) {
     if (url.pathname === '/marked-hidden') return response.end(MARKED_HIDDEN_PAGE);
     if (url.pathname === '/widgets') return response.end(WIDGET_PAGE);
     if (url.pathname === '/jobs/9') return response.end(SECOND_JOB_PAGE);
+    if (url.pathname === '/board') return response.end(BOARD_PAGE);
+    if (url.pathname === '/jobs/long') return response.end(LONG_JOB_PAGE);
+    if (url.pathname === '/jobs/late') return response.end(LATE_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
@@ -938,6 +957,26 @@ async function smokeBrowser(token) {
       && !browser.state().tabs.some(tab => tab.id === openB.page.id) && browser.state().tabs.some(tab => tab.id === openA.page.id) && browser.state().runs.length === 1;
     browser.endRun('run-a', { forgotten: true });
     browser.command('close', openA.page.id);
+    // 读岗位: for the assistant, Dayjob reads each job's own page in a working tab that is not on show, one after
+    // another, and closes it afterwards; the page the assistant is on stays where it is. Nobody but the assistant
+    // in the Dayjob window can ask for it.
+    await browser.agent('open', { url: `${base}/board` }, byAssistant);
+    const board = await browser.agent('read', {}, byAssistant);
+    const card = words => board.elements.find(item => String(item.name || '').startsWith(words))?.ref;
+    const onShow = browser.state().activeId;
+    const tabsBefore = browser.state().tabs.length;
+    const reading = browser.agent('jobs', { items: [{ ref: card('Operations Analyst') }, { url: `${base}/jobs/late` }, { url: `${base}/login` },
+      { ref: card('Card without a link') }, { ref: 'no-such-ref' }, { url: 'file:///etc/hosts' }, {}] }, byAssistant);
+    const workingTab = await until(() => browser.state().tabs.length === tabsBefore + 1 && browser.state().activeId === onShow, 5000);
+    const { jobs: readJobs } = await reading;
+    const [long, late, gated, noLink, noRef, badLink, here] = readJobs;
+    steps.jobsRead = readJobs.length === 7 && long.title === 'Operations Analyst' && long.company === 'Smoke Co' && long.structured && long.location.includes('Oakland')
+      && long.employmentType.join() === 'INTERN' && long.datePosted === '2026-11-10' && long.description.includes('warehouse numbers') && long.url === `${base}/jobs/long` && !long.gate
+      && late.title === 'Late Analyst' && !late.structured && late.description.includes('after the page has loaded') && late.url === `${base}/jobs/late`
+      && gated.gate === true && gated.url === `${base}/login`;
+    steps.jobsUnread = noLink.error === 'no-link' && noRef.error === 'missing-ref' && badLink.error === 'bad-link' && here.here === true && here.url === `${base}/board` && here.title === 'Jobs for you';
+    steps.jobsTabGone = workingTab && browser.state().tabs.length === tabsBefore && browser.state().activeId === onShow && Boolean(pageAt(`${base}/board`))
+      && !browser.state().tabs.some(tab => /\/(login|jobs\/late|jobs\/long)$/.test(tab.url)) && (await post('jobs', { items: [{}] })).status === 404;
     // 全部删除: every saved password goes, the vault password stays.
     steps.vaultCleared = vault.clear().count === 0 && vault.list().lock && !fs.readFileSync(path.join(profileDir, 'vault.json'), 'utf8').includes('two@example.com');
   } catch (error) {
@@ -950,7 +989,7 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);

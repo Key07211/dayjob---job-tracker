@@ -61,11 +61,11 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // applying tools work in; without it (plain `npm start`) those tools are not offered.
 // feedbackDir: the folder the feedback file lives in (none: its entries are only held in memory).
 // companies: { find, follow } from the app, which look a company's own job board up and put it on the daily list.
-export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, feedbackDir = null, now = () => new Date(), log = console.warn }) {
+export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, feedbackDir = null, now = () => new Date(), log = console.warn }) {
   const memory = createMemory(repo, now);
   const english = () => repo.getSettings().language === 'en';
   const feedback = createFeedback({ dir: feedbackDir, english, now, log });
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, now, browser, companies, onSettings, memory, applyMode: () => settings().apply,
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, browser, companies, onSettings, memory, applyMode: () => settings().apply,
     applications: { start: (ids, context) => startMany(ids, context), list: () => runList().map(runView) } });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
@@ -215,7 +215,7 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   // see engine-api.mjs): the ones its earlier turns used, and the ones the new message is about. A wrong guess
   // costs little either way: one call to load a group, or a group that came along unused.
   const WANTS = {
-    apply: /投|申请|应聘|网申|浏览器|网页|网站|页面|链接|登录|注册|求职信|表单|apply|application|browser|web ?page|website|\bsite\b|\bform\b|sign[ -]?(in|up)|log[ -]?in|cover letter|https?:\/\/|www\./i,
+    apply: /投|申请|应聘|网申|浏览器|网页|网站|页面|链接|登录|注册|求职信|表单|读取|加进|加入|加到|添加|handshake|apply|application|browser|web ?page|website|\bsite\b|\bform\b|sign[ -]?(in|up)|log[ -]?in|cover letter|https?:\/\/|www\.|\badd\b.*\bjobs?\b|\bjobs? (on|from)\b/i,
     searches: /搜索|关键词|抓取|公司|关注|招聘页|search|keyword|fetch|compan|follow|job board|greenhouse|lever|ashby/i,
   };
   function preload(conversation, text) {

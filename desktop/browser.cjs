@@ -19,6 +19,9 @@ const ASSISTANT_APPROVAL_MS = 10 * 60 * 1000;
 // An application the assistant works on in a tab of its own (several may run at once) waits a good while longer:
 // the user started it and went on with something else.
 const RUN_APPROVAL_MS = 60 * 60 * 1000;
+// 读岗位: how many job pages Dayjob reads in one go, and how long it waits between two of them (ms).
+const JOBS_MAX = 12;
+const JOBS_PAUSE = [900, 2200];
 const PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write']);
 const KEY_CODES = { ArrowDown: 'Down', ArrowUp: 'Up', ArrowLeft: 'Left', ArrowRight: 'Right' };
 // 密码保管: the login script's own isolated world, how often the active page is
@@ -153,18 +156,21 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // no mouse and stops drawing, and so does one that is wholly outside the window; so it is put, at its full size,
   // where only its first pixel is inside: the window's last corner.
   const atWork = tab => [...runs.values()].some(run => run.busy && run.tabs.includes(tab));
+  // 读岗位: tabs Dayjob itself opened to read a job's page. They are kept drawn the same way: many job pages put
+  // their content up only once the page is on show.
+  const readers = new Set();
   function layout() {
     const place = bounds || fallbackBounds();
     const [width, height] = window.getContentSize();
     for (const tab of tabs) {
       const shown = tab === active && Boolean(bounds);
-      const unseen = !shown && atWork(tab);
+      const unseen = !shown && (atWork(tab) || readers.has(tab));
       tab.view.setBounds(unseen ? { ...place, x: width - 1, y: height - 1 } : place);
       tab.view.setVisible(shown || unseen);
     }
   }
   // The corner moves with the window.
-  window.on('resize', () => { if (!window.isDestroyed() && runs.size) layout(); });
+  window.on('resize', () => { if (!window.isDestroyed() && (runs.size || readers.size)) layout(); });
   function setBounds(rect) {
     const valid = rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) && rect.width > 0 && rect.height > 0;
     bounds = valid ? { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } : null;
@@ -511,6 +517,19 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const until = Date.now() + 15000;
     while (tabs.includes(tab) && tab.view.webContents.isLoading() && Date.now() < until) await delay(100);
     await delay(150);
+  }
+  // A job page that puts its content up after it has loaded (most do) is read once it has stopped growing.
+  async function grown(tab) {
+    let seen = null;
+    for (let tries = 0; tries < 14 && tabs.includes(tab); tries += 1) {
+      let next = null;
+      try { next = await page(tab, 'job'); } catch { /* between two documents */ }
+      const still = next && seen && next.description.length === seen.description.length && next.title === seen.title;
+      if (next) seen = next;
+      if (seen && ((seen.structured && seen.description.length > 200) || (still && (seen.description.length > 400 || tries >= 6)))) break;
+      await delay(500);
+    }
+    return seen;
   }
   function current() {
     return active || fail(409, 'No page is open in the Dayjob browser. Open one with dayjob_browser_open.');
@@ -1434,6 +1453,61 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       }
       if (upload?.filled) fail(409, `“${fieldName(upload) || 'Cover letter'}” already has a file. Ask the user to remove it in the Dayjob window if another letter should go there.`);
       return fail(409, 'This form has no place for a cover letter: no upload and no text box that asks for one. If a question asks for a letter or a note in other words, type it there with browser_type.');
+    },
+    // 读岗位. Dayjob reads job pages itself, for what "Add to Dayjob" would save, so that a job's description goes
+    // from its page into Dayjob without passing through the model. items: [{ url } | { ref } | {}]: a job's link,
+    // the ref of its link in the page the caller read, or nothing for the page the caller is on. A page other than
+    // that one is opened in a tab of its own, one job after another with a pause between them; the tab is closed
+    // afterwards and the tab on show is left alone. -> { jobs: [what the page says | { error }] }, in the same order.
+    async jobs({ items }, context) {
+      const bare = address => { try { const link = new URL(address); link.hash = ''; return link.href; } catch { return address; } };
+      const found = [];
+      let worker = null;
+      let visits = 0;
+      try {
+        for (const item of items.slice(0, JOBS_MAX)) {
+          if (context.signal?.aborted) { found.push({ error: 'stopped' }); continue; }
+          let url = item.url ? pageUrl(item.url) : null;
+          if (item.url && !url) { found.push({ error: 'bad-link' }); continue; }
+          if (!url && item.ref) {
+            const link = await page(mine(context), 'link', { ref: item.ref });
+            url = link.url ? pageUrl(link.url) : null;
+            if (!url) { found.push({ error: link.error === 'missing' ? 'missing-ref' : link.error === 'no-link' ? 'no-link' : 'bad-link' }); continue; }
+          }
+          const here = url ? standing(context) : mine(context);
+          if (here && (!url || bare(url) === bare(here.view.webContents.getURL()))) {
+            await settle(here, 0);
+            found.push({ ...(await page(here, 'job')), url: here.view.webContents.getURL(), here: true });
+            continue;
+          }
+          // Not one page after another without a breath; and while it waits, others take their turn.
+          if (visits) await context.hold.away(delay(JOBS_PAUSE[0] + Math.random() * (JOBS_PAUSE[1] - JOBS_PAUSE[0])));
+          if (context.signal?.aborted) { found.push({ error: 'stopped' }); continue; }
+          visits += 1;
+          let loading;
+          if (worker && tabs.includes(worker)) loading = worker.view.webContents.loadURL(url);
+          else {
+            // The first page, or the user closed the working tab: another one.
+            if (worker) readers.delete(worker);
+            ({ tab: worker, loading } = openTab(url, { activate: false }));
+            readers.add(worker);
+            layout();
+          }
+          const outcome = await Promise.race([loading.then(() => null, error => error), delay(20000).then(() => 'timeout')]);
+          if (outcome instanceof Error && !/ERR_ABORTED/.test(outcome.message)) { found.push({ url, error: 'not-loaded' }); continue; }
+          await settle(worker);
+          const seen = await grown(worker);
+          found.push(seen ? { ...seen, url: tabs.includes(worker) ? worker.view.webContents.getURL() || url : url, asked: url } : { url, error: 'not-loaded' });
+        }
+      } finally {
+        if (worker) {
+          readers.delete(worker);
+          if (tabs.includes(worker)) closeTab(worker.id);
+          else layout();
+        }
+      }
+      for (let index = found.length; index < items.length; index += 1) found.push({ error: 'too-many' });
+      return { jobs: found };
     },
     // For an application with a tab of its own, switching moves the application to that tab and leaves what the
     // user is looking at alone; "activeId" is then the tab the application is in.

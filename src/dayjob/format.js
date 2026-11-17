@@ -1,11 +1,14 @@
 import { currentLanguage, tr } from '../i18n.jsx';
 
+// Sites whose jobs the assistant reads in the Dayjob browser (server/jobs/web-jobs.mjs has the same list).
+const WEB_SITES = { handshake: 'Handshake', wellfound: 'Wellfound', wayup: 'WayUp', simplify: 'Simplify', builtin: 'Built In', workatastartup: 'Work at a Startup', dice: 'Dice', usajobs: 'USAJOBS' };
+
 const LABELS = {
   site: {
     zh: { linkedin: 'LinkedIn', indeed: 'Indeed', glassdoor: 'Glassdoor', zip_recruiter: 'ZipRecruiter', google: 'Google Jobs',
-      greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', manual: '手动添加' },
+      greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', manual: '手动添加', ...WEB_SITES },
     en: { linkedin: 'LinkedIn', indeed: 'Indeed', glassdoor: 'Glassdoor', zip_recruiter: 'ZipRecruiter', google: 'Google Jobs',
-      greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', manual: 'Added by hand' },
+      greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby', manual: 'Added by hand', ...WEB_SITES },
   },
   status: {
     zh: { applied: '已投递', oa: '在线测评', interview: '面试中', offer: 'Offer', accepted: '已接受', rejected: '未通过', withdrawn: '已撤回', ghosted: '无回音' },
