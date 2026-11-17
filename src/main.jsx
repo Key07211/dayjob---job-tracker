@@ -26,7 +26,7 @@ import { Turntable } from './dayjob/groove/Turntable.jsx';
 import { Metronome } from './dayjob/groove/Metronome.jsx';
 import { emit, useGroove } from './dayjob/groove/bus.js';
 import { prefs, usePrefs, useTheme } from './dayjob/groove/prefs.js';
-import { BEAT, cue, playApply, playBatchEnd, playHello, playKey, playLift, playNeedle, playScore } from './dayjob/groove/sound.js';
+import { BEAT, cue, playBatchEnd, playHello, playKey, playLift, playNeedle, playScore } from './dayjob/groove/sound.js';
 import { flyTo, installClickFx, pop, rings, wiggle } from './dayjob/groove/fx.js';
 import { appName, setFollow, useNowPlaying } from './dayjob/groove/music.js';
 import { startThemeClock } from './dayjob/theme.js';
@@ -254,13 +254,12 @@ function App() {
     finishBatch();
   }, [status, busy, drain, finishBatch]);
   useEffect(() => () => { clearTimeout(feed.current.timer); feed.current.timer = 0; }, []);
-  // An application anywhere: one strum, and the week bars catch up.
+  // An application anywhere: the week bars catch up. It makes no sound of its own: the row's rings show it.
   useGroove('apply', () => {
-    playApply();
     api('/api/status').then(setStatus).catch(() => {});
   });
   // 自动收录: an application the Dayjob browser saw go through is recorded by Dayjob itself. The lists catch up, and it
-  // strums like any other; they catch up again when the note is taken back.
+  // shows like any other; they catch up again when the note is taken back.
   const appliedNote = browser?.applied?.state === 'recorded' ? browser.applied : null;
   const appliedSeen = useRef(null);
   useEffect(() => {
