@@ -23,6 +23,8 @@ const quote = text => JSON.stringify(String(text ?? ''));
 const plain = text => String(text ?? '').toLowerCase().replace(/\s+/g, ' ').replace(/[\s*:：]+$/, '').replace(/\s*\((required|optional|必填|选填)\)$/, '').trim();
 
 // One thing on the page as a line: e12 textbox "Email" value="mei@example.com" required
+// A dropdown the page draws itself says so (opens-list: a click opens its list; suggests-list: it suggests as you
+// type), so that what is typed in and what is chosen from can be told apart before the first answer.
 export function elementLine(item, { href = true } = {}) {
   const parts = [item.ref, item.role, quote(item.name)];
   if (item.group) parts.push(`group=${quote(item.group)}`);
@@ -33,6 +35,7 @@ export function elementLine(item, { href = true } = {}) {
   if (item.pressed !== undefined) parts.push(item.pressed ? 'pressed' : 'unpressed');
   if (item.expanded !== undefined) parts.push(item.expanded ? 'expanded' : 'collapsed');
   if (item.opens === 'list') parts.push('opens-list');
+  if (item.opens === 'suggestions') parts.push('suggests-list');
   if (item.required) parts.push('required');
   if (item.disabled) parts.push('disabled');
   if (Array.isArray(item.options)) {
@@ -81,6 +84,8 @@ export function leanReading(read, { full = false, maxChars = null } = {}) {
   const posting = read.jobPosting ? Object.fromEntries(Object.entries(read.jobPosting).filter(([key, value]) => key !== 'description' && value !== null && value !== '' && value !== false
     && !(Array.isArray(value) && !value.length))) : null;
   // What the short reading leaves out, said only when it did.
+  // Dropdowns the page draws itself whose options this reading cannot tell: one call reads them all.
+  const unlisted = form ? elements.filter(item => item.opens && !item.disabled && !Array.isArray(item.options)).map(item => item.ref) : [];
   const left = [form && elements.some(item => item.href) ? 'link addresses' : '', text.length < whole.trim().length && !cut ? 'text that repeats a name in the list' : '',
     cut ? 'part of the text' : ''].filter(Boolean);
   return {
@@ -90,6 +95,7 @@ export function leanReading(read, { full = false, maxChars = null } = {}) {
     text,
     ...(cut ? { textTruncated: true } : {}),
     elements: elements.map(item => elementLine(item, { href: !form })).join('\n'),
+    ...(unlisted.length ? { dropdowns: `${unlisted.length === 1 ? 'A dropdown shows' : `${unlisted.length} dropdowns show`} no options yet (${unlisted.slice(0, 12).join(' ')}${unlisted.length > 12 ? ' …' : ''}): browser_options reads them in one call, before you answer.` } : {}),
     ...(read.elementCount > elements.length ? { elementCount: read.elementCount } : {}),
     ...(read.otherSiteFrames?.length ? { otherSiteFrames: read.otherSiteFrames } : {}),
     ...(posting && Object.keys(posting).length ? { jobPosting: posting } : {}),

@@ -277,22 +277,29 @@ function installAutofill(name, makeHidden) {
   const LABEL_LIKE = 'label, legend, h1, h2, h3, h4, h5, h6, [role="heading"], [class*="label" i]';
   // The question over such a field: a label, or a line that reads like one, before the field or before the box
   // that holds only it and its button.
+  // Words that say how to hand a file over and not what the file is: "Drop or select (.doc / .docx / .pdf)",
+  // "Browse", "点击上传". A field whose only label reads like that is named by the line over its box instead.
+  const UPLOAD_ACT = /\b(drag|drop|select|choose|browse|upload|attach|click|tap)\b|拖|点击|选择|上传|浏览|添加/i;
+  const UPLOAD_HOW = /\.[a-z0-9]{2,5}\b|\b(drag|drop|and|or|select|choose|browse|upload|attach|add|click|tap|paste|here|to|a|an|the|your|you|from|this|device|computer|files?|documents?|max(imum)?|size|up|mb|kb|only|supported|formats?|types?|pdf|docx?|rtf|txt|\d+)\b|拖放|拖拽|拖入|拖到|点击|选择|上传|浏览|添加|文件|文档|或者?|此处|这里|格式|支持|大小|不超过|将|请|到/gi;
+  const howOnly = text => UPLOAD_ACT.test(text || '') && !text.replace(UPLOAD_HOW, ' ').replace(/[^\p{L}]+/gu, '');
   function uploadLabel(element) {
     const own = ownLabel(element);
-    if (own) return own;
-    for (let node = element, depth = 0; node && depth < 4; depth += 1) {
+    if (own && !howOnly(own)) return own;
+    for (let node = element, depth = 0; node && depth < 5; depth += 1) {
       for (let sibling = node.previousElementSibling, step = 0; sibling && step < 4; sibling = sibling.previousElementSibling, step += 1) {
         if (sibling.matches('input:not([type="hidden"]), select, textarea') || sibling.querySelector('input:not([type="hidden"]), select, textarea')) break;
         const text = textOf(sibling);
-        if (!text || text.length > 80 || sibling.matches('button, [role="button"]')) continue;
+        if (!text || text.length > 80 || howOnly(text) || sibling.matches('button, [role="button"]')) continue;
         if (sibling.tagName === 'LABEL' && sibling.control && sibling.control !== element) break;
         if (sibling.matches(LABEL_LIKE) || /[*:：]\s*$/.test(text)) return text;
+        // Under a label that only says how, the line over the box is the question even when nothing marks it as one.
+        if (own && text.length <= 40) return text;
       }
       const parent = node.parentElement;
       if (!parent || [...parent.querySelectorAll('input, select, textarea')].some(field => field !== element && field.type !== 'hidden')) break;
       node = parent;
     }
-    return '';
+    return own;
   }
   function files() {
     uploads = [];
@@ -640,7 +647,8 @@ const OTHER_FILE = /transcript|成绩|portfolio|作品|photo|picture|headshot|av
 const imagesOnly = accept => Boolean(accept) && accept.split(',').every(item => /^\s*(image\/|\.(png|jpe?g|gif|webp|bmp|svg|heic)\b)/i.test(item));
 
 // The field (from the page's files()) a file of this kind goes into, or null. A field that says it is for
-// something else is never taken; a form's only upload, when nothing says what it is for, is taken to be the resume.
+// something else is never taken. When nothing says what a field is for, it is taken to be the resume if it is the
+// only one of which that is true: the form's only upload, or the one left beside a cover letter's and such.
 function pickFileField(fields, want = 'resume') {
   const wanted = FILE_WORDS[want];
   const others = Object.entries(FILE_WORDS).filter(([key]) => key !== want).map(([, words]) => words);
@@ -657,7 +665,11 @@ function pickFileField(fields, want = 'resume') {
     if (score > 0 && score > (best?.score ?? 0)) best = { field, score };
   }
   if (best) return best.field;
-  return want === 'resume' && fields.length === 1 && plain.length === 1 ? plain[0] : null;
+  if (want !== 'resume') return null;
+  if (fields.length === 1) return plain[0] || null;
+  // Beside fields that are for something else: the one left, unless the part of the form it is in is for something else too.
+  const left = plain.filter(field => !others.some(words => words.test(field.section || '')) && !OTHER_FILE.test(field.section || ''));
+  return left.length === 1 && plain.length === 1 ? left[0] : null;
 }
 
 // Whether a field's accept list (".pdf,.docx,application/pdf", "image/*", or nothing) takes this file.

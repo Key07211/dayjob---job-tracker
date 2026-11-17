@@ -340,6 +340,17 @@ const EMBED_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <script>document.getElementById('file').addEventListener('change', async event => { const file = event.target.files[0];
 document.getElementById('got').textContent = file ? file.name + '|' + file.size + '|' + (await file.text()).slice(0, 24) : 'none'; });</script></body></html>`;
 
+// A form whose two uploads are each labelled only by how to hand a file over, with the line that says what the
+// file is in a plain box above it (as Rippling's application form has them). The page writes down what it got.
+const DROP_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Drop Co</title></head>
+<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get"><label>First name <input name="first"></label>
+<div class="field"><div class="title">Résumé<span>*</span></div><div class="zone"><label><span>Drop or select (.doc / .docx / .pdf)</span>
+<input id="one" type="file" accept=".doc,.docx,.pdf,.txt" style="display:none"></label></div></div>
+<div class="field"><div class="title">Cover letter</div><div class="zone"><label><span>Drop or select (.doc / .docx / .pdf)</span>
+<input id="two" type="file" accept=".doc,.docx,.pdf,.txt" style="display:none"></label></div></div><p id="got"></p></form>
+<script>document.getElementById('one').addEventListener('change', event => { const file = event.target.files[0];
+document.getElementById('got').textContent = file ? file.name + '|' + file.size : 'none'; });</script></body></html>`;
+
 // Questions with choices, drawn the ways application forms draw them: the real radio button see-through and stretched
 // over its own label; shrunk to a dot beside a label that stands in for it; lying under a picture of itself; and a
 // checkbox under its label. Then two ordinary fields that carry a hint meant for passwords and codes (sites put it
@@ -382,7 +393,8 @@ const MARKED_HIDDEN_PAGE = `<!doctype html><html lang="en"><head><meta charset="
 // search is typed in (the rows come a moment later). Then a dropdown with no role anywhere, whose list is put at
 // the end of the page; a field that suggests places as you type (two of them read the same); tiles that are radio
 // buttons and a button that is a switch; a menu that opens under the mouse; and two things to click that say
-// nothing about themselves, one of which deletes.
+// nothing about themselves, one of which deletes. Last, a box that reads "Select" and cannot be typed in: a click
+// opens its list, whose rows carry no role.
 const WIDGET_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>More questions · Smoke Co</title><style>
 html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;overflow-y:auto}#inner{position:relative;padding:16px;min-height:1400px}p{margin:14px 0}
 .pop{position:absolute;z-index:9;width:280px;max-height:150px;overflow:auto;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #888}
@@ -391,7 +403,7 @@ html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;ove
 .more .menu{display:none;position:absolute;left:100%;top:0;padding:0 8px;background:#fff;border:1px solid #888;white-space:nowrap}.more:hover .menu{display:block}
 .answer{display:flex;gap:8px;align-items:center;margin:6px 0}.hand{cursor:pointer}</style></head>
 <body><div id="scrollview" aria-hidden="true"><div id="inner"><h1>More questions</h1><form action="/answered" method="get">
-<input type="hidden" name="code" value="+1"><input type="hidden" name="dept"><input type="hidden" name="how" value="email"><input type="hidden" name="news" value="no"><input type="hidden" name="refs" value="0">
+<input type="hidden" name="code" value="+1"><input type="hidden" name="dept"><input type="hidden" name="how" value="email"><input type="hidden" name="news" value="no"><input type="hidden" name="refs" value="0"><input type="hidden" name="heard">
 <p><button type="button" id="code-button" role="combobox" aria-label="Code" aria-controls="code-pop" aria-expanded="false"><span>Code</span> <span id="code-now">+1</span></button></p>
 <p><span class="dd" id="dept">Department: <b id="dept-now">Choose one</b></span></p>
 <p><label>Current city <input id="city" name="city" role="combobox" aria-autocomplete="list" aria-controls="city-list" aria-expanded="false" autocomplete="off"></label></p>
@@ -404,6 +416,7 @@ html,body{margin:0;height:100%;font:14px sans-serif}#scrollview{height:100vh;ove
 <div role="radiogroup" aria-label="Are you a veteran?"><div class="answer"><input type="radio" name="vet" value="yes" aria-labelledby="vet-yes"><div id="vet-yes" class="hand">I am a veteran</div></div>
 <div class="answer"><label><input type="radio" name="vet" value="no"> <span class="hand">I am not a veteran</span></label></div>
 <div class="answer"><input type="radio" name="vet" value="skip" aria-label="I choose not to say"><span class="hand">I choose not to say</span></div></div>
+<p><label>How did you hear about us? <input id="heard-box" readonly placeholder="Select" autocomplete="off"></label></p>
 <p style="margin-top:900px"><button type="button" id="notes-button" aria-expanded="false">Show the notes</button> <a href="#notes" id="notes-link" hidden>Read the notes</a></p></form></div></div><script>
 const form = document.querySelector('form');
 const set = (name, value) => { form.elements[name].value = value; };
@@ -476,6 +489,19 @@ for (const words of document.querySelectorAll('.answer > .hand')) words.addEvent
 const bar = document.getElementById('site-bar');
 let rest = 0;
 document.getElementById('scrollview').addEventListener('scroll', () => { bar.style.visibility = 'hidden'; clearTimeout(rest); rest = setTimeout(() => { bar.style.visibility = ''; }, 200); });
+const heard = document.getElementById('heard-box');
+heard.addEventListener('click', () => {
+  const open = document.getElementById('heard-pop');
+  if (open) { open.remove(); return; }
+  const at = heard.getBoundingClientRect();
+  const box = make('div', '', { id: 'heard-pop', class: 'pop', style: 'left:' + at.left + 'px;top:' + at.bottom + 'px' });
+  for (const text of ['Company website', 'I work here now', 'Job board or social media', 'Career fair or event', 'Staffing agency']) {
+    const row = make('div', text, { class: 'row' });
+    row.addEventListener('click', () => { set('heard', text); heard.value = text; box.remove(); });
+    box.append(row);
+  }
+  document.body.append(box);
+});
 const notes = document.getElementById('notes-button');
 notes.addEventListener('click', () => { document.getElementById('notes-link').hidden = false; notes.setAttribute('aria-expanded', 'true'); });
 </script></body></html>`;
@@ -561,6 +587,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/jobs/late') return response.end(LATE_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
+    if (url.pathname === '/upload-drop') return response.end(DROP_UPLOAD_PAGE);
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
       ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
@@ -769,6 +796,13 @@ async function smokeBrowser(token) {
     const cover = await uploadPage.executeJavaScript("(async () => { const file = document.getElementById('cover').files[0]; return file ? file.name + '|' + file.type + '|' + (await file.text()).slice(0, 5) : 'none'; })()");
     steps.letterAttached = letter.letter.as === 'file' && cover === 'Cover Letter - Smoke Tester.pdf|application/pdf|%PDF-';
     steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404;
+    // Two uploads that both say only "Drop or select": the line over each box says which one is the resume's.
+    await call('open', { url: `${base}/upload-drop` });
+    const underHeading = await call('upload');
+    const dropPage = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/upload-drop`)).webContents;
+    steps.resumeUnderHeading = underHeading.uploaded.resume === 'Smoke Resume.txt' && underHeading.uploaded.field === 'Résumé'
+      && await until(async () => (await dropPage.executeJavaScript("document.getElementById('got').textContent")) === `Smoke Resume.txt|${Buffer.byteLength(resumeText)}`, 5000)
+      && (await dropPage.executeJavaScript("document.getElementById('two').files.length")) === 0;
     await send(`/api/resumes/${kept.id}`, 'DELETE');
 
     // 密码保管: a saved sign-in is filled into its site's login form, where
@@ -957,6 +991,31 @@ async function smokeBrowser(token) {
       && !browser.state().tabs.some(tab => tab.id === openB.page.id) && browser.state().tabs.some(tab => tab.id === openA.page.id) && browser.state().runs.length === 1;
     browser.endRun('run-a', { forgotten: true });
     browser.command('close', openA.page.id);
+    // 下拉框: a reading says which fields are dropdowns, also a box that looks like one to type in. Dayjob reads
+    // the options of all of them in one go and closes each list again, with nothing chosen; the next reading shows
+    // them. Text typed into a dropdown is taken as the option meant, and a box that suggests says what it suggests.
+    await browser.agent('open', { url: `${base}/widgets` }, byAssistant);
+    const fields = await browser.agent('read', {}, byAssistant);
+    const field = name => fields.elements.find(item => item.name.startsWith(name)) || {};
+    const formNow = () => pageAt(`${base}/widgets`).executeJavaScript("new URLSearchParams(new FormData(document.querySelector('form'))).toString() + '|' + document.querySelectorAll('.pop').length");
+    steps.fieldKinds = field('How did you hear').opens === 'list' && field('How did you hear').role === 'textbox' && field('Current city').opens === 'suggestions' && field('Code').opens === 'list'
+      && !field('How did you hear').options;
+    const untouched = await formNow();
+    const lists = (await browser.agent('options', {}, byAssistant)).dropdowns;
+    const list = name => lists.find(item => item.name.startsWith(name)) || {};
+    steps.optionsRead = lists.length === 3 && (list('How did you hear').options || []).join('|') === 'Company website|I work here now|Job board or social media|Career fair or event|Staffing agency'
+      && (list('Code').options || []).length === 5 && list('Code').search === true && !list('Current city').options && /until something is typed/.test(list('Current city').note || '')
+      && lists.every(item => !item.open) && (await formNow()) === untouched && untouched.endsWith('|0');
+    const reread = await browser.agent('read', {}, byAssistant);
+    steps.optionsKept = (reread.elements.find(item => item.name.startsWith('How did you hear'))?.options || []).length === 5 && (reread.elements.find(item => item.name === 'Code')?.options || []).length === 5;
+    const meant = await browser.agent('type', { ref: field('How did you hear').ref, text: 'job board' }, byAssistant);
+    const wrong = await browser.agent('type', { ref: field('How did you hear').ref, text: 'LinkedIn' }, byAssistant).then(() => '', error => `${error.status} ${error.message}`);
+    steps.typedIntoList = meant.selected?.value === 'Job board or social media' && /is a dropdown/.test(meant.note || '') && (await formNow()).includes('heard=Job+board+or+social+media')
+      && /^409 No option like “LinkedIn”.*Options: Company website \| I work here now/.test(wrong);
+    await browser.agent('key', { key: 'Escape' }, byAssistant);
+    await pageAt(`${base}/widgets`).executeJavaScript("document.getElementById('heard-pop')?.remove()");
+    const hinted = await browser.agent('type', { ref: field('Current city').ref, text: 'menlo' }, byAssistant);
+    steps.typedSuggests = hinted.typed.value === 'menlo' && (hinted.suggestions || []).includes('West Menlo Park, CA') && /browser_select|dayjob_browser_select/.test(hinted.note || '');
     // 读岗位: for the assistant, Dayjob reads each job's own page in a working tab that is not on show, one after
     // another, and closes it afterwards; the page the assistant is on stays where it is. Nobody but the assistant
     // in the Dayjob window can ask for it.
@@ -988,8 +1047,8 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
+    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);

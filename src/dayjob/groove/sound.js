@@ -10,7 +10,6 @@ export const tierOf = score => (score >= 85 ? 'hi' : score >= 65 ? 'mid' : 'lo')
 
 // Beethoven, Symphony No. 9, "Ode to Joy" (public domain): one note per score.
 const ODE = [64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62, 64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 62, 60, 60];
-const CHORD_C = [48, 55, 60, 64];
 
 // Each sidebar key has its own short phrase, the same each time, so a page always sounds like itself. A tune is a set of
 // eight phrases on one voice, all in D major and low enough to stay gentle: nothing above D5, and higher notes play
@@ -165,34 +164,6 @@ function keyNote(kind, midi, { at = 0, gain = 0.14 } = {}, out) {
   });
 }
 
-// Karplus-Strong: a burst of noise fed back through a short delay rings like a plucked steel string.
-const plucks = {};
-function pluckBuffer(midi) {
-  if (plucks[midi]) return plucks[midi];
-  const sr = ctx.sampleRate;
-  const length = Math.floor(sr * 1.8);
-  const period = Math.max(2, Math.round(sr / hz(midi)));
-  const buffer = ctx.createBuffer(1, length, sr);
-  const d = buffer.getChannelData(0);
-  for (let i = 0; i < period; i += 1) d[i] = Math.random() * 2 - 1;
-  for (let i = 1; i < period; i += 1) d[i] = 0.6 * d[i] + 0.4 * d[i - 1];
-  for (let i = period; i < length; i += 1) d[i] = 0.996 * 0.5 * (d[i - period] + (i - period - 1 >= 0 ? d[i - period - 1] : 0));
-  plucks[midi] = buffer;
-  return buffer;
-}
-function guitar(midi, { at = 0, gain = 0.3 } = {}, out) {
-  if (!out) return;
-  const src = ctx.createBufferSource();
-  src.buffer = pluckBuffer(midi);
-  const warm = ctx.createBiquadFilter();
-  warm.type = 'lowpass';
-  warm.frequency.value = 3200;
-  const amp = ctx.createGain();
-  amp.gain.value = gain;
-  src.connect(warm).connect(amp).connect(out);
-  src.start(ctx.currentTime + at);
-}
-
 // A tuned microwave "ding": one strike on a small steel bell, pitched to C so it resolves the E–D–D cadence.
 function ding({ at = 0, gain = 0.09, root = hz(84) } = {}, out) {
   if (!out) return;
@@ -256,12 +227,6 @@ export function playLift() {
   const out = voice();
   piano(72, { at: 0.02, gain: 0.09, dur: 0.4 }, out);
   piano(67, { at: 0.2, gain: 0.08, dur: 0.8 }, out);
-}
-// An application: one strum of C major on the guitar.
-export function playApply() {
-  if (!prefs.get().sound || !allow('chord', BEAT * 2)) return;
-  const out = voice();
-  CHORD_C.forEach((midi, i) => guitar(midi, { at: i * 0.018, gain: 0.24 }, out));
 }
 // The sound switch answers with one soft note.
 export function playHello() {

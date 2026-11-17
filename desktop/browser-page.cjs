@@ -215,15 +215,41 @@ function install(makeHidden, pickOption) {
     return false;
   }
 
-  // A dropdown the page draws itself: a button that opens a list.
-  const opensList = element => !editable(element) && (element.getAttribute('role') === 'combobox' || /^(listbox|menu|tree|grid|true)$/.test(element.getAttribute('aria-haspopup') || ''));
+  // A box to type in, as opposed to one that only shows what was chosen elsewhere.
+  const typable = element => editable(element) && !element.readOnly;
+  const popup = element => /^(listbox|menu|tree|grid|true)$/.test(element.getAttribute('aria-haspopup') || '');
+  const PICK_WORDS = /^(please\s+)?(select|choose|pick)\b|^-+\s*(select|choose)|^请?选择|^請?選擇|^请选/i;
+  // A dropdown the page draws itself: a button that opens a list, or a box nobody can type in that does (a
+  // read-only input that says so, or that shows "Select…" where the choice goes).
+  // (peeked, shownRows: what Dayjob learnt when it had a dropdown's list open; see listed and options.)
+  const peeked = new WeakMap();
+  const shownRows = new WeakMap();
+  const opensList = element => !typable(element) && (element.getAttribute('role') === 'combobox' || popup(element)
+    || (element.tagName === 'INPUT' && editable(element) && (PICK_WORDS.test(element.value || '') || PICK_WORDS.test(element.getAttribute('placeholder') || '') || shownRows.has(element))));
+  // A box that suggests as you type and keeps what is chosen from its list: an input that says it is a combobox,
+  // or that it completes from a list, or that sits in a box that says so for it.
+  const suggests = element => element.tagName === 'INPUT' && typable(element) && !secret(element) && (element.getAttribute('role') === 'combobox'
+    || /^(list|both)$/.test(element.getAttribute('aria-autocomplete') || '') || /^(listbox|tree|grid)$/.test(element.getAttribute('aria-haspopup') || '')
+    || Boolean(element.parentElement?.closest('[role="combobox"]')));
+  // The options of a dropdown the page draws itself, when they can be told without opening it: those Dayjob read
+  // when it last had the list open (peeked), or the rows of the list it names, when the page keeps them there.
+  function listed(element) {
+    const kept = peeked.get(element);
+    if (kept?.length) return kept;
+    const root = element.getRootNode();
+    const owner = element.matches('[aria-controls], [aria-owns]') ? element : element.closest('[role="combobox"]') || element;
+    const rows = ['aria-controls', 'aria-owns'].flatMap(attribute => String(owner.getAttribute(attribute) || '').split(/\s+/)).filter(Boolean)
+      .map(id => root.getElementById?.(id) || element.ownerDocument.getElementById(id)).filter(Boolean).flatMap(list => [...list.querySelectorAll(ROWS)]);
+    const names = [...new Set(rows.map(row => clean(row.getAttribute('aria-label') || row.textContent, 80)).filter(Boolean))];
+    return names.length >= 2 ? names : null;
+  }
   function value(element) {
     if (element.tagName === 'SELECT') return clean(element.selectedOptions[0]?.text || '', 200);
     if (element.isContentEditable) return textOf(element);
     if (opensList(element)) {
       // What it shows as chosen: its own words, less its label when the label is drawn inside it ("Code +1").
       const label = name(element);
-      const drawn = textOf(element);
+      const drawn = element.tagName === 'INPUT' ? clean(element.value, 200) : textOf(element);
       if (!drawn || drawn === label) return undefined;
       return clean(drawn.startsWith(`${label} `) ? drawn.slice(label.length) : drawn, 200);
     }
@@ -275,6 +301,11 @@ function install(makeHidden, pickOption) {
     if (element.tagName === 'SELECT') item.options = [...element.options].slice(0, 40).map(option => clean(option.text, 80));
     if (expanded !== undefined) item.expanded = expanded;
     if (opensList(element)) item.opens = 'list';
+    else if (suggests(element)) item.opens = 'suggestions';
+    if (item.opens && !item.options) {
+      const known = listed(element);
+      if (known) item.options = known.slice(0, 40);
+    }
     if (disabled(element)) item.disabled = true;
     if (element.required || element.getAttribute('aria-required') === 'true') item.required = true;
     if (!inViewport(element)) item.offscreen = true;
@@ -381,7 +412,10 @@ function install(makeHidden, pickOption) {
 
   // What the mouse is about to go for.
   function aim(element) {
-    const info = { ref: refFor(element), role: role(element), name: name(element), disabled: disabled(element), risky: riskyAt(element, element), editable: editable(element) };
+    const info = { ref: refFor(element), role: role(element), name: name(element), disabled: disabled(element), risky: riskyAt(element, element), editable: typable(element) };
+    if (element.tagName === 'SELECT') info.select = true;
+    else if (opensList(element)) info.opens = 'list';
+    else if (suggests(element)) info.opens = 'suggestions';
     // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
     // picture, or under another option's, is still answered.
     if (choice(element)) { info.choice = element.type; info.checked = element.checked; }
@@ -616,7 +650,7 @@ function install(makeHidden, pickOption) {
 
     // The rows of the list a dropdown drawn by the page has open: those of the list it names, else what came on
     // show since it was clicked. option: the row meant, when one fits. search: a box in the list to type in.
-    options({ ref, option = '' }) {
+    options({ ref, option = '', keep = false }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };
       const found = roots().found;
@@ -641,9 +675,41 @@ function install(makeHidden, pickOption) {
       }
       const names = rows.map(row => clean(rowOf.has(row) ? line(row) : name(row) || textOf(row), 120));
       const index = option ? pickOption(names, option) : -1;
-      const search = editable(element) ? null : all.find(item => editable(item) && !secret(item) && !disabled(item) && !item.readOnly);
+      const search = typable(element) ? null : all.find(item => typable(item) && !secret(item) && !disabled(item));
+      shownRows.set(element, rows.map(row => new WeakRef(row)));
+      // keep: the whole list as it opened (nothing typed to narrow it), for the readings that follow.
+      if (keep && names.length) peeked.set(element, [...new Set(names.filter(Boolean))].slice(0, 40));
       return { options: names.slice(0, 40), count: names.length, ...(index >= 0 ? { match: { ref: refFor(rows[index]), name: names[index] } } : {}),
         ...(search ? { search: refFor(search) } : {}), ...stateOf(element) };
+    },
+
+    // What kind of field this is, for the tools that fill it in: a real select, a dropdown the page draws (opens),
+    // or neither.
+    kind({ ref }) {
+      const element = find(ref);
+      if (!element) return { error: 'missing' };
+      const info = aim(element);
+      const known = element.tagName === 'SELECT' ? [...element.options].slice(0, 40).map(option => clean(option.text, 80)) : info.opens ? listed(element) : null;
+      return { ...info, ...(known ? { options: known.slice(0, 40) } : {}) };
+    },
+    // The dropdowns the page draws itself whose options no reading can tell yet.
+    dropdowns() {
+      const list = [];
+      for (const element of controls(roots().found)) {
+        if (disabled(element) || !(opensList(element) || suggests(element)) || listed(element)) continue;
+        list.push({ ref: refFor(element), name: name(element) });
+      }
+      return list.slice(0, 60);
+    },
+    // Whether the list a dropdown opened is still on show, and whether a dialog holds the page (which a press of
+    // Escape might close instead of the list).
+    listOpen({ ref }) {
+      const element = find(ref);
+      if (!element) return { open: false };
+      const rows = (shownRows.get(element) || []).map(row => row.deref()).filter(Boolean);
+      const open = element.getAttribute('aria-expanded') === 'true' || rows.some(row => row.isConnected && visible(row));
+      const modal = [...document.querySelectorAll('dialog[open], [aria-modal="true"]')].some(box => visible(box));
+      return { open, modal };
     },
 
     // Shows the pointer on its way to a point; answers how long (ms) it takes to get there.

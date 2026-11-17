@@ -56,7 +56,7 @@ test('each thing on a page is one line that says only what is set', () => {
 test('a form is read as its fields, its buttons and the text its labels do not already say', () => {
   assert.equal(isForm(FORM.elements), true);
   const lean = leanReading(FORM);
-  assert.deepEqual(Object.keys(lean), ['page', 'notice', 'kind', 'text', 'elements', 'left']);
+  assert.deepEqual(Object.keys(lean), ['page', 'notice', 'kind', 'text', 'elements', 'dropdowns', 'left']);
   assert.deepEqual(lean.page, { id: 'tab-1', url: 'https://careers.example.com/apply/42', title: 'Apply · Data Analyst' });
   assert.equal(lean.kind, 'form');
   // Every thing on the page keeps its line and its ref; on a form no link carries its address.
@@ -70,6 +70,16 @@ test('a form is read as its fields, its buttons and the text its labels do not a
   assert.equal(lean.text, 'Apply for Data Analyst\nFields marked * are required.\n\nPlease enter a valid phone number.');
   assert.match(lean.left, /link addresses, text that repeats a name in the list \(full: true/);
   assert.ok(JSON.stringify(lean).length < JSON.stringify(FORM).length * 0.5, `${JSON.stringify(lean).length} of ${JSON.stringify(FORM).length}`);
+
+  // A dropdown the page draws itself says what it is, and a form says which of them show no options yet.
+  assert.equal(lines[12], 'e13 combobox "Gender" value="Male" collapsed opens-list');
+  assert.equal(lean.dropdowns, 'A dropdown shows no options yet (e13): browser_options reads them in one call, before you answer.');
+  const known = leanReading({ ...FORM, elements: FORM.elements.map(item => (item.ref === 'e13' ? { ...item, options: ['Male', 'Female', 'Decline to say'] } : item)) });
+  assert.equal(known.dropdowns, undefined);
+  assert.equal(known.elements.split('\n')[12], 'e13 combobox "Gender" value="Male" collapsed opens-list options=["Male" | "Female" | "Decline to say"]');
+  const two = leanReading({ ...FORM, elements: [...FORM.elements, { ref: 'e40', role: 'combobox', name: 'School', opens: 'suggestions' }, { ref: 'e41', role: 'button', name: 'Degree', opens: 'list', disabled: true }] });
+  assert.match(two.dropdowns, /^2 dropdowns show no options yet \(e13 e40\)/);
+  assert.ok(two.elements.includes('e40 combobox "School" suggests-list'));
 
   // full: the page as the browser gave it.
   assert.equal(leanReading(FORM, { full: true }), FORM);
@@ -203,7 +213,7 @@ test('the tools are grouped by what they are for, and a conversation starts with
   assert.deepEqual(Object.keys(groups), ['apply', 'searches']);
   assert.deepEqual(groups.searches.tools, ['list_searches', 'save_search', 'run_search', 'find_company_board', 'follow_company']);
   assert.ok(groups.apply.tools.includes('open_application') && groups.apply.tools.includes('browser_sign_up') && groups.apply.tools.includes('update_profile'));
-  assert.equal(groups.apply.tools.filter(name => name.startsWith('browser_')).length, 15);
+  assert.equal(groups.apply.tools.filter(name => name.startsWith('browser_')).length, 16);
   const all = app.assistant.tools.definitions().map(tool => tool.name);
   const always = all.filter(name => !groups.apply.tools.includes(name) && !groups.searches.tools.includes(name));
   for (const name of ['get_status', 'list_postings', 'get_posting', 'list_applications', 'mark_applied', 'get_profile', 'remember']) assert.ok(always.includes(name), name);

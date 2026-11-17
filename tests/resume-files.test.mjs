@@ -216,6 +216,14 @@ test('the resume goes into the field that is for it', () => {
   assert.equal(pickFileField([upload('', { name: 'avatar', accept: 'image/*' })]), null);
   assert.equal(pickFileField([upload('Upload', { accept: '.png,.jpg' })]), null);
   assert.equal(pickFileField([upload('Upload file'), upload('Attach')]), null, 'two unnamed uploads: no guessing');
+  // Beside a cover letter's field, the one field nothing names is the resume's.
+  const unnamed = upload('Drop or select (.doc / .docx / .pdf)');
+  assert.equal(pickFileField([unnamed, upload('Cover letter')]), unnamed);
+  assert.equal(pickFileField([upload('Transcript'), unnamed, upload('', { name: 'cover_letter' })]), unnamed);
+  assert.equal(pickFileField([unnamed, upload('Cover letter')], 'coverLetter').label, 'Cover letter');
+  assert.equal(pickFileField([upload('Attach', { section: 'Portfolio' }), upload('Cover letter')]), null, 'not one in a part of the form that is for something else');
+  // A field named by the line over its box (an accent and all), as a form that says only "Drop or select" on the box has it.
+  assert.equal(pickFileField([upload('Cover letter'), upload('Résumé')]).label, 'Résumé');
   assert.equal(pickFileField([]), null);
 });
 

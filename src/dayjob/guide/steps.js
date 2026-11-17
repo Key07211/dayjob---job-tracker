@@ -368,7 +368,7 @@ export function settingsSteps({ browser = true } = {}) {
         { text: ['Dayjob 的提示音，和跟着音乐动的那些效果。全都可以关，不影响任何功能。', 'Dayjob\'s sounds, and the motion that follows your music. All of it can be turned off without losing anything.'] },
       ],
       terms: [
-        { name: ['提示音', 'Sounds'], means: ['落分、投递、开始抓取时响的一个短音。', 'A short note when a score lands, you apply or a search starts.'] },
+        { name: ['提示音', 'Sounds'], means: ['落分、开始抓取时响的一个短音。', 'A short note when a score lands or a search starts.'] },
         { name: ['琴键音效', 'Key sounds'], means: ['按侧边栏的键时，用哪一套音色。', 'Which set of tones the sidebar keys play.'] },
         { name: ['按键间隔', 'Key gap'], means: ['连着快点侧边栏时，这段时间里只响第一下。', 'When you click sidebar keys quickly, only the first one in this time sounds.'] },
         ...(browser ? [{ name: ['跟随音乐', 'Follow music'], means: ['音乐软件放歌时，唱片机和页面顶上的声浪跟着动。声音只在本机分析，不录音。', 'While a music app plays, the record player and the wave at the top of each page move with it. The sound is analysed on this computer and never recorded.'] }] : []),

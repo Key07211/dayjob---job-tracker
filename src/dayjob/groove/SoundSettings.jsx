@@ -25,7 +25,7 @@ export function SoundSettings() {
       <div className="option-row">
         <span>{t('提示音', 'Sounds')}</span>
         <Toggle on={groove.sound} label={t('提示音', 'Sounds')} onChange={on => { prefs.set({ sound: on }); if (on) playHello(); }} />
-        <small>{t('落分、投递、开始抓取和按侧栏时弹一个音，一次只响一个。', 'A note when a score lands, you apply, a search starts or you press a sidebar key, one at a time.')}</small>
+        <small>{t('落分、开始抓取和按侧栏时弹一个音，一次只响一个。', 'A note when a score lands, a search starts or you press a sidebar key, one at a time.')}</small>
       </div>
       <div className="option-row">
         <span>{t('琴键音效', 'Key sounds')}</span>
