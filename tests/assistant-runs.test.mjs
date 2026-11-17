@@ -310,11 +310,11 @@ test('every step of a reply is kept with what it used: in the reply, in the data
 
 test('after an application Dayjob writes how it went into the feedback file, whatever the model reported', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-feedback-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const browser = fakeBrowser({ click: (input, context) => { if (input.ref === 'e1') { const error = new Error('e1 is no longer on the page. Read the page again.'); error.status = 404; throw error; } return { clicked: { ref: input.ref, role: 'button', name: 'Next' } }; },
     autofill: () => ({ filled: [{ field: 'email' }, { field: 'firstName' }] }), read: () => ({ text: 'Thank you', elements: [] }) });
   const { app, call, chat, apply, runs, until, engine, add } = await start({ browser, dataDir });
-  t.after(() => app.close());
+  // The database is closed before its folder goes: Windows does not delete a file that is open.
+  t.after(async () => { try { await app.close(); } finally { fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } });
   const file = path.join(dataDir, 'feedback', 'apply-feedback.md');
   const info = (await call('/api/assistant')).body;
   assert.deepEqual(info.feedback, { file, folder: path.join(dataDir, 'feedback') });
