@@ -17,7 +17,7 @@ import { E8, Q, flipList, flyTo, keyBump } from './groove/fx.js';
 import { Hit, Roll } from './groove/Fx.jsx';
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { Select } from './groove/Picker.jsx';
-import { ApplyButton } from './assistant/Runs.jsx';
+import { RunChip } from './assistant/Runs.jsx';
 import { assistant, useAssistant } from './assistant/store.js';
 
 const SORTS = [{ id: 'posted', label: ['最新发布', 'Newest posted'] }, { id: 'score', label: ['匹配度', 'Best match'] }, { id: 'seen', label: ['最新抓取', 'Newest found'] }, { id: 'company', label: ['公司', 'Company'] }];
@@ -237,10 +237,12 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
     setSelected(item.id);
     setMenu(current => ({ n: (current?.n || 0) + 1, item, row, at: keyboard ? { x: box.left + 56, y: box.top + 34 } : { x: event.clientX, y: event.clientY } }));
   }
-  // 让助手申请: on every job that can still be applied to, where there is a Dayjob browser to do it in.
+  // 让助手申请: for every job that can still be applied to, where there is a Dayjob browser to do it in. The button is
+  // at the top of the job's details and in this menu; a row shows only how an application the assistant has stands.
   const { runs } = useAssistant();
   const approvals = browser?.approvals || [];
   const canApply = item => hasBrowser && !item.application && !item.closedAt && Boolean(item.jobUrl);
+  const applying = item => canApply(item) && runs.some(run => run.postingId === item.id);
   useEffect(() => { if (hasBrowser) void assistant.refreshRuns(); }, []);
   const menuItems = item => {
     if (item.application) return [{ id: 'track', icon: <CircleCheck size={15} />, label: t('查看投递追踪', 'View tracking'), run: () => setView('applications') }];
@@ -336,7 +338,7 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
           ) : null}
           {result.items.map((item, index) => (
             <div key={`${item.id}-${wave}`} data-id={item.id} role="listitem"
-              className={`posting-item ${item.id in returning ? 'returning' : item.id in folding ? 'folding' : 'enter'}${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}${canApply(item) && !picking ? ' can-apply' : ''}`}
+              className={`posting-item ${item.id in returning ? 'returning' : item.id in folding ? 'folding' : 'enter'}${picking ? ' picking' : ''}${selected === item.id ? ' selected' : ''}${leaving[item.id] ? ` ${leaving[item.id]}` : ''}${applying(item) && !picking ? ' has-run' : ''}`}
               style={leaving[item.id] ? undefined : { animationDelay: `${(folding[item.id] ?? returning[item.id] ?? Math.min(index, 12)) * E8}ms` }}>
               {ripples[item.id]?.length ? <span className="ripples" aria-hidden="true">{ripples[item.id].map(ring => (ring.kind === 'chord'
                 ? [0, 1, 2].map(k => <i key={`${ring.id}-${k}`} className="rp chord" style={{ animationDelay: `${k * (BEAT / 8)}ms` }} />)
@@ -366,13 +368,13 @@ export function FeedView({ mode, boot, dataVersion, setView, refreshStatus, focu
                 </div>
                 <ScoreBadge score={item.score} compact landed={landed.has(item.id)} />
               </button>
-              {canApply(item) && !picking ? <ApplyButton item={item} approvals={approvals} onError={setScoringMessage} /> : null}
+              {applying(item) && !picking ? <RunChip item={item} approvals={approvals} /> : null}
             </div>
           ))}
           {result.total > result.items.length ? <p className="list-more">{t(`显示前 ${result.items.length} 个，共 ${result.total} 个。用筛选缩小范围。`, `Showing ${result.items.length} of ${result.total}. Use the filters to narrow it down.`)}</p> : null}
         </div>
         <div className="detail-pane">
-          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} version={detailVersion} applyAsk={applyAsk} />
+          {selected ? <PostingDetail id={selected} onChanged={onChanged} setView={setView} hasResume={hasResume} mode={mode} scoreMode={scoreMode} version={detailVersion} applyAsk={applyAsk} approvals={approvals} />
             : <div className="detail-empty">{t('选择左侧的岗位查看详情', 'Pick a job on the left to see it here')}</div>}
         </div>
       </div>
