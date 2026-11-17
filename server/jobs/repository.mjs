@@ -335,6 +335,23 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     const row = rows.find(item => fits(item.job_url) || (item.apply_url && fits(item.apply_url)));
     return row ? getPosting(row.duplicate_of || row.id) : null;
   }
+  // The open posting Dayjob already lists for the same job (company, title and place), from whatever site: what a
+  // job read from a web page is held against before it is added. One that has closed is not held against it.
+  function findSameJob(item) {
+    const row = q('SELECT id, site, status FROM postings WHERE dedupe_key = ? AND duplicate_of IS NULL AND closed_at IS NULL ORDER BY first_seen_at LIMIT 1').get(dedupeKey(item));
+    return row ? { id: row.id, site: row.site, status: row.status } : null;
+  }
+  // Takes a posting out again (the undo of one just added). A job another site also lists steps into its place.
+  function removePosting(id) {
+    return transaction(db, () => {
+      const heir = q('SELECT id FROM postings WHERE duplicate_of = ? ORDER BY first_seen_at LIMIT 1').get(id);
+      if (heir) {
+        q('UPDATE postings SET duplicate_of = NULL WHERE id = ?').run(heir.id);
+        q('UPDATE postings SET duplicate_of = ? WHERE duplicate_of = ?').run(heir.id, id);
+      }
+      return q('DELETE FROM postings WHERE id = ?').run(id).changes > 0;
+    });
+  }
   function postingForScoring(id) {
     const row = q('SELECT * FROM postings WHERE id = ?').get(id);
     return row ? postingRow(row) : null;
@@ -766,7 +783,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     getSettings, updateSettings, saveSettings, languageChosen, getMeta, setMeta, getApiKey, addApiKey, updateApiKey, deleteApiKey,
     listSearches, getSearch, saveSearch, deleteSearch, touchSearch,
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
-    upsertPosting, holdsPosting, listPostings, getPosting, findPostingByUrl, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
+    upsertPosting, holdsPosting, listPostings, getPosting, findPostingByUrl, findSameJob, removePosting, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
     addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings,
     saveScore, getScore, unscoredPostingIds, logUsage, logStep, listSteps, priceUsage, usageSummary, usageSpend,
