@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, CircleCheck, FileText, FolderOpen, Hourglass, Send, ShieldAlert, Square, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronRight, CircleCheck, FileText, FolderOpen, Hourglass, ShieldAlert, Square, TriangleAlert, X } from 'lucide-react';
 import { api } from '../../api.js';
 import { useI18n } from '../../i18n.jsx';
 import { Select } from '../groove/Picker.jsx';
 import { assistant, useAssistant } from './store.js';
+import { Gramophone } from './Gramophone.jsx';
 
-// 同时申请: the applications that have a conversation of their own, as the window shows them. A button on a job in
-// the Today list starts one; the pane lists them and looks in on any of them; a reply shows what each of its steps
+// 同时申请: the applications that have a conversation of their own, as the window shows them. A button at the top of
+// a job's details starts one; the pane lists them and looks in on any of them; a reply shows what each of its steps
 // used; and Settings has how many run at once and the feedback file.
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
@@ -31,8 +32,11 @@ export const compact = tokens => (tokens >= 1e6 ? `${(tokens / 1e6).toFixed(toke
 const grouped = value => Math.round(value || 0).toLocaleString('en-US');
 export const dollars = cost => (typeof cost === 'number' ? `$${cost >= 0.995 ? cost.toFixed(2) : cost.toFixed(3)}` : '');
 
-// On a job in the Today list: has the assistant apply to it. Once started it says how the application stands, and
-// a press opens its conversation. approvals: see runStatus. onError: where a refusal is shown.
+// The gramophone on the button plays while its application is at work, and takes no notes from other conversations.
+const silent = () => () => {};
+
+// At the top of a job's details, beside its title: has the assistant apply to it. Once started it says how the
+// application stands, and a press opens its conversation. approvals: see runStatus. onError: where a refusal is shown.
 export function ApplyButton({ item, approvals = [], onError = () => {} }) {
   const { t } = useI18n();
   const { runs } = useAssistant();
@@ -48,16 +52,35 @@ export function ApplyButton({ item, approvals = [], onError = () => {} }) {
     const status = runStatus(run, approvals);
     const why = ['unsent', 'handover', 'unsure'].includes(status) ? [t(...(OUTCOMES[run.outcome] || OUTCOMES.unclear)), run.reason].filter(Boolean).join(t('：', ': ')) : '';
     return (
-      <button type="button" className={`row-apply ${status}`} onClick={() => assistant.openRun(run.id)}
+      <button type="button" className={`detail-apply ${status}`} onClick={() => assistant.openRun(run.id)}
         title={why || t('打开这次申请的对话', 'Open this application\'s conversation')} aria-label={t(`${job}：${RUN_STATUS[status][0]}，打开对话`, `${job}: ${RUN_STATUS[status][1]}, open the conversation`)}>
-        <StatusIcon status={status} /><span>{t(...RUN_STATUS[status])}</span>
+        <Gramophone phase={status === 'working' ? 'thinking' : 'idle'} scale={1} live={status === 'working'} voice={silent} />
+        <span className="detail-apply-text"><small>{t('助手', 'Assistant')}</small><strong><StatusIcon status={status} size={14} />{t(...RUN_STATUS[status])}</strong></span>
       </button>
     );
   }
   return (
-    <button type="button" className="row-apply" disabled={starting} onClick={start}
+    <button type="button" className="detail-apply" disabled={starting} onClick={start}
       title={t('让助手在 Dayjob 浏览器里申请这个岗位，可以同时让它申请几个', 'Have the assistant apply to this job in the Dayjob browser; several can run at once')} aria-label={t(`让助手申请：${job}`, `Have the assistant apply: ${job}`)}>
-      <Send size={13} /><span>{t('让助手申请', 'Apply for me')}</span>
+      <Gramophone scale={1} />
+      <span className="detail-apply-text"><strong>{t('让助手申请', 'Apply for me')}</strong></span>
+    </button>
+  );
+}
+
+// On a job in the list, once the assistant has an application for it: how it stands. A press opens its conversation.
+export function RunChip({ item, approvals = [] }) {
+  const { t } = useI18n();
+  const { runs } = useAssistant();
+  const run = runs.find(entry => entry.postingId === item.id);
+  if (!run) return null;
+  const status = runStatus(run, approvals);
+  const job = [item.company, item.title].filter(Boolean).join(' · ');
+  const why = ['unsent', 'handover', 'unsure'].includes(status) ? [t(...(OUTCOMES[run.outcome] || OUTCOMES.unclear)), run.reason].filter(Boolean).join(t('：', ': ')) : '';
+  return (
+    <button type="button" className={`row-apply ${status}`} onClick={() => assistant.openRun(run.id)}
+      title={why || t('打开这次申请的对话', 'Open this application\'s conversation')} aria-label={t(`${job}：${RUN_STATUS[status][0]}，打开对话`, `${job}: ${RUN_STATUS[status][1]}, open the conversation`)}>
+      <StatusIcon status={status} /><span>{t(...RUN_STATUS[status])}</span>
     </button>
   );
 }
@@ -160,8 +183,8 @@ export function ApplyingSettings() {
         <Select value={String(info.settings.parallel)} onChange={event => assistant.saveSettings({ parallel: Number(event.target.value) })} aria-label={t('助手同时进行几个申请', 'How many applications the assistant works on at once')}>
           {choices.map(count => <option key={count} value={count}>{t(`${count} 个`, String(count))}</option>)}
         </Select>
-        <small>{t('今日岗位每一行的“让助手申请”各开一个自己的对话和浏览器标签页。同时进行的不超过这个数，多出来的排队。每个申请都在单独花 token，数越大花得越快。',
-          '“Apply for me” on a job in Today gives it a conversation and a browser tab of its own. No more than this many run at once; the rest wait in line. Each application spends tokens of its own, so a higher number spends them faster.')}</small>
+        <small>{t('岗位详情右上角的“让助手申请”各开一个自己的对话和浏览器标签页。同时进行的不超过这个数，多出来的排队。每个申请都在单独花 token，数越大花得越快。',
+          '“Apply for me” at the top of a job’s details gives it a conversation and a browser tab of its own. No more than this many run at once; the rest wait in line. Each application spends tokens of its own, so a higher number spends them faster.')}</small>
       </div>
       <div className="option-row feedback-row" data-guide="assistant">
         <span>{t('问题反馈文件', 'Feedback file')}</span>

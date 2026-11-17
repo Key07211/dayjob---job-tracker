@@ -215,8 +215,31 @@
   .assistant-card, .assistant-card-forms button, .asst-compose, .asst-send, .asst-history-fold svg { transition: none; }
 }
 
-/* 同时申请. On a job in the Today list: the button that has the assistant apply to it, and, once it has started,
-   how the application stands. It sits in the row's last corner, under the score, which moves up to make room. */
+/* 同时申请. At the top of a job's details, right of its title: the button that has the assistant apply to it, with the
+   gramophone on it. Once an application has started it says how it stands. In a narrow pane it goes under the title. */
+.detail-title { flex-wrap: wrap; }
+.detail-title-text { flex: 1 1 220px; min-width: 0; }
+.detail-apply { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 3px 18px 4px 10px; border-radius: 999px; border: 1.5px solid transparent;
+  background: var(--card); box-shadow: inset 0 -3px 0 var(--key-lip); color: var(--text); text-align: left; white-space: nowrap;
+  transition: transform 78ms cubic-bezier(.3, 0, 0, 1), box-shadow 78ms, background-color 156ms, border-color 156ms; }
+.detail-apply:hover:not(:disabled) { background: var(--key-hover); }
+.detail-apply:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 -1px 0 var(--key-lip); }
+.detail-apply:disabled { opacity: .6; }
+.detail-apply .gramophone { pointer-events: none; }
+.detail-apply-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+.detail-apply-text small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.detail-apply-text strong { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 700; }
+.detail-apply .asst-dots { height: 12px; gap: 3px; color: inherit; }
+.detail-apply .asst-dots b { width: 4px; height: 4px; }
+.detail-apply.working, .detail-apply.unsure { border-color: var(--step-hi); }
+.detail-apply.asking, .detail-apply.handover { background: var(--amber-soft); border-color: var(--step-hi); }
+.detail-apply.sent { border-color: var(--green); }
+.detail-apply.sent strong { color: var(--green); }
+.detail-apply.unsent { border-color: var(--red); }
+.detail-apply.unsent strong { color: var(--red); }
+
+/* On a job in the Today list, once the assistant has an application for it: how it stands. It sits in the row's last
+   corner, under the score, which moves up to make room. */
 .posting-item > .row-apply { position: absolute; right: 16px; bottom: 9px; z-index: 2; display: inline-flex; align-items: center; gap: 5px; height: 23px; padding: 0 9px 0 8px; border-radius: 999px;
   border: 1px solid var(--line-strong); background: var(--card); color: var(--text); font-size: 11.5px; font-weight: 600; line-height: 1; white-space: nowrap; transition: border-color 156ms, color 156ms, background-color 156ms; }
 .posting-item > .row-apply:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
@@ -229,8 +252,8 @@
 .posting-item > .row-apply.unsure { border-color: var(--step-hi); }
 .posting-item > .row-apply.sent { color: var(--green); border-color: var(--green); }
 .posting-item > .row-apply.unsent { color: var(--red); border-color: var(--red); }
-.posting-item.can-apply .posting-row .score-badge { align-self: flex-start; }
-.posting-item.can-apply .row-meta { padding-right: 52px; min-height: 20px; }
+.posting-item.has-run .posting-row .score-badge { align-self: flex-start; }
+.posting-item.has-run .row-meta { padding-right: 52px; min-height: 20px; }
 
 /* In the pane: the applications under way, above the conversation. */
 .asst-runs { flex: none; border-top: 1px solid var(--line); background: var(--surface); font-size: 12.5px; }
@@ -275,5 +298,5 @@
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-row > .hint { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
 @media (prefers-reduced-motion: reduce) {
-  .posting-item > .row-apply, .asst-runs-head svg, .asst-usage > button svg { transition: none; }
+  .posting-item > .row-apply, .detail-apply, .asst-runs-head svg, .asst-usage > button svg { transition: none; }
 }

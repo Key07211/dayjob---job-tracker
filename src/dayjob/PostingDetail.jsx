@@ -11,6 +11,7 @@ import { flyTo, keyBump, leave } from './groove/fx.js';
 import { Eq } from './groove/Fx.jsx';
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { DateField } from './groove/Picker.jsx';
+import { ApplyButton } from './assistant/Runs.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -119,7 +120,7 @@ function ApplyForm({ onApply, onCancel, busy }) {
   );
 }
 
-export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto', version = 0, applyAsk = null }) {
+export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto', version = 0, applyAsk = null, approvals = [] }) {
   const { t } = useI18n();
   const [posting, setPosting] = useState(null);
   const [error, setError] = useState('');
@@ -207,7 +208,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
       <header>
         <div className="detail-title">
           <div className="logo large">{posting.companyLogo ? <img src={posting.companyLogo} alt="" referrerPolicy="no-referrer" /> : <span>{(posting.company || posting.title).slice(0, 1).toUpperCase()}</span>}</div>
-          <div>
+          <div className="detail-title-text">
             <h2>{posting.title}</h2>
             <p className="detail-company">
               <span><Building2 size={14} />{posting.company || t('未知公司', 'Unknown company')}</span>
@@ -216,6 +217,8 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
             </p>
             {facts.length ? <p className="facts">{facts.map(fact => <span key={fact}>{fact}</span>)}</p> : null}
           </div>
+          {/* 让助手申请: for a job that can still be applied to, where there is a Dayjob browser to do it in. */}
+          {hasBrowser && !posting.application && !posting.closedAt && posting.jobUrl ? <ApplyButton item={posting} approvals={approvals} onError={setError} /> : null}
         </div>
         {posting.closedAt ? <p className="banner closed"><CalendarClock size={15} />{t(`这个岗位在 ${formatDay(posting.closedAt)} 被发现已关闭或下线。`, `This posting was found closed or taken down on ${formatDay(posting.closedAt)}.`)}</p> : null}
         <div className="detail-actions">
