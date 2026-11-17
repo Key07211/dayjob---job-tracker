@@ -83,7 +83,7 @@ test('the browser tools exist only where there is a Dayjob browser, and none of 
   assert.equal(there.browser, true);
   assert.equal(there.settings.apply, 'confirm', 'sending waits for the user unless they say otherwise');
   const tiers = Object.fromEntries(there.tools.map(tool => [tool.name, tool.tier]));
-  for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_press_key', 'browser_scroll', 'browser_navigate',
+  for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_options', 'browser_press_key', 'browser_scroll', 'browser_navigate',
     'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_sign_in', 'browser_sign_up', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
   assert.equal(tiers.get_profile, 'read');
   assert.equal(tiers.update_profile, 'undoable');
@@ -197,6 +197,41 @@ test('the assistant works dropdowns and choices a page draws itself with the mou
   await chat('call:browser_click {"x":10,"y":10}', chosen.id);
   assert.match(engines['claude-cli'].results[6].value.error, /Invalid input/);
   assert.equal(browser.calls.length, 5);
+});
+
+test('the assistant learns a form\'s dropdowns before it answers them, and text typed into one is taken as the option meant', async t => {
+  const lists = [{ ref: 'e7', name: 'How did you hear about us?', options: ['Company website', 'Job board or social media', 'Career fair'] }, { ref: 'e9', name: 'School', note: 'It lists nothing until something is typed.' }];
+  const browser = fakeBrowser({
+    options: input => ({ dropdowns: input.refs ? lists.filter(item => input.refs.includes(item.ref)) : lists }),
+    type: input => (input.ref === 'e7' ? { selected: { ref: 'e7', name: 'How did you hear about us?', value: 'Job board or social media' }, note: 'e7 is a dropdown, so Dayjob chose the option that reads like what you typed.' }
+      : { typed: { ref: input.ref, name: 'School', value: input.text }, suggestions: ['University of California, Berkeley', 'Berkeley College'] }),
+  });
+  const { app, chat, engines } = await start({ browser });
+  t.after(() => app.close());
+  // Every dropdown of the page in one call, or the ones named.
+  const all = await chat('call:browser_options {}');
+  assert.deepEqual(browser.calls[0], { action: 'options', input: {}, context: browser.calls[0].context });
+  assert.equal(all.tool.tier, 'browser');
+  assert.deepEqual(all.tool.label, ['看了 2 个下拉框的选项', 'Read the options of 2 dropdowns']);
+  assert.deepEqual(engines['claude-cli'].results[0].value.dropdowns[0].options, lists[0].options);
+  const one = await chat('call:browser_options {"refs":["e7"]}', all.id);
+  assert.deepEqual(browser.calls[1].input, { refs: ['e7'] });
+  assert.deepEqual(one.tool.label, ['看了 1 个下拉框的选项', 'Read the options of 1 dropdown']);
+  await chat('call:browser_options {"refs":["seven"]}', all.id);
+  assert.match(engines['claude-cli'].results[2].value.error, /Invalid input/);
+  // Typed into a dropdown: Dayjob chose the option, and the line in the chat says chose, not filled in.
+  const typed = await chat('call:browser_type {"ref":"e7","text":"job board"}', all.id);
+  assert.deepEqual(typed.tool.label, ['选了“How did you hear about us?”：Job board or social media', 'Chose Job board or social media for “How did you hear about us?”']);
+  assert.equal(typed.tool.step, 'questions');
+  // A box that suggests as you type says what it suggests.
+  const suggested = await chat('call:browser_type {"ref":"e9","text":"Berkeley"}', all.id);
+  assert.deepEqual(suggested.tool.label, ['填了“School”', 'Filled in “School”']);
+  assert.deepEqual(engines['claude-cli'].results[4].value.suggestions, ['University of California, Berkeley', 'Berkeley College']);
+  // The tools and the prompt say how a field's kind is told and that dropdowns are chosen from.
+  const tools = app.assistant.tools;
+  assert.match(tools.get('browser_read').description, /opens-list.*suggests-list.*never typed in/s);
+  assert.match(tools.get('browser_type').description, /Not for dropdowns/);
+  assert.match(tools.get('browser_select').description, /do not guess at the wording/);
 });
 
 test('signing in tells the model how it went and nothing else', async t => {

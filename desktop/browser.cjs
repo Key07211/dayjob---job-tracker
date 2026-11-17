@@ -22,6 +22,8 @@ const RUN_APPROVAL_MS = 60 * 60 * 1000;
 // 读岗位: how many job pages Dayjob reads in one go, and how long it waits between two of them (ms).
 const JOBS_MAX = 12;
 const JOBS_PAUSE = [900, 2200];
+// 下拉框: how many dropdowns Dayjob opens in one go to read their options.
+const OPTIONS_MAX = 12;
 const PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write']);
 const KEY_CODES = { ArrowDown: 'Down', ArrowUp: 'Up', ArrowLeft: 'Left', ArrowRight: 'Right' };
 // 密码保管: the login script's own isolated world, how often the active page is
@@ -720,7 +722,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // The rows of a dropdown that was just opened or typed in, given time to arrive: a list may be fetched, or drawn
   // again as its search box is typed in (typed: wait for it to change first). A row that fits must still be there
   // a moment later; a list with no such row is done once it stops changing.
-  async function rows(tab, ref, option, same, ms, typed = false) {
+  async function rows(tab, ref, option, same, ms, typed = false, keep = false) {
     const started = Date.now();
     let found = { options: [], count: 0 };
     let held = null;
@@ -730,7 +732,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     for (;;) {
       if (!same()) return found;
       let seen = null;
-      try { seen = await page(tab, 'options', { ref, option }); } catch { return found; }
+      try { seen = await page(tab, 'options', { ref, option, keep }); } catch { return found; }
       if (!seen || seen.error) return found;
       found = seen;
       if (seen.match && held === seen.match.ref) return seen;
@@ -744,6 +746,30 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (!seen.match && seen.count && steady >= 3 && (!typed || now !== first || elapsed > 1500)) return seen;
       await delay(150);
     }
+  }
+  // Closes the list of a dropdown Dayjob opened only to read it, the way a person would: a second click on the
+  // dropdown, or a press of Escape. Escape is kept away from a page a dialog holds, which might take it for its own;
+  // and a dropdown that a row of its list now lies over is not clicked, since that would choose the row.
+  async function shut(tab, ref, typed) {
+    const state = async () => { try { return await page(tab, 'listOpen', { ref }); } catch { return { open: false }; } };
+    const again = async () => {
+      const target = await page(tab, 'target', { ref });
+      if (target.error || target.coveredBy) return;
+      await mouse(tab, target);
+      await delay(250);
+    };
+    const escape = async modal => {
+      if (modal) return;
+      press(tab.view.webContents, 'Escape');
+      await delay(250);
+    };
+    let now = await state();
+    for (const way of typed ? [escape, again] : [again, escape]) {
+      if (!now.open) return true;
+      await way(now.modal);
+      now = await state();
+    }
+    return !now.open;
   }
   // before: where the caller stood when the action began (see standing).
   function result(tab, before, extra, context) {
@@ -1147,13 +1173,30 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       const tab = mine(context);
       const before = tab;
       fresh(tab);
+      // A dropdown is chosen from, not typed in: whatever tool the answer came through, it is taken as the option
+      // meant, so that no text is left in a box that only keeps a row of its list.
+      const kind = checked(await page(tab, 'kind', { ref }), ref);
+      if (kind.select || kind.opens === 'list') {
+        if (!text.trim()) fail(409, `${ref} (“${kind.name}”) is a dropdown, not a text field. Choose one of its options with dayjob_browser_select.`);
+        const chosen = await actions.select({ ref, option: text }, context);
+        return { ...chosen, note: [`${ref} is a dropdown, so Dayjob chose the option that reads like what you typed. Use dayjob_browser_select for dropdowns.`, chosen.note].filter(Boolean).join(' ') };
+      }
       await reveal(context);
+      const suggesting = kind.opens === 'suggestions' && Boolean(text) && !pressEnter;
+      if (suggesting) await page(tab, 'mark');
       const target = checked(await page(tab, 'focus', { ref, append }), ref);
       const contents = tab.view.webContents;
       if (text) await contents.insertText(text);
       else if (!append) contents.delete();
       let typed = checked(await page(tab, 'read', { ref }), ref);
       if (text && !typed.value) typed = checked(await page(tab, 'fill', { ref, text, append }), ref);
+      // A box that suggests as you type: what it suggests comes back, since a form keeps only a row chosen there.
+      let suggested = null;
+      if (suggesting) {
+        const documents = tab.documents;
+        const found = await rows(tab, ref, '', () => tabs.includes(tab) && tab.documents === documents, 2000, true);
+        if (found.count) suggested = { suggestions: found.options.slice(0, 15), note: `${ref} suggests options as you type, and a form usually keeps only one chosen from them: choose with dayjob_browser_select (same ref), giving the option as it reads here.` };
+      }
       let auto = false;
       let asked = false;
       if (pressEnter) {
@@ -1164,7 +1207,54 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         await settle(tab);
       }
       const tracked = asked ? await afterSend(standing(context) || tab, sender(context)) : {};
-      return result(tab, before, { typed: { ref, name: target.name, value: typed.value }, ...(asked ? { allowed: auto ? 'auto' : 'user' } : {}), ...tracked, ...(auto ? { note: autoNote(context) } : {}) }, context);
+      return result(tab, before, { typed: { ref, name: target.name, value: typed.value }, ...(suggested ? { suggestions: suggested.suggestions } : {}), ...(asked ? { allowed: auto ? 'auto' : 'user' } : {}), ...tracked,
+        ...(auto || suggested ? { note: [suggested?.note, auto ? autoNote(context) : ''].filter(Boolean).join(' ') } : {}) }, context);
+    },
+    // 下拉框. The options of the dropdowns a page draws itself, read in one go before any of them is answered:
+    // Dayjob opens each with the mouse, reads its rows and closes it again. refs: the dropdowns meant; none: every
+    // one on the page whose options no reading tells. -> { dropdowns: [{ ref, name, options, more?, search?, note? }] }
+    async options({ refs } = {}, context) {
+      const tab = mine(context);
+      const before = tab;
+      fresh(tab);
+      await reveal(context);
+      const documents = tab.documents;
+      const same = () => tabs.includes(tab) && tab.documents === documents;
+      const wanted = refs?.length ? refs : (await page(tab, 'dropdowns')).map(item => item.ref);
+      const dropdowns = [];
+      let stopped = '';
+      for (const ref of wanted.slice(0, OPTIONS_MAX)) {
+        if (!same()) { stopped = 'The page changed while Dayjob was reading its dropdowns. Read the page again.'; break; }
+        if (context.signal?.aborted) break;
+        const kind = await page(tab, 'kind', { ref });
+        if (kind.error) { dropdowns.push({ ref, note: 'No such element on this page any more.' }); continue; }
+        const entry = { ref, name: kind.name };
+        dropdowns.push(entry);
+        if (kind.options) { entry.options = kind.options; continue; }
+        if (!kind.opens) { entry.note = `Not a dropdown (${kind.role}).`; continue; }
+        if (kind.disabled) { entry.note = 'Disabled right now.'; continue; }
+        const target = await page(tab, 'target', { ref });
+        if (target.error || target.coveredBy) { entry.note = target.error ? 'No such element on this page any more.' : `Covered by ${target.coveredBy}.`; continue; }
+        if (!target.expanded) await mouse(tab, target);
+        let found = await rows(tab, ref, '', same, kind.opens === 'suggestions' ? 1500 : 2500, false, true);
+        // A control that does not say whether it is open was open already, and that click closed it.
+        if (!found.count && kind.opens === 'list' && target.expanded === undefined && same()) {
+          await mouse(tab, target);
+          found = await rows(tab, ref, '', same, 2500, false, true);
+        }
+        if (found.count) {
+          entry.options = found.options;
+          if (found.count > found.options.length) entry.more = found.count - found.options.length;
+          if (found.search || (kind.opens === 'suggestions' && entry.more)) entry.search = true;
+        } else entry.note = kind.opens === 'suggestions' ? 'It lists nothing until something is typed: dayjob_browser_select types the option and picks the row that fits.' : 'It opened no list.';
+        if (same() && !(await shut(tab, ref, kind.opens === 'suggestions'))) {
+          entry.open = true;
+          stopped = `The list of ${ref} did not close, so Dayjob stopped there: choose from it with dayjob_browser_select, or press Escape, before going on.`;
+          break;
+        }
+      }
+      const left = wanted.length - dropdowns.length;
+      return result(tab, before, { dropdowns, ...(left > 0 ? { left: wanted.slice(dropdowns.length, dropdowns.length + 30) } : {}), ...(stopped ? { note: stopped } : {}) }, context);
     },
     async select({ ref, option }, context) {
       const tab = mine(context);
