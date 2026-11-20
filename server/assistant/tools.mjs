@@ -67,7 +67,7 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, letters = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
@@ -378,6 +378,44 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
   ];
 
 
+  // ---------- 求职信: cover letters written for postings ----------
+  const letterTools = !letters ? [] : [
+    {
+      name: 'get_cover_letter_template', tier: 'read', view: 'resume',
+      description: 'Read what a cover letter is written from, before you write one: the template the user uploaded as a model for their letters (template), the general cover '
+        + 'letter of the application profile (general), and, with postingId, the letter already saved for that posting (saved). Any of them can be null.',
+      shape: { postingId: id.optional() },
+      label: (input, result) => (result.template ? [`看了求职信模板：${short(result.template.name || '模板', 40)}`, `Read the cover letter template: ${short(result.template.name || 'template', 40)}`]
+        : ['看了求职信模板（还没有上传）', 'Looked for a cover letter template (none uploaded yet)']),
+      run(input) {
+        const template = letters.template(true);
+        const saved = input.postingId ? letters.forPosting(need(repo.getPosting(input.postingId), 'Posting').id, true) : null;
+        return { result: { template: template ? { name: template.name, text: template.text } : null, general: repo.getSettings().applicant.coverLetter || null,
+          saved: saved ? { text: saved.text, file: saved.file, updatedAt: saved.updatedAt } : null,
+          ...(template ? {} : { note: 'No template is uploaded. The user can add one on the Resume & AI page; without it, write the letter in a plain, standard form.' }) } };
+      },
+    },
+    {
+      name: 'save_cover_letter', tier: 'undoable', view: 'resume',
+      description: 'Save the cover letter you wrote for a posting into Dayjob\'s cover letter folder, as a file named after the company and the job, which the user finds on the '
+        + 'Resume & AI page. text is the whole letter as plain text: greeting, paragraphs separated by a blank line, sign-off with the user\'s name. One letter is kept for each '
+        + 'posting: saving again replaces it.',
+      shape: { postingId: id, text: z.string().min(200).max(LETTER_CAP) },
+      label: (input, result) => [`求职信已存进文件夹：${short(result.letter.file || named(result.posting), 60)}`, `Saved the cover letter: ${short(result.letter.file || named(result.posting), 60)}`],
+      async run(input) {
+        const posting = need(repo.getPosting(input.postingId), 'Posting');
+        const { letter, previous } = await letters.save({ posting, text: input.text });
+        return { result: { letter: { id: letter.id, file: letter.file, replaced: Boolean(previous) }, posting: { id: posting.id, company: posting.company, title: posting.title } },
+          changed: true, detail: letter.text,
+          undo() {
+            const now = letters.get(letter.id);
+            if (!now || now.updatedAt !== letter.updatedAt) throw new HttpError(409, CHANGED);
+            letters.restore(letter.id, previous);
+          } };
+      },
+    },
+  ];
+
   // ---------- the application profile ----------
   const profileTools = [
     {
@@ -638,15 +676,27 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     },
     {
       name: 'browser_cover_letter', tier: 'browser', view: 'browser',
-      description: 'Put a cover letter you wrote into the application form on the current page: as a PDF into the form\'s cover letter upload, or as text into its cover letter box. '
+      description: 'Put a cover letter into the application form on the current page: as a PDF into the form\'s cover letter upload, or as text into its cover letter box. Without text, the letter saved for this posting is used. '
         + 'text is the whole letter as plain text (greeting, paragraphs separated by a blank line, sign-off with the user\'s name), written from the resume and the posting, with nothing '
         + 'invented. The user can read it in the chat.',
-      shape: { text: z.string().min(40).max(LETTER_CAP) },
+      shape: { text: z.string().min(40).max(LETTER_CAP).optional().describe('Leave out to use the letter saved for this posting with save_cover_letter.') },
       label: (input, result) => (result.letter.as === 'file' ? [`附上了求职信（${short(result.letter.file, 40)}）`, `Attached the cover letter (${short(result.letter.file, 40)})`]
         : ['把求职信填进了表单', 'Put the cover letter into the form']),
       async run(input, context) {
-        const outcome = await inBrowser('letter', { text: input.text.trim() }, context);
-        return { result: outcome, step: 'questions', facts: { letter: outcome.letter.as }, detail: input.text.trim() };
+        // The job being applied to (open_application noted it): its saved letter is used when none is passed, and
+        // a letter that is passed is kept in the cover letter folder as well.
+        const posting = letters && context?.memo?.posting?.id ? repo.getPosting(context.memo.posting.id) : null;
+        let text = input.text?.trim();
+        if (!text) {
+          text = posting ? letters.forPosting(posting.id, true)?.text : null;
+          if (!text) throw new HttpError(409, 'No cover letter is saved for this job. Write one and pass it as text (see get_cover_letter_template for what to write it from).');
+        }
+        const outcome = await inBrowser('letter', { text }, context);
+        let kept = null;
+        if (input.text && posting) {
+          try { kept = (await letters.save({ posting, text })).letter; } catch { /* the form has the letter; the folder is a convenience */ }
+        }
+        return { result: { ...outcome, ...(kept ? { saved: { file: kept.file } } : {}) }, step: 'questions', facts: { letter: outcome.letter.as }, detail: text, ...(kept ? { changed: true } : {}) };
       },
     },
   ];
@@ -903,7 +953,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       },
     },
   ];
-  tools.push(...jobTools, ...companyTools, ...profileTools, ...memoryTools, ...browserTools, ...applyingTools);
+  tools.push(...jobTools, ...companyTools, ...profileTools, ...letterTools, ...memoryTools, ...browserTools, ...applyingTools);
 
   const byName = new Map(tools.map(tool => [tool.name, { ...tool, schema: z.strictObject(tool.shape) }]));
   // The tools a conversation can do without until it turns to what they are for. The Claude API engine keeps them

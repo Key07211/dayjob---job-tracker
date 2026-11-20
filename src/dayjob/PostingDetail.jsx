@@ -12,6 +12,7 @@ import { Eq } from './groove/Fx.jsx';
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { DateField } from './groove/Picker.jsx';
 import { ApplyButton } from './assistant/Runs.jsx';
+import { LetterButton } from './CoverLetters.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -123,6 +124,8 @@ function ApplyForm({ onApply, onCancel, busy }) {
 export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMode = 'auto', version = 0, applyAsk = null, approvals = [] }) {
   const { t } = useI18n();
   const [posting, setPosting] = useState(null);
+  // 求职信: the letter kept for this job, as the last loading said (an action's own answer does not carry it).
+  const [letter, setLetter] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [applying, setApplying] = useState(false);
@@ -143,7 +146,8 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
     setMark('');
     setRolled(false);
     setJustApplied(false);
-    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) setPosting(value); })
+    setLetter(null);
+    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) { setPosting(value); setLetter(value.coverLetter || null); } })
       .catch(failure => { if (!cancelled) setError(failure.message); });
     return () => { cancelled = true; };
   }, [id]);
@@ -151,7 +155,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   useEffect(() => {
     if (!version) return undefined;
     let cancelled = false;
-    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) setPosting(value); }).catch(() => {});
+    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) { setPosting(value); setLetter(value.coverLetter || null); } }).catch(() => {});
     return () => { cancelled = true; };
   }, [version]);
   useEffect(() => { if (applyAsk?.id === id) setApplying(true); }, [applyAsk]);
@@ -234,6 +238,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
               {posting.applyUrl ? <a className="button" data-fx="external" href={posting.applyUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} />{t('公司申请页', 'Company apply page')}</a> : null}
             </>
           )}
+          <LetterButton posting={posting} letter={letter} onError={setError} />
           {posting.application ? (
             <button className={`button primary${justApplied ? ' fx-draw' : ''}`} onClick={() => setView('applications')}><CircleCheck size={15} />{label('status', posting.application.status)} · {t('查看追踪', 'View tracking')}</button>
           ) : (

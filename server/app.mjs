@@ -23,6 +23,7 @@ import { createGoals } from './jobs/goals.mjs';
 import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES, resumeFileType, sameResume } from './jobs/resume.mjs';
+import { COVER_LETTER_FOLDER, createCoverLetters, TEMPLATE_MAX } from './jobs/cover-letters.mjs';
 import { message } from './messages.mjs';
 import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -47,6 +48,9 @@ export async function createApp(options = {}) {
   const { db, filename } = openDatabase(dataDir);
   const repo = createRepository(db, { now });
   const goals = createGoals({ db, repo, now });
+  // 求职信: beside the database; options.letterPdf lays a letter out as a PDF (the desktop app does).
+  const letters = createCoverLetters({ db, repo, now, log: options.log || console.warn, makePdf: options.letterPdf || null,
+    dir: dataDir === ':memory:' ? null : path.join(dataDir, COVER_LETTER_FOLDER) });
   const dashboard = createDashboard({ db, now });
   repo.abandonRunningRuns();
   // Databases from before multiple resumes have postings with no matched resume.
@@ -251,7 +255,10 @@ export async function createApp(options = {}) {
       return found;
     }
     let match = pathname.match(/^\/api\/postings\/([^/]+)$/);
-    if (match) return need(repo.getPosting(match[1]), 'Posting');
+    if (match) return { ...need(repo.getPosting(match[1]), 'Posting'), coverLetter: letters.forPosting(match[1]) };
+    if (pathname === '/api/cover-letters') return { folder: letters.folder, template: letters.template(), letters: letters.list() };
+    match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
+    if (match) return need(letters.get(match[1]), 'Cover letter');
     if (pathname === '/api/searches') return repo.listSearches();
     if (pathname === '/api/companies') return repo.listCompanies();
     if (pathname === '/api/resumes') return repo.listResumes();
@@ -277,7 +284,7 @@ export async function createApp(options = {}) {
   }
 
   async function mutate(request, pathname, method, source) {
-    const input = await readJson(request, /^\/api\/resumes(\/[^/]+\/file)?$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
+    const input = await readJson(request, /^\/api\/(resumes(\/[^/]+\/file)?|cover-letters\/template)$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
     if (pathname === '/api/settings' && method === 'PATCH') {
       const settings = repo.updateSettings(settingsPatch(input));
       options.onSettings?.(settings);
@@ -461,6 +468,18 @@ export async function createApp(options = {}) {
     }
     match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
     if (match && method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
+    // 求职信模板: a letter of the user's own that the assistant writes after, as a file (read like a resume) or as
+    // text typed in. Only its text is kept.
+    if (pathname === '/api/cover-letters/template' && method === 'POST') {
+      if (typeof input.text === 'string') return letters.setTemplate({ name: typeof input.name === 'string' ? input.name : '', text: input.text.slice(0, TEMPLATE_MAX) });
+      if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the template file as base64 data.');
+      const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '', data: Buffer.from(input.data, 'base64') },
+        { what: 'cover letter template', min: 80 });
+      return letters.setTemplate({ name: parsed.name, text: parsed.text });
+    }
+    if (pathname === '/api/cover-letters/template' && method === 'DELETE') return { ok: letters.clearTemplate() };
+    match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
+    if (match && method === 'DELETE') return { ok: need(letters.remove(match[1]), 'Cover letter') };
     if (pathname === '/api/recommendations' && method === 'POST') {
       const { preference } = recommendInput(input);
       if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
@@ -521,7 +540,7 @@ export async function createApp(options = {}) {
   }
 
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, log, engines: options.assistantEngines,
-    companies: { find: findCompany, follow: followCompany },
+    companies: { find: findCompany, follow: followCompany }, letters,
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
     // 问题反馈文件: beside the database; a database in memory has no folder, and keeps its entries in memory too.
     feedbackDir: dataDir === ':memory:' ? null : path.join(dataDir, 'feedback'),
@@ -584,6 +603,13 @@ export async function createApp(options = {}) {
     return { status: 'recorded', created, application: brief(application), posting: { id: posting.id } };
   }
 
+  // The posting Dayjob holds for a page of the Dayjob browser, when that page is the job's own (its link, or the
+  // id a job board's link carries). 自动收录 asks it for a page that says an application went through.
+  function postingAt(url) {
+    const posting = repo.findPostingByUrl(String(url || ''));
+    return posting ? { id: posting.id, title: posting.title, company: posting.company || '' } : null;
+  }
+
   const server = http.createServer(async (request, response) => {
     try {
       validateRequest(request, response);
@@ -606,6 +632,15 @@ export async function createApp(options = {}) {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
         return response.end(file.data);
       }
+      // A cover letter's file, the same way.
+      const letterFile = method === 'GET' && pathname.match(/^\/api\/cover-letters\/([^/]+)\/file$/);
+      if (letterFile) {
+        const where = need(letters.filePath(letterFile[1]), 'Cover letter file');
+        const data = fs.readFileSync(where);
+        response.writeHead(200, { 'Content-Type': where.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain; charset=utf-8', 'Content-Length': data.length,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(where))}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+        return response.end(data);
+      }
       if (method === 'GET') return respond(response, 200, await get(pathname, url));
       if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
       requireToken(request);
@@ -623,7 +658,7 @@ export async function createApp(options = {}) {
   server.headersTimeout = 15000;
   let listening = false;
   return {
-    server, repo, scheduler, scorer, assistant, filename, trackApplied,
+    server, repo, scheduler, scorer, assistant, filename, trackApplied, postingAt, letters,
     // Which JobSpy is in use and whether it starts: { command, builtIn, available, version }. refresh starts it to see.
     jobspy: (refresh = false) => jobspyStatus(refresh),
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {

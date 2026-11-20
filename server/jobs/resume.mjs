@@ -35,11 +35,12 @@ export function sameResume(a, b) {
 
 // The text is what the AI reads and what postings are matched against. The file itself is kept beside it (by the
 // caller), so the same resume can be attached to an application form.
-export async function extractResumeText({ name, mime, data }) {
+// what, min: the same reading for another kind of file (a cover letter template), which may be shorter.
+export async function extractResumeText({ name, mime, data }, { what = 'resume', min = 200 } = {}) {
   const type = kind(name || '', mime || '');
-  if (!type) throw new HttpError(415, 'Upload a PDF, Word (.docx) or text resume.');
-  if (!data?.length) throw new HttpError(400, 'The resume file is empty.');
-  if (data.length > MAX_RESUME_BYTES) throw new HttpError(413, 'The resume file is larger than 8 MB.');
+  if (!type) throw new HttpError(415, `Upload a PDF, Word (.docx) or text ${what}.`);
+  if (!data?.length) throw new HttpError(400, `The ${what} file is empty.`);
+  if (data.length > MAX_RESUME_BYTES) throw new HttpError(413, `The ${what} file is larger than 8 MB.`);
   let text;
   try {
     if (type === 'pdf') {
@@ -56,6 +57,6 @@ export async function extractResumeText({ name, mime, data }) {
     throw new HttpError(422, `Could not read this ${type.toUpperCase()} file: ${error.message}`);
   }
   text = tidy(text);
-  if (text.length < 200) throw new HttpError(422, 'Almost no text was found in this resume. If it is a scanned image, export it as a text-based PDF or upload a .docx.');
+  if (text.length < min) throw new HttpError(422, `Almost no text was found in this ${what}. If it is a scanned image, export it as a text-based PDF or upload a .docx.`);
   return { name: name || `resume.${type}`, mime: mime || (type === 'pdf' ? 'application/pdf' : type === 'docx' ? DOCX : 'text/plain'), size: data.length, text: text.slice(0, 60000) };
 }

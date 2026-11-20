@@ -244,6 +244,21 @@ const migrations = [
   CREATE INDEX assistant_steps_at ON assistant_steps (at);
   CREATE INDEX assistant_steps_reply ON assistant_steps (conversation_id, reply_at, step);
   `,
+  // 求职信: the cover letter written for a posting (one each). The text is here; `file` is the name of its file in
+  // the cover letter folder. posting_id is not a foreign key, so a letter outlives its posting.
+  `
+  CREATE TABLE cover_letters (
+    id TEXT PRIMARY KEY,
+    posting_id TEXT,
+    company TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL,
+    file TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX cover_letters_posting ON cover_letters (posting_id) WHERE posting_id IS NOT NULL;
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

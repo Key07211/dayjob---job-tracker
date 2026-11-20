@@ -445,7 +445,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     // (job), the application form last seen (form) and when something was last sent from it (sentAt, sentBy).
     // An "Apply" link that opens a new tab carries the job page's trail along.
     const tab = { id: `tab-${counter}`, view, documents: 0, readAt: -1, favicon: null, trail: from ? from.trail.slice() : [], job: from?.job || null, guess: from?.guess || null,
-      form: null, sentAt: 0, sentBy: '', seen: { url: '', tries: 0, done: false } };
+      form: null, sentAt: 0, sentBy: '', own: null, seen: { url: '', tries: 0, done: false } };
     const contents = view.webContents;
     secure(contents);
     for (const name of ['did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-navigate-in-page', 'render-process-gone']) contents.on(name, broadcast);
@@ -922,12 +922,13 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
   async function look(tab, say = false) {
     // url: the page that was looked at, by its own word. While a tab moves on, that may already be the next one.
-    const seen = { form: false, confirmed: false, words: '', url: '' };
+    const seen = { form: false, confirmed: false, words: '', url: '', here: false };
     for (const root of formRoots(tab)) {
       const found = await inFrame(tab, root, watchName, 'watch', say ? { say: true } : undefined);
       if (!root.frame && found?.url) seen.url = found.url;
       if (found?.form) seen.form = true;
       if (found?.confirmed) seen.confirmed = true;
+      if (!root.frame && found?.here) seen.here = true;
       if (found?.words) seen.words = `${seen.words} ${found.words}`.slice(0, 12000);
       if (Number.isFinite(found?.sent) && found.sent >= 0) markSent(tab, '', Date.now() - found.sent);
     }
@@ -963,6 +964,17 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     await lastLook(tab);
     sending = { tab, by, until: Date.now() + 20000 };
   }
+  // The posting Dayjob holds for the page a tab shows, looked up again when the page changes or after a while (a
+  // job can be added while its page is open).
+  async function ownPosting(tab, url) {
+    if (!track?.posting) return null;
+    if (!tab.own || tab.own.url !== url || Date.now() - tab.own.at > 20000) {
+      let posting = null;
+      try { posting = await track.posting(url); } catch { /* the service is busy: asked again at the next look */ }
+      tab.own = { url, at: Date.now(), posting: posting || null };
+    }
+    return tab.own.posting;
+  }
   // A page about to be left: what was sent from it is read while it is still there.
   async function lastLook(tab) {
     if (!track || !autoTrack || !tabs.includes(tab)) return;
@@ -990,8 +1002,12 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       await noteJob(tab);
       const seen = await look(tab);
       if (!tabs.includes(tab) || contents.getURL() !== url || seen.url !== url) return null;
-      const open = tab.form && Date.now() - tab.form.at < FORM_MS ? tab.form : null;
+      let open = tab.form && Date.now() - tab.form.at < FORM_MS ? tab.form : null;
       const sent = tab.sentAt && Date.now() - tab.sentAt < SENT_MS;
+      // A board that applies in a dialog over the job's own page (Handshake) shows no form of fields, and the
+      // address stays as it is. There the posting Dayjob holds for the page stands in for the form: something was
+      // sent on this page, which did not say so before and says now that the application went through.
+      if (!open && seen.confirmed && sent && seen.here && await ownPosting(tab, url)) open = { at: Date.now(), url, said: false, words: '', own: true };
       if (!(seen.confirmed && open && sent && (!open.said || !seen.form || open.url !== url))) {
         noteForm(tab, url, seen);
         return null;
@@ -1006,10 +1022,11 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       for (const root of formRoots(tab)) void inFrame(tab, root, watchName, 'watch', { forget: true });
       // The job is the last one whose page this tab showed: pages from before it belong to other jobs.
       const from = tab.job ? tab.trail.indexOf(tab.job.url) : -1;
-      const urls = from < 0 ? tab.trail.slice() : tab.trail.slice(0, from + 1);
-      const draft = from < 0 ? null : tab.job;
+      const urls = open.own ? [url] : from < 0 ? tab.trail.slice() : tab.trail.slice(0, from + 1);
+      const draft = open.own || from < 0 ? null : tab.job;
       let outcome;
-      try { outcome = await track.applied({ urls, draft, by, words, page }); } catch { return null; }
+      // On the job's own page the address says which job it was, so its words need not name it.
+      try { outcome = await track.applied({ urls, draft, by, ...(open.own ? {} : { words }), page }); } catch { return null; }
       if (outcome?.status === 'recorded') {
         setApplied({ id: randomUUID(), state: 'recorded', tabId: tab.id, by, company: outcome.application.company, title: outcome.application.title,
           applicationId: outcome.application.id, postingId: outcome.posting?.id || null });
@@ -1051,7 +1068,9 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     try {
       if (!track || !autoTrack || !tabs.includes(tab)) return {};
       markSent(tab, by);
-      for (const wait of [0, 700, 1500]) {
+      // A dialog over the job's own page answers after the request has come back: it is given a little longer.
+      const own = Boolean(await ownPosting(tab, tab.view.webContents.getURL()));
+      for (const wait of own ? [0, 700, 1500, 2500] : [0, 700, 1500]) {
         if (wait) await delay(wait);
         if (!tabs.includes(tab)) return {};
         await settle(tab, 0);
@@ -1059,7 +1078,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         if (outcome?.status === 'recorded') return { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title } };
         if (outcome?.status === 'already') return { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title, already: true } };
         if (outcome) return {};
-        if (!tab.form) return {};
+        if (!tab.form && !own) return {};
       }
       return {};
     } finally { sending = null; }
@@ -1249,7 +1268,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         } else entry.note = kind.opens === 'suggestions' ? 'It lists nothing until something is typed: dayjob_browser_select types the option and picks the row that fits.' : 'It opened no list.';
         if (same() && !(await shut(tab, ref, kind.opens === 'suggestions'))) {
           entry.open = true;
-          stopped = `The list of ${ref} did not close, so Dayjob stopped there: choose from it with dayjob_browser_select, or press Escape, before going on.`;
+          stopped = `The list of ${ref} did not close, so Dayjob stopped there: choose from it with dayjob_browser_select, or click ${ref} again to close it, before going on. (Escape closes a list too, but in a dialog it may close the whole dialog and lose what is filled in.)`;
           break;
         }
       }
@@ -1300,7 +1319,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (!found.match) {
         if (!found.count) fail(409, `${ref} (“${target.name}”) did not open a list with options${found.search ? ' for that' : ''}. Click it with dayjob_browser_click and look at what appears.`);
         fail(409, `No option like “${option}” in ${ref} (“${target.name}”). ${found.count > found.options.length ? `The first ${found.options.length} of ${found.count} options` : 'Options'}: ${found.options.join(' | ')}. `
-          + 'The list is still open: choose again with the option as it reads there, or press Escape to close it.');
+          + `The list is still open: choose again with the option as it reads there, or click ${ref} again to close it. Do not press Escape when the form is in a dialog: it may close the dialog and lose what is filled in.`);
       }
       const row = checked(await page(tab, 'target', { ref: found.match.ref }), found.match.ref);
       // A row of a list is a choice, like an option of a real dropdown; anything else that opened (a menu's "Delete") may be an action.
@@ -1718,4 +1737,4 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     uploadResume: choice => attachResume(current(), typeof choice === 'string' ? choice : 'auto') };
 }
 
-module.exports = { createBrowser };
+module.exports = { createBrowser, letterPdf };

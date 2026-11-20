@@ -381,6 +381,9 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .resume-list .resume-file { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .resume-list .resume-file > svg { color: var(--green); flex-shrink: 0; }
 .resume-list .resume-file.missing { color: var(--orange); }
+/* 求职信: the folder button keeps its own width under the list, and a long file name wraps. */
+.cover-letters > .button { align-self: flex-start; margin-top: 12px; }
+.cover-letters .resume-file { overflow-wrap: anywhere; }
 .resume-list .resume-file .link { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
 .dropzone { border: 1.5px dashed var(--line-strong); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); }
 .dropzone.dragging { border-color: var(--green); background: var(--green-soft); }

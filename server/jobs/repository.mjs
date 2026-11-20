@@ -6,6 +6,7 @@ import { splitCompanyId } from './scrapers/company-boards.mjs';
 import { DEFAULT_APPLICANT, migrateApplicant } from './applicant.mjs';
 import { costOf, KEY_SERVICE, METERED, PRICES_AS_OF } from './scoring/prices.mjs';
 import { DEFAULT_SOURCES } from './source-quota.mjs';
+import { webJob } from './web-jobs.mjs';
 
 export const POSTING_STATUSES = ['new', 'saved', 'dismissed', 'applied'];
 export const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted', 'rejected', 'withdrawn', 'ghosted'];
@@ -321,6 +322,11 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     let url;
     try { url = new URL(value); } catch { return null; }
     url.hash = '';
+    // A job board's link carries the posting's id whatever shape the link has (Handshake's /jobs/N and /job-search/N
+    // are one job), and so does a link Dayjob was given before.
+    const key = webJob(url.href);
+    const held = key && q('SELECT id, duplicate_of FROM postings WHERE id = ?').get(postingId(key));
+    if (held) return getPosting(held.duplicate_of || held.id);
     const linkedInJob = /(^|\.)linkedin\.com$/.test(url.hostname) && (url.searchParams.get('currentJobId') || /\/jobs\/view\/(?:[^/]*-)?(\d+)/.exec(url.pathname)?.[1]);
     const wanted = linkedInJob ? new URL(`https://www.linkedin.com/jobs/view/${linkedInJob}`) : url;
     const base = `${wanted.origin}${wanted.pathname.replace(/\/+$/, '')}`;

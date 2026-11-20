@@ -229,12 +229,20 @@ function installAutofill(name, makeHidden) {
   const SENDS = /\b(submit|send|apply|finish|complete)\b|提交|投递|发送|完成|申请/i;
   const heard = new WeakSet();
   let sentAt = 0;
+  // Where that send was made, and whether the page already said an application went through: a job's own page that
+  // says so from the start (one applied to before) is not a new application.
+  let sentFrom = '';
+  let saidBefore = false;
+  const place = () => `${location.origin}${location.pathname}`;
+  const says = () => { let text = ''; for (const root of roots()) text += `${(root.body || root).innerText || ''}\n`; return APPLIED.test(text.slice(0, 30000)); };
   function listen(root) {
     if (heard.has(root)) return;
     heard.add(root);
     // Dayjob hears of it at once (a line on the console under this run's name), since the page may be gone a moment later.
     const sent = () => {
       sentAt = Date.now();
+      sentFrom = place();
+      try { saidBefore = says(); } catch { saidBefore = false; }
       try { console.debug(`${name}:sent`); } catch { /* it is asked again when the page is next looked at */ }
     };
     root.addEventListener('submit', sent, true);
@@ -246,7 +254,7 @@ function installAutofill(name, makeHidden) {
   }
   // say: give the page's words whatever it looks like; forget: what was sent has been dealt with.
   function watch({ say = false, forget = false } = {}) {
-    if (forget) sentAt = 0;
+    if (forget) { sentAt = 0; sentFrom = ''; saidBefore = false; }
     for (const root of roots()) listen(root);
     let fields = 0;
     let file = false;
@@ -269,7 +277,9 @@ function installAutofill(name, makeHidden) {
     const confirmed = APPLIED.test(text.slice(0, 30000));
     // What an application form or the page after it says, for telling which job it was (it stays on this computer).
     const words = say || form || confirmed ? `${document.title}\n${text}`.replace(/\s+/g, ' ').slice(0, 6000).toLowerCase() : '';
-    return { form, confirmed, words, url: location.href, sent: sentAt ? Date.now() - sentAt : null };
+    return { form, confirmed, words, url: location.href, sent: sentAt ? Date.now() - sentAt : null,
+      // here: the send was made on this very page, which did not yet say an application had gone through.
+      here: Boolean(sentAt) && sentFrom === place() && !saidBefore };
   }
 
   // Every place a file can be attached, hidden ones too: most application forms hide the real field behind a
@@ -436,6 +446,31 @@ function partOf(field) {
   return EDUCATION_PART.test(where) ? 'education' : EXPERIENCE_PART.test(where) ? 'experience' : null;
 }
 
+// Beside a phone number a form may ask for its country code, its extension or what kind of phone it is. None of
+// them is the number: 'code', 'extension' or 'type' for such a field, else null.
+const PHONE_WORDS = /phone|mobile|telephone|\bcell\b|\btel\b|手机|电话/;
+function phonePart(field) {
+  const autocomplete = (field.autocomplete || '').toLowerCase().split(/\s+/).pop();
+  if (autocomplete === 'tel-country-code') return 'code';
+  if (autocomplete === 'tel-extension') return 'extension';
+  for (const text of [words(field.label), words(`${field.name} ${field.id} ${field.placeholder}`)]) {
+    if (!text || !PHONE_WORDS.test(text)) continue;
+    if (/\bext(ension)?\b|分机/.test(text)) return 'extension';
+    if (/\b(country|area|dial(ing)?|calling) (phone )?code\b|\bphone code\b|\bprefix\b|区号|国家代码/.test(text)) return 'code';
+    if (/\b(phone|device|number) type\b|\btype of (phone|number)\b|电话类型|号码类型/.test(text)) return 'type';
+    return null;
+  }
+  return null;
+}
+// The number without its country code, for a form that asks for the code in a field of its own.
+function nationalNumber(value) {
+  const text = String(value || '').trim();
+  const split = /^\+\d{1,3}(?:[\s.-]+(.+)|(\(.+))$/.exec(text);
+  if (split) return (split[1] || split[2]).trim();
+  const digits = /^\+(\d+)$/.exec(text.replace(/[\s().-]/g, ''))?.[1];
+  return digits && digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : text;
+}
+
 function keyFor(field) {
   const autocomplete = (field.autocomplete || '').toLowerCase().split(/\s+/).pop();
   const byAutocomplete = { 'given-name': 'firstName', 'family-name': 'lastName', name: 'fullName', nickname: 'preferredName', email: 'email', tel: 'phone',
@@ -444,6 +479,7 @@ function keyFor(field) {
   const label = words(field.label);
   const attributes = words(`${field.name} ${field.id} ${field.placeholder}`);
   if (SKIP.test(label) || (!label && SKIP.test(attributes))) return null;
+  if (phonePart(field)) return null;
   const part = partOf(field);
   if (field.kind === 'checkbox') {
     return part === 'experience' && /current|presently|still (work|employed)|work here|至今|在职/.test(`${label} ${attributes}`) ? 'workCurrent' : null;
@@ -591,6 +627,8 @@ function dateAnswer(value, field) {
 // later entry belongs to that entry.
 function planFill(fields, profile) {
   const fills = [];
+  // A form with a field for the country code takes the number without it.
+  const codeApart = fields.some(field => phonePart(field) === 'code');
   const used = [];
   const seen = new Map();
   for (const field of fields) {
@@ -611,6 +649,7 @@ function planFill(fields, profile) {
     if (field.filled) continue;
     let answer = String(answerFor(key, profile, n) || '').trim();
     if (answer && DATE_KEYS.includes(key)) answer = dateAnswer(answer, field);
+    if (answer && key === 'phone' && codeApart) answer = nationalNumber(answer);
     if (!answer) continue;
     if (field.kind === 'checkbox') {
       if (key !== 'workCurrent' || answer !== 'yes') continue;
