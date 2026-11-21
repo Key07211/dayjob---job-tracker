@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClaudeConnection } = require('./claude-connection.cjs');
-const { createBrowser } = require('./browser.cjs');
+const { createBrowser, letterPdf } = require('./browser.cjs');
 const { createVault, readPasswordCsv, VaultError } = require('./vault.cjs');
 const { createUpdater } = require('./updater.cjs');
 const { freeInstallFolder } = require('./install-lock.cjs');
@@ -116,12 +116,22 @@ function setupIpc() {
     verifiedSender(event);
     return { version: app.getVersion(), dataPath: dataDir, isPackaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) };
   });
-  // what: 'feedback' for the folder of the assistant's feedback file; anything else is the data folder itself.
+  // what: 'feedback' for the folder of the assistant's feedback file, 'cover-letters' for the folder of the cover
+  // letters; anything else is the data folder itself.
   ipcMain.handle('dayjob:open-data-folder', async (event, what) => {
     verifiedSender(event);
-    const folder = what === 'feedback' ? path.join(dataDir, 'feedback') : dataDir;
+    const folder = ['feedback', 'cover-letters'].includes(what) ? path.join(dataDir, what) : dataDir;
     if (folder !== dataDir) fs.mkdirSync(folder, { recursive: true });
     const error = await shell.openPath(folder);
+    if (error) throw new Error(error);
+  });
+  // 求职信: opens a letter's file in whatever the computer opens such files with. Only a file the service names
+  // as a letter of its own is opened.
+  ipcMain.handle('dayjob:open-cover-letter', async (event, id) => {
+    verifiedSender(event);
+    const file = service.letters.filePath(String(id || ''));
+    if (!file) throw new Error('This letter\'s file is no longer in the cover letter folder.');
+    const error = await shell.openPath(file);
     if (error) throw new Error(error);
   });
   ipcMain.handle('dayjob:claude-status', event => { verifiedSender(event); return claude.getStatus(); });
@@ -279,7 +289,7 @@ async function createWindow() {
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
-    track: { applied: input => service.trackApplied(input) },
+    track: { applied: input => service.trackApplied(input), posting: url => service.postingAt(url) },
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -514,6 +524,15 @@ const QUIET_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="ut
 <body><h1>Your application</h1><form action="/applied" method="get"><label>First name <input name="first" required></label>
 <label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label> <button>Submit application</button></form></body></html>`;
 
+// A board that applies in a dialog over the job's own page, as Handshake does: nothing to fill in but a search box,
+// the address stays as it is, and the dialog then says the application went through.
+const DIALOG_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Insights Intern | Dialog Co</title></head>
+<body><h1>Insights Intern</h1><p>Dialog Co · Remote</p><button id="apply" type="button">Apply</button>
+<div id="box" role="dialog" aria-modal="true" hidden><h2>Apply to Dialog Co</h2><label>Search your documents <input type="search" name="doc"></label>
+<button id="send" type="button">Submit Application</button><p id="done" hidden>Application submitted!</p></div>
+<script>document.getElementById('apply').onclick = () => { document.getElementById('box').hidden = false; };
+document.getElementById('send').onclick = () => setTimeout(() => { document.getElementById('done').hidden = false; }, 400);</script></body></html>`;
+
 // A list of jobs as a board shows it, a job whose page says a good deal about it, and one whose page puts its text
 // up after it has loaded: for Dayjob reading several jobs' own pages in one go.
 const BOARD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Jobs · Smoke Board</title></head>
@@ -586,6 +605,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/jobs/long') return response.end(LONG_JOB_PAGE);
     if (url.pathname === '/jobs/late') return response.end(LATE_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
+    if (url.pathname === '/board/job/31') return response.end(DIALOG_JOB_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/upload-drop') return response.end(DROP_UPLOAD_PAGE);
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
@@ -612,6 +632,11 @@ async function smokeBrowser(token) {
     steps.jobPosting = page.jobPosting?.title === 'Data Analyst' && page.jobPosting.company === 'Smoke Co' && page.jobPosting.description.includes('• Dashboards');
     steps.typed = (await call('type', { ref: ref('Full name'), text: 'Smoke Test' })).typed.value === 'Smoke Test'
       && (await call('type', { ref: ref('Email'), text: 'smoke@example.com' })).typed.value === 'smoke@example.com';
+    // 页面重画: a page that builds a field anew (as forms drawn by a framework do when an answer changes) leaves the
+    // ref of the reading pointing at an element that is gone. The ref goes on to the one field that took its place.
+    const redrawn = await window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/jobs/7`)).webContents
+      .executeJavaScript("(() => { const old = [...document.querySelectorAll('input')].find(input => input.labels?.[0]?.textContent.includes('Full name') || input.getAttribute('aria-label') === 'Full name'); if (!old) return false; const fresh = old.cloneNode(true); fresh.value = ''; old.replaceWith(fresh); return !old.isConnected; })()");
+    steps.redrawn = redrawn === true && (await call('type', { ref: ref('Full name'), text: 'Smoke Test' })).typed.value === 'Smoke Test';
     steps.selected = (await call('select', { ref: ref('How did you hear about us?'), option: 'referral' })).selected.value === 'Referral';
     // Submitting waits for the user; answer in the banner as a user would.
     const submitting = call('click', { ref: ref('Submit application') });
@@ -667,6 +692,16 @@ async function smokeBrowser(token) {
     await browser.answerApplied({ title: 'Field Analyst', company: 'Quiet Co' });
     const namedJob = tracked().find(item => item.title === 'Field Analyst');
     steps.namedRecorded = browser.state().applied?.state === 'recorded' && tracked().length === 3 && namedJob?.company === 'Quiet Co' && namedJob.jobUrl === `${base}/quiet-apply`;
+    await browser.answerApplied(null);
+    // A board that applies in a dialog over the job's own page (Handshake): there is no form of fields and the
+    // address stays, so the posting Dayjob holds for that page is recorded when the dialog says it went through.
+    await fetch(`${origin}/api/postings`, { method: 'POST', body: JSON.stringify({ title: 'Insights Intern', company: 'Dialog Co', jobUrl: `${base}/board/job/31` }),
+      headers: { 'Content-Type': 'application/json', 'X-Dayjob-Token': token } });
+    await call('open', { url: `${base}/board/job/31` });
+    await tabPage().executeJavaScript("document.getElementById('apply').click(); document.getElementById('send').click(); true");
+    const dialogJob = () => tracked().find(item => item.title === 'Insights Intern');
+    steps.dialogRecorded = await until(() => browser.state().applied?.state === 'recorded' && browser.state().applied.title === 'Insights Intern', 9000)
+      && tracked().length === 4 && dialogJob()?.company === 'Dialog Co' && service.repo.getApplication(dialogJob().id).events.at(-1).source === 'auto';
     await browser.answerApplied(null);
     // Sending the same job's form again records nothing new; switched off, nothing is recorded at all.
     steps.autoTrackSwitch = browser.setAutoTrack(false).autoTrack === false && JSON.parse(fs.readFileSync(path.join(profileDir, 'browser.json'), 'utf8')).autoTrack === false
@@ -795,6 +830,14 @@ async function smokeBrowser(token) {
     const letter = await browser.agent('letter', { text: 'Dear Smoke Co team,\n\nI build dashboards that people use every week.\n\nSmoke Tester' }, { by: 'assistant' });
     const cover = await uploadPage.executeJavaScript("(async () => { const file = document.getElementById('cover').files[0]; return file ? file.name + '|' + file.type + '|' + (await file.text()).slice(0, 5) : 'none'; })()");
     steps.letterAttached = letter.letter.as === 'file' && cover === 'Cover Letter - Smoke Tester.pdf|application/pdf|%PDF-';
+    // 求职信文件夹: a letter saved for a posting is laid out as a real PDF in the cover letter folder, under the
+    // job's name, and goes again with the letter.
+    const lettered = service.repo.listPostings({ status: 'all' }).items[0];
+    const keptLetter = (await service.letters.save({ posting: lettered, text: `Dear Smoke Co team,\n\n${'I build dashboards and forecasts from messy data. '.repeat(5)}\n\nSincerely,\nSmoke Tester` })).letter;
+    const letterFile = service.letters.filePath(keptLetter.id);
+    steps.letterSaved = Boolean(letterFile) && path.dirname(letterFile) === path.join(dataDir, 'cover-letters') && letterFile.endsWith('.pdf')
+      && fs.readFileSync(letterFile).subarray(0, 5).toString() === '%PDF-' && fs.statSync(letterFile).size > 1000
+      && service.letters.remove(keptLetter.id) && !fs.existsSync(letterFile);
     steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404;
     // Two uploads that both say only "Drop or select": the line over each box says which one is the resume's.
     await call('open', { url: `${base}/upload-drop` });
@@ -1047,8 +1090,8 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
+    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);
@@ -1238,6 +1281,8 @@ async function boot() {
   const { createApp } = await import(pathToFileURL(path.join(app.getAppPath(), 'server', 'app.mjs')).href);
   service = await createApp({ dataDir, distDir: path.join(app.getAppPath(), 'dist'), notify: desktopNotification,
     allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
+    // 求职信: a letter saved to the cover letter folder is laid out as a PDF here.
+    letterPdf,
     // The Python with JobSpy that the installed app carries beside app.asar (scripts/build-jobspy.mjs).
     jobspyDir: app.isPackaged ? path.join(process.resourcesPath, 'jobspy') : undefined,
     browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))),

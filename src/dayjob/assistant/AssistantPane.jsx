@@ -43,6 +43,7 @@ const ERRORS = {
   'context-full': ['这段对话太长，模型放不下了。再发一次：助手会从摘要接着来。', 'This conversation grew too long for the model. Send the message again: the assistant will go on from a summary.'],
   'no-summary': ['助手这次没有写出摘要，上文没有压缩。再试一次。', 'The assistant did not write a summary, so nothing was compacted. Try again.'],
   internal: ['助手出了点问题，再试一次。', 'The assistant ran into a problem. Try again.'],
+  'busy-ask': ['助手还在回答这段对话。等它说完，或者先点停止，再点一次。', 'The assistant is still answering here. Wait for it, or stop it, then press again.'],
   'busy-here': ['助手还在回答这段对话。等它说完，或者先点停止，再去看那个申请。', 'The assistant is still answering here. Wait for it, or stop it, before opening that application.'],
 };
 // "/compact", alone or followed by what the summary should keep an eye on, compacts the conversation, as in Claude Code.

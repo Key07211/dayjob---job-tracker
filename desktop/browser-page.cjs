@@ -287,6 +287,7 @@ function install(makeHidden, pickOption) {
 
   function describe(element, ref) {
     const item = { ref, role: role(element), name: name(element) };
+    marks.set(ref, { tag: element.tagName, type: element.type || '', role: item.role, name: item.name, only: false });
     if (item.role === 'radio' || item.role === 'checkbox') {
       const group = question(element);
       if (group && group !== item.name) item.group = group;
@@ -312,6 +313,13 @@ function install(makeHidden, pickOption) {
     return item;
   }
 
+  // What a ref stood for when the page was last read: its kind and what it says. A page that draws a form again
+  // (many do when one answer changes) throws the old element away and puts one just like it in its place; the ref
+  // then goes to that one. Only when nothing else it could be mistaken for was there, at the reading (only) or is
+  // there now: of two "Remove" buttons, the one left is not the one that went.
+  const marks = new Map();
+  const markOf = element => ({ tag: element.tagName, type: element.type || '', role: role(element), name: name(element), only: false });
+  const markKey = mark => [mark.tag, mark.type, mark.role, mark.name].join('\n');
   function refFor(element) {
     let ref = ids.get(element);
     if (!ref) {
@@ -319,12 +327,25 @@ function install(makeHidden, pickOption) {
       ref = `e${next}`;
       ids.set(element, ref);
       refs.set(ref, new WeakRef(element));
+      marks.set(ref, markOf(element));
     }
     return ref;
   }
   function find(ref) {
     const element = refs.get(ref)?.deref();
-    return element?.isConnected ? element : null;
+    if (element?.isConnected) return element;
+    const mark = marks.get(ref);
+    if (!mark?.only || !mark.name) return null;
+    const twins = [];
+    for (const item of controls(roots().found)) {
+      if (item.tagName !== mark.tag || (item.type || '') !== mark.type || role(item) !== mark.role || name(item) !== mark.name) continue;
+      twins.push(item);
+      if (twins.length > 1) return null;
+    }
+    if (!twins.length) return null;
+    refs.set(ref, new WeakRef(twins[0]));
+    if (!ids.has(twins[0])) ids.set(twins[0], ref);
+    return twins[0];
   }
 
   // What a click brought: before one, everything on show is noted, so that what is on show after it and was not
@@ -539,12 +560,16 @@ function install(makeHidden, pickOption) {
       const wanted = clean(query, 200).toLowerCase();
       const elements = [];
       let count = 0;
+      const alike = new Map();
       for (const element of controls(found)) {
         const item = describe(element, refFor(element));
+        const mark = marks.get(item.ref);
+        alike.set(markKey(mark), alike.has(markKey(mark)) ? null : mark);
         if (wanted && ![item.name, item.href, item.value].some(text => text?.toLowerCase().includes(wanted))) continue;
         count += 1;
         if (elements.length < maxElements) elements.push(item);
       }
+      for (const mark of alike.values()) if (mark) mark.only = true;
       const text = pageText(found);
       return { title: document.title, text: text.slice(0, maxChars), textTruncated: text.length > maxChars, elements, elementCount: count, otherSiteFrames: frames, jobPosting: jobPosting() };
     },

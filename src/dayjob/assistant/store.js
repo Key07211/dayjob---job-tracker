@@ -209,6 +209,15 @@ export const assistant = {
     if (state.conversation?.kept) void assistant.refresh();
     if (state.conversation?.run) void assistant.refreshRuns();
   },
+  // 写求职信 and the like: something asked of the assistant from a button elsewhere in the window. The pane opens and
+  // the request is sent as a message; an application's conversation is left for a new one first.
+  async write(text) {
+    if (state.form === 'closed') assistant.setOpen(true);
+    if (state.busy) { set({ failure: { code: 'busy-ask', message: 'The assistant is still answering here.' } }); return false; }
+    if (state.conversation?.run) await assistant.reset();
+    await assistant.send(text);
+    return true;
+  },
   // An application's reply goes on when nobody listens, so it is stopped by asking; any other by leaving it.
   stop() {
     const conversation = state.conversation;

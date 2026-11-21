@@ -214,3 +214,30 @@ test('the assistant\'s sending click reports the record, and recording it again 
   await chat(`call:mark_applied {"id":"${other.id}"}`, sent.id);
   assert.match(engine.results.at(-1).value.error, /already tracked/);
 });
+
+test('a job applied to in a dialog over its own page on a board is recorded for the posting Dayjob holds, whatever shape the link has', async t => {
+  const { app } = await start();
+  t.after(() => app.close());
+  const job = app.repo.upsertPosting(posting({ site: 'handshake', externalId: '11833329', title: 'Data Analyst Intern (Summer Term)', company: 'Omnium',
+    jobUrl: 'https://app.joinhandshake.com/jobs/11833329', description: 'Summer analysis work.' }));
+  // The job's own page, in each shape Handshake gives its links, is that posting; another job's page is not.
+  for (const link of ['https://app.joinhandshake.com/jobs/11833329', 'https://app.joinhandshake.com/job-search/11833329?page=1&per_page=25', 'https://app.joinhandshake.com/stu/jobs/11833329#apply',
+    'https://app.joinhandshake.com/stu/postings/11833329?utm_source=mail']) assert.equal(app.postingAt(link)?.id, job.id, link);
+  assert.equal(app.postingAt('https://app.joinhandshake.com/jobs/11833330'), null);
+  assert.equal(app.postingAt('https://app.joinhandshake.com/job-search'), null);
+  assert.equal(app.postingAt('not a link'), null);
+  assert.equal(app.repo.findPostingByUrl('https://www.linkedin.com/jobs/view/4100000001'), null, 'a job Dayjob does not hold');
+
+  // The browser hands over the page alone: the address says which job it was, so no words have to name it.
+  const before = app.repo.stats().week.reduce((sum, count) => sum + count, 0);
+  const outcome = app.trackApplied({ urls: ['https://app.joinhandshake.com/job-search/11833329?page=1'], by: 'user', page: 'https://app.joinhandshake.com/job-search/11833329?page=1' });
+  assert.equal(outcome.status, 'recorded');
+  assert.equal(outcome.created, false);
+  assert.equal(outcome.posting.id, job.id);
+  const application = app.repo.applicationForPosting(job.id);
+  assert.equal(application.company, 'Omnium');
+  assert.equal(application.events.at(-1).source, 'auto');
+  assert.equal(app.repo.getPosting(job.id).status, 'applied');
+  assert.equal(app.repo.stats().week.reduce((sum, count) => sum + count, 0), before + 1, 'it counts in this week\'s applications');
+  assert.equal(app.trackApplied({ urls: ['https://app.joinhandshake.com/jobs/11833329'], by: 'user' }).status, 'already');
+});

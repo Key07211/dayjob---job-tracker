@@ -242,3 +242,23 @@ test('the profile is read from the whole resume and old profiles move to lists',
     assert.deepEqual([settings.applicant.education.map(item => item.school), settings.applicant.experience.map(item => item.company), 'school' in settings.applicant], [['UCB'], ['Acme'], false]);
   } finally { await app.close(); }
 });
+
+test('a phone number goes into the number field alone: not into its extension, its country code or its type', () => {
+  for (const label of ['Phone Extension', 'Phone Ext.', 'Country Phone Code*', 'Phone Device Type*', 'Phone type', '电话分机', '区号（电话）']) assert.equal(keyFor(field(label)), null, label);
+  assert.equal(keyFor(field('', { name: 'phoneExtension' })), null);
+  assert.equal(keyFor(field('Mobile', { autocomplete: 'tel-extension' })), null);
+  assert.equal(keyFor(field('Phone Number*')), 'phone');
+  assert.equal(keyFor(field('Country')), 'country', 'a country of its own is still the country');
+  // Workday's four: the number goes in once, and without the country code the form asks for apart.
+  const workday = [choice('Phone Device Type*', ['Select One', 'Mobile', 'Landline']), choice('Country Phone Code*', ['Select One', 'United States of America (+1)']), field('Phone Number*'), field('Phone Extension')];
+  const filled = planFill(workday, PROFILE).fills.map(item => [workday.find(entry => entry.index === item.index).label, item.value ?? item.option]);
+  assert.deepEqual(filled, [['Phone Number*', '510 555 0100']]);
+  const numberIn = phone => planFill([field('Country Phone Code'), field('Phone Number')], { ...PROFILE, phone }).fills[0].value;
+  assert.equal(numberIn('+1 (510) 555-0100'), '(510) 555-0100');
+  assert.equal(numberIn('+1(510) 555-0100'), '(510) 555-0100');
+  assert.equal(numberIn('+15105550100'), '5105550100');
+  assert.equal(numberIn('+86 138 0013 8000'), '138 0013 8000');
+  assert.equal(numberIn('510-555-0100'), '510-555-0100');
+  // With no field for the code, the number stays whole.
+  assert.equal(planFill([field('Phone'), field('Phone Extension')], PROFILE).fills[0].value, '+1 510 555 0100');
+});

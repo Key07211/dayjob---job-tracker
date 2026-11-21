@@ -61,11 +61,11 @@ const titleOf = text => { const line = text.replace(/\s+/g, ' ').trim(); return 
 // applying tools work in; without it (plain `npm start`) those tools are not offered.
 // feedbackDir: the folder the feedback file lives in (none: its entries are only held in memory).
 // companies: { find, follow } from the app, which look a company's own job board up and put it on the daily list.
-export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, baseUrl, engines, browser = null, companies = null, onSettings = () => {}, feedbackDir = null, now = () => new Date(), log = console.warn }) {
+export function createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, baseUrl, engines, browser = null, companies = null, letters = null, onSettings = () => {}, feedbackDir = null, now = () => new Date(), log = console.warn }) {
   const memory = createMemory(repo, now);
   const english = () => repo.getSettings().language === 'en';
   const feedback = createFeedback({ dir: feedbackDir, english, now, log });
-  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, browser, companies, onSettings, memory, applyMode: () => settings().apply,
+  const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, browser, companies, letters, onSettings, memory, applyMode: () => settings().apply,
     applications: { start: (ids, context) => startMany(ids, context), list: () => runList().map(runView) } });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
