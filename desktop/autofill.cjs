@@ -433,7 +433,8 @@ const ENTRY_KEYS = { school: 'education', degree: 'education', major: 'education
   company: 'experience', title: 'experience', workLocation: 'experience', workStart: 'experience', workEnd: 'experience', workSummary: 'experience', workCurrent: 'experience' };
 
 // Fields about someone else, or ones Dayjob should never guess.
-const SKIP = /emergency|reference|referee|recruiter|hiring manager|\breferr(er|ed)\b|referral('?s)? (name|email|phone)|employee('?s)? (name|email)|captcha|password|signature|签名/;
+// (Also a field that says it is there to catch robots, should a page leave one where people can see it.)
+const SKIP = /emergency|reference|referee|recruiter|hiring manager|\breferr(er|ed)\b|referral('?s)? (name|email|phone)|employee('?s)? (name|email)|captcha|password|signature|签名|robots? only|if you.?(a)?re (a )?human|leave (this|the) (field|box) (blank|empty)|honey ?pot/;
 const YES_NO_KEYS = ['needsSponsorship', 'workAuthorized', 'willingToRelocate', 'authorizedWithoutSponsorship'];
 const DECLINE = /decline|prefer not|don.?t wish|do not wish|not wish to|rather not|choose not|not to (answer|disclose|say|self.?identify)|i don.?t want|不愿|不透露/;
 

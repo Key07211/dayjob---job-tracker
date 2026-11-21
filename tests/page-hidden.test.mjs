@@ -9,7 +9,7 @@ const { installHidden, HIDDEN_SOURCE } = require('../desktop/page-hidden.cjs');
 // given size. The topmost box at a point is the one drawn last (or with the highest `over`) that holds the point.
 function page({ width = 1280, height = 900, scrollY = 0 } = {}) {
   const all = [];
-  const view = { innerWidth: width, innerHeight: height, scrollY };
+  const view = { innerWidth: width, innerHeight: height, scrollY, getComputedStyle: el => ({ position: 'static', clip: 'auto', clipPath: 'none', ...el.style }) };
   const doc = {
     defaultView: view,
     querySelectorAll: () => all.filter(el => (el.tag === 'DIALOG' && el.attrs.open !== undefined) || el.attrs['aria-modal'] === 'true'),
@@ -21,12 +21,14 @@ function page({ width = 1280, height = 900, scrollY = 0 } = {}) {
   };
   const matchesOne = (el, selector) => (selector === '[inert]' ? el.attrs.inert !== undefined
     : selector === '[aria-hidden="true"]' ? el.attrs['aria-hidden'] === 'true'
-      : selector === ':modal' ? el.modal === true : false);
+      : selector === ':modal' ? el.modal === true
+        : selector === '[role], [aria-haspopup], [aria-autocomplete]' ? ['role', 'aria-haspopup', 'aria-autocomplete'].some(name => el.attrs[name] !== undefined) : false);
   function box(tag, [left, top, w, h], parent = null, attrs = {}, more = {}) {
     const el = {
       tag, tagName: tag, attrs, parentElement: parent, ownerDocument: doc, drawn: true, opaque: true, over: 0, ...more,
       rect: { left, top, right: left + w, bottom: top + h, width: w, height: h },
       getBoundingClientRect() { return this.rect; },
+      getAttribute(name) { return this.attrs[name] ?? null; },
       getRootNode: () => doc,
       // Asked with opacityProperty, a see-through box does not count as drawn.
       checkVisibility(options = {}) { return this.drawn && (!options.opacityProperty || this.opaque); },
@@ -88,6 +90,28 @@ test('what a page really keeps away stays hidden', () => {
   assert.equal(hidden(box('A', [100, 100, 300, 60], slide)), true);
   const gone = box('DIV', [0, 0, 1280, 900], null, { 'aria-hidden': 'true' }, { drawn: false });
   assert.equal(hidden(box('A', [100, 100, 300, 60], gone)), true);
+});
+
+test('a box to type in that is clipped to nothing where it stands is for robots, and is left alone', () => {
+  const { box } = page();
+  const hidden = installHidden();
+  const clipped = { position: 'absolute', clip: 'rect(1px, 1px, 1px, 1px)', clipPath: 'polygon(0px 0px, 0px 0px, 0px 0px, 0px 0px)' };
+  // Workday's "Enter website. This input is for robots only": drawn as far as the page says, one pixel wide, no height.
+  assert.equal(hidden(box('INPUT', [300, 200, 1, 0], null, { type: 'text', name: 'website' }, { style: clipped })), true);
+  // The same trick at full size, and the newer way of writing it.
+  assert.equal(hidden(box('INPUT', [300, 200, 240, 32], null, {}, { style: clipped })), true);
+  assert.equal(hidden(box('TEXTAREA', [300, 200, 240, 32], null, {}, { style: { position: 'fixed', clipPath: 'inset(50%)' } })), true);
+  // Clipped but in the flow of the page: a way of drawing, not of hiding.
+  assert.equal(hidden(box('INPUT', [300, 200, 240, 32], null, {}, { style: { clipPath: 'inset(50%)' } })), false);
+  // What people answer through its label, or through the dropdown drawn around it, is not a trap.
+  assert.equal(hidden(box('INPUT', [300, 200, 1, 1], null, { type: 'checkbox' }, { style: clipped })), false);
+  assert.equal(hidden(box('INPUT', [300, 200, 1, 1], null, { type: 'file' }, { style: clipped })), false);
+  assert.equal(hidden(box('INPUT', [300, 200, 2, 0], null, { role: 'combobox' })), false);
+  assert.equal(hidden(box('INPUT', [300, 200, 2, 0], null, { 'aria-autocomplete': 'list' })), false);
+  assert.equal(hidden(box('INPUT', [300, 200, 1, 0], null, {}, { readOnly: true })), false);
+  // A box the page does not draw at all is not this check's business (nothing reads it anyway).
+  assert.equal(hidden(box('INPUT', [300, 200, 0, 0], null, {}, { drawn: false })), false);
+  assert.equal(hidden(box('INPUT', [300, 200, 240, 32])), false);
 });
 
 test('the page behind an open dialog is hidden, the dialog is not', () => {

@@ -24,6 +24,7 @@ function install(makeHidden, pickOption) {
   // Labels of actions that send, submit or delete something for the user.
   const RISKY = /\b(submit|send|confirm|finish|complete|pay|purchase|buy|place order|delete|remove|withdraw|unsubscribe)\b|提交|投递|发送|确认|完成|支付|付款|购买|删除|撤回/i;
   const BUTTON_TYPES = ['submit', 'button', 'reset', 'image'];
+  const HAS_POPUP = /^(listbox|menu|tree|grid|true)$/;
   const clean = (value, max = 120) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
   const textOf = node => clean(node?.innerText || node?.textContent || '', 200);
 
@@ -72,7 +73,13 @@ function install(makeHidden, pickOption) {
 
   function name(element) {
     const aria = element.getAttribute('aria-label');
-    if (aria?.trim()) return clean(aria);
+    if (aria?.trim()) {
+      // A dropdown that repeats its choice in what it says of itself ("State Select One", "Country Canada Required":
+      // Workday's do) is named by its label, so that its name stays the same whatever is chosen.
+      const label = element.labels?.length && HAS_POPUP.test(element.getAttribute('aria-haspopup') || '') ? clean([...element.labels].map(textOf).filter(Boolean).join(' ')) : '';
+      if (label && clean(aria).toLowerCase().startsWith(label.replace(/[\s*:]+$/, '').toLowerCase())) return label;
+      return clean(aria);
+    }
     const labelledBy = element.getAttribute('aria-labelledby');
     if (labelledBy) {
       const root = element.getRootNode();
@@ -152,7 +159,7 @@ function install(makeHidden, pickOption) {
           take = looseControl(element);
           if (take) loose.add(element);
         }
-        if (take && shown(element)) list.push(element);
+        if (take && !pill(element) && shown(element)) list.push(element);
       }
     }
     return list;
@@ -215,9 +222,16 @@ function install(makeHidden, pickOption) {
     return false;
   }
 
+  // Workday's search prompts ("How Did You Hear About Us?", the country's phone code): a box that says nothing of
+  // a list. A click opens one, drawn at the end of the page, only the rows in view; what is typed is looked for
+  // when Enter is pressed; the row chosen is kept in a list of its own beside the box, which stays empty.
+  const PROMPT_BOX = '[data-uxi-widget-type="multiselect"], [data-automation-id="multiSelectContainer"]';
+  const CHOSEN_LIST = '[data-automation-id="selectedItemList"]';
+  const searchPrompt = element => element.tagName === 'INPUT' && element.getAttribute('data-uxi-widget-type') === 'selectinput';
+  const pill = element => element.getAttribute('role') === 'option' && Boolean(element.closest(CHOSEN_LIST));
   // A box to type in, as opposed to one that only shows what was chosen elsewhere.
   const typable = element => editable(element) && !element.readOnly;
-  const popup = element => /^(listbox|menu|tree|grid|true)$/.test(element.getAttribute('aria-haspopup') || '');
+  const popup = element => HAS_POPUP.test(element.getAttribute('aria-haspopup') || '');
   const PICK_WORDS = /^(please\s+)?(select|choose|pick)\b|^-+\s*(select|choose)|^请?选择|^請?選擇|^请选/i;
   // A dropdown the page draws itself: a button that opens a list, or a box nobody can type in that does (a
   // read-only input that says so, or that shows "Select…" where the choice goes).
@@ -230,7 +244,20 @@ function install(makeHidden, pickOption) {
   // or that it completes from a list, or that sits in a box that says so for it.
   const suggests = element => element.tagName === 'INPUT' && typable(element) && !secret(element) && (element.getAttribute('role') === 'combobox'
     || /^(list|both)$/.test(element.getAttribute('aria-autocomplete') || '') || /^(listbox|tree|grid)$/.test(element.getAttribute('aria-haspopup') || '')
-    || Boolean(element.parentElement?.closest('[role="combobox"]')));
+    || Boolean(element.parentElement?.closest('[role="combobox"]')) || searchPrompt(element));
+  // What a search prompt keeps as chosen: the rows of the list of chosen items beside it.
+  function chosen(element) {
+    const kept = element.closest(PROMPT_BOX)?.querySelector(CHOSEN_LIST);
+    if (!kept) return '';
+    const items = [...kept.querySelectorAll('[role="option"], li')].filter(item => !item.querySelector('[role="option"], li'));
+    return clean((items.length ? items : [kept]).map(textOf).filter(Boolean).join(', '), 200);
+  }
+  // The list a search prompt has open says which prompt it belongs to.
+  function promptLists(element) {
+    const id = element.getAttribute('data-uxi-multiselect-id');
+    if (!id) return [];
+    try { return [...element.ownerDocument.querySelectorAll(`[data-associated-widget="${CSS.escape(id)}"]`)]; } catch { return []; }
+  }
   // The options of a dropdown the page draws itself, when they can be told without opening it: those Dayjob read
   // when it last had the list open (peeked), or the rows of the list it names, when the page keeps them there.
   function listed(element) {
@@ -250,9 +277,11 @@ function install(makeHidden, pickOption) {
       // What it shows as chosen: its own words, less its label when the label is drawn inside it ("Code +1").
       const label = name(element);
       const drawn = element.tagName === 'INPUT' ? clean(element.value, 200) : textOf(element);
-      if (!drawn || drawn === label) return undefined;
+      // ("Select One" where the choice goes is no choice.)
+      if (!drawn || drawn === label || PICK_WORDS.test(drawn)) return undefined;
       return clean(drawn.startsWith(`${label} `) ? drawn.slice(label.length) : drawn, 200);
     }
+    if (searchPrompt(element)) return chosen(element) || clean(element.value, 300) || undefined;
     if (!editable(element) || typeof element.value !== 'string' || !element.value) return undefined;
     return secret(element) ? '(filled)' : clean(element.value, 300);
   }
@@ -351,11 +380,33 @@ function install(makeHidden, pickOption) {
   // What a click brought: before one, everything on show is noted, so that what is on show after it and was not
   // before can be told apart. (A list that was there all along but see-through or without a size was not on show.)
   let before = null;
-  function visible(element) {
-    if (!element.checkVisibility?.({ visibilityProperty: true, opacityProperty: true })) return false;
-    const rect = element.getBoundingClientRect();
-    return rect.width >= 1 && rect.height >= 1;
+  // A see-through box that is only fading in is on show. A page that is not being drawn just now (its tab is not
+  // the one on show, the window is behind another one or minimised) never gets through the fade, and what came is
+  // there to click all the same: the lists of Workday's dropdowns stayed "not there" that way.
+  function fadingIn(element) {
+    let fades = false;
+    for (let box = element; box; box = box.parentElement) {
+      if (box.ownerDocument.defaultView.getComputedStyle(box).opacity !== '0') continue;
+      const rising = (box.getAnimations?.() || []).some(animation => {
+        if (animation.playState === 'finished' || animation.playState === 'idle') return false;
+        const last = animation.effect?.getKeyframes?.().at(-1);
+        return Boolean(last) && last.opacity !== undefined && Number(last.opacity) > 0;
+      });
+      if (!rising) return false;
+      fades = true;
+    }
+    return fades;
   }
+  function visible(element) {
+    if (!element.checkVisibility?.({ visibilityProperty: true })) return false;
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    return element.checkVisibility({ visibilityProperty: true, opacityProperty: true }) || fadingIn(element);
+  }
+  // The box a list came in: remembered while the list is open, since a second look at it (another level of the
+  // list, what a search found) can no longer tell it by what a click brought.
+  const openRoot = new WeakMap();
+  const rootOf = element => { const kept = openRoot.get(element)?.deref(); return kept?.isConnected && visible(kept) ? kept : null; };
   const came = element => Boolean(before) && !before.has(element) && visible(element);
   // Words on show that no control carries: how a page draws the rows of a list it does not name as one. Each row
   // is given as the first piece of words in it (where a click surely lands on it); line() reads the whole row.
@@ -437,6 +488,7 @@ function install(makeHidden, pickOption) {
     if (element.tagName === 'SELECT') info.select = true;
     else if (opensList(element)) info.opens = 'list';
     else if (suggests(element)) info.opens = 'suggestions';
+    if (searchPrompt(element)) info.search = 'enter';
     // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
     // picture, or under another option's, is still answered.
     if (choice(element)) { info.choice = element.type; info.checked = element.checked; }
@@ -595,7 +647,8 @@ function install(makeHidden, pickOption) {
       }
       if (!reaches(element, point, at.hit)) info.coveredBy = at.hit ? `${at.hit.tagName.toLowerCase()} “${textOf(at.hit).slice(0, 80) || name(at.hit) || at.hit.className}”` : 'nothing (outside the window)';
       const offset = frameOffset(point);
-      return { ...info, x: at.x + offset.x, y: at.y + offset.y };
+      // aimed: the spot is the element's own, and can be looked up again by its ref (see mouse in browser.cjs).
+      return { ...info, aimed: true, x: at.x + offset.x, y: at.y + offset.y };
     },
 
     // What is at a point of the window (as in a picture of the page): the control there, or the bare thing itself.
@@ -683,7 +736,9 @@ function install(makeHidden, pickOption) {
       // The list it names (aria-controls, or aria-owns on the combobox around a field), when that is on show.
       const owner = element.matches('[aria-controls], [aria-owns]') ? element : element.closest('[role="combobox"]') || element;
       const named = ['aria-controls', 'aria-owns'].flatMap(attribute => String(owner.getAttribute(attribute) || '').split(/\s+/)).filter(Boolean)
-        .map(id => root.getElementById?.(id) || element.ownerDocument.getElementById(id)).filter(list => list && visible(list));
+        .map(id => root.getElementById?.(id) || element.ownerDocument.getElementById(id)).concat(promptLists(element)).filter(list => list && visible(list));
+      // Else the box its list came in when Dayjob last looked, if that is still there.
+      if (!named.length && rootOf(element)) named.push(rootOf(element));
       const usable = row => row !== element && !element.contains(row) && visible(row) && !hidden(row);
       const everything = controls(found).filter(usable);
       let all = [];
@@ -698,14 +753,35 @@ function install(makeHidden, pickOption) {
         }
         if (rows.length) break;
       }
-      const names = rows.map(row => clean(rowOf.has(row) ? line(row) : name(row) || textOf(row), 120));
+      // A row reads as its own words: what it adds for a screen reader ("… not checked") is not part of its name.
+      const said = row => {
+        if (rowOf.has(row)) return line(row);
+        const own = textOf(row);
+        return own && clean(row.getAttribute('aria-label') || '', 200).toLowerCase().startsWith(own.toLowerCase()) ? own : name(row) || own;
+      };
+      const names = rows.map(row => clean(said(row), 120));
       const index = option ? pickOption(names, option) : -1;
       const search = typable(element) ? null : all.find(item => typable(item) && !secret(item) && !disabled(item));
       shownRows.set(element, rows.map(row => new WeakRef(row)));
+      if (rows.length && !named.length) {
+        let top = null;
+        for (let box = rows[0].parentElement; box && came(box); box = box.parentElement) top = box;
+        if (top) openRoot.set(element, new WeakRef(top));
+      }
+      // A long list may draw only the rows in view, and say how many it has.
+      const sizes = rows.map(row => Number(row.getAttribute('aria-setsize'))).filter(size => Number.isInteger(size) && size > 0);
+      const count = Math.max(names.length, ...sizes);
       // keep: the whole list as it opened (nothing typed to narrow it), for the readings that follow.
       if (keep && names.length) peeked.set(element, [...new Set(names.filter(Boolean))].slice(0, 40));
-      return { options: names.slice(0, 40), count: names.length, ...(index >= 0 ? { match: { ref: refFor(rows[index]), name: names[index] } } : {}),
+      return { options: names.slice(0, 40), count, ...(index >= 0 ? { match: { ref: refFor(rows[index]), name: names[index] } } : {}),
         ...(search ? { search: refFor(search) } : {}), ...stateOf(element) };
+    },
+    // Whether the field now shows the option meant: a list that finds one row only may take it by itself.
+    shows({ ref, option }) {
+      const element = find(ref);
+      if (!element) return { error: 'missing' };
+      const now = value(element) || '';
+      return { value: now, fits: Boolean(now) && pickOption([now], option) >= 0 };
     },
 
     // What kind of field this is, for the tools that fill it in: a real select, a dropdown the page draws (opens),
@@ -732,9 +808,38 @@ function install(makeHidden, pickOption) {
       const element = find(ref);
       if (!element) return { open: false };
       const rows = (shownRows.get(element) || []).map(row => row.deref()).filter(Boolean);
-      const open = element.getAttribute('aria-expanded') === 'true' || rows.some(row => row.isConnected && visible(row));
+      const open = element.getAttribute('aria-expanded') === 'true' || rows.some(row => row.isConnected && visible(row)) || Boolean(rootOf(element)) || promptLists(element).some(visible);
       const modal = [...document.querySelectorAll('dialog[open], [aria-modal="true"]')].some(box => visible(box));
       return { open, modal };
+    },
+    // A spot of the window with nothing on it to click, for closing a list the way a person does when a second
+    // click on the dropdown and Escape both leave it open: a click beside it. With a dialog open the spot is in
+    // the dialog (a click outside one may close it).
+    blank({ ref }) {
+      const element = ref ? find(ref) : null;
+      const lists = element ? [rootOf(element), ...promptLists(element), ...(shownRows.get(element) || []).map(row => row.deref())].filter(Boolean) : [];
+      const modal = [...document.querySelectorAll('dialog[open], [aria-modal="true"]')].find(box => visible(box));
+      const idle = hit => {
+        if (!hit || hit.tagName === 'IFRAME' || hit.tagName === 'FRAME' || hit.closest('label, [role="listbox"], [role="menu"], [role="option"], [data-dayjob-pointer]')) return false;
+        if (modal ? !modal.contains(hit) : Boolean(hit.closest('[role="dialog"]'))) return false;
+        if (lists.some(list => list.contains(hit) || hit.contains(list)) && hit !== document.body && hit !== document.documentElement) return false;
+        if (hit.ownerDocument.defaultView.getComputedStyle(hit).cursor === 'pointer' || hidden(hit)) return false;
+        for (let box = hit; box; box = box.parentElement) if (box.matches(FIELDS) || box.matches(LOOSE) || loose.has(box)) return false;
+        return true;
+      };
+      const bare = hit => ![...hit.childNodes].some(node => node.nodeType === 3 && node.nodeValue.trim());
+      let spare = null;
+      for (const down of [0.5, 0.3, 0.7, 0.1, 0.9]) {
+        for (const across of [0.97, 0.03, 0.85, 0.15, 0.5]) {
+          const x = Math.round(window.innerWidth * across);
+          const y = Math.round(window.innerHeight * down);
+          const hit = document.elementFromPoint(x, y);
+          if (!idle(hit)) continue;
+          if (bare(hit)) return { x, y };
+          spare ||= { x, y };
+        }
+      }
+      return spare || { error: 'none' };
     },
 
     // Shows the pointer on its way to a point; answers how long (ms) it takes to get there.

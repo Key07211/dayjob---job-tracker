@@ -34,6 +34,9 @@ test('form fields are matched to the application profile by their labels', () =>
   assert.equal(keyFor(field('Will you now or in the future require sponsorship for employment visa status (e.g., H-1B)?')), 'needsSponsorship');
   assert.equal(keyFor(field('Emergency contact phone')), null, 'questions about someone else are left alone');
   assert.equal(keyFor(field('Name of referrer')), null);
+  assert.equal(keyFor(field("Enter website. This input is for robots only, do not enter if you're human.", { name: 'website' })), null, 'a box that says it is for robots is left empty');
+  assert.equal(keyFor(field('Leave this field blank', { name: 'url' })), null);
+  assert.equal(keyFor(field('Personal website')), 'website');
   assert.equal(keyFor(field('Referred by')), null);
   assert.equal(keyFor(field('姓名')), 'fullName');
   assert.equal(keyFor(field('Why do you want to work here?')), null);

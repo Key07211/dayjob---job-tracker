@@ -566,7 +566,9 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       description: 'Choose an option in a dropdown by its ref, matching the option\'s text: a select element, or a dropdown the page draws itself (a combobox, a button that opens '
         + 'a list, a box that suggests as you type). For those, Dayjob opens the list with the mouse, types the option into the list\'s search box when it has one, and clicks the '
         + 'row that fits best; "value" is the row it clicked and "shows" what the dropdown shows afterwards. Give the option as it reads in options=[…] or in what browser_options '
-        + 'returned; do not guess at the wording of a list you have not seen. When no row fits, the error lists the options it found and leaves the list open.',
+        + 'returned; do not guess at the wording of a list you have not seen. When no row fits, the error lists the options it found (the list stays open, unless it had to be '
+        + 'searched for the option: then it is closed again). A row may open a further list instead of being the answer (on Workday, "Job Board or Social Media" opens the list of '
+        + 'boards): the result then says so and carries "further", the rows of that list, and nothing is chosen yet; call browser_select on the same ref again with one of them.',
       shape: { ref, option: z.string().min(1).max(200) },
       label: (input, result) => [`选了“${short(result.selected.name, 30)}”：${short(result.selected.value, 30)}`, `Chose ${short(result.selected.value, 30)} for “${short(result.selected.name, 30)}”`],
       async run(input, context) {
