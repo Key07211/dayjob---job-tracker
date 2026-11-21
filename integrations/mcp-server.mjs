@@ -302,7 +302,7 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
     pressEnter: z.boolean().optional().describe('Press Enter afterwards, for example to search. Waits for the user if it could submit a form.'),
   }, input => browser('type', input), web);
 
-  tool('dayjob_browser_select', 'Choose an option in a dropdown by its ref, matching the option\'s text: a select element, or a dropdown the page draws itself (a combobox, a button that opens a list, a box that suggests as you type). For those, Dayjob opens the list with the mouse, types the option into the list\'s search box when it has one, and clicks the row that fits best. When no row fits, the error lists the options it found and leaves the list open.', {
+  tool('dayjob_browser_select', 'Choose an option in a dropdown by its ref, matching the option\'s text: a select element, or a dropdown the page draws itself (a combobox, a button that opens a list, a box that suggests as you type). For those, Dayjob opens the list with the mouse, types the option into the list\'s search box when it has one, and clicks the row that fits best. When no row fits, the error lists the options it found (the list stays open, unless it had to be searched for the option: then it is closed again). A row may open a further list instead of being the answer: the result then carries "further", the rows of that list, and nothing is chosen yet; call dayjob_browser_select on the same ref again with one of them.', {
     ref, option: z.string().min(1).max(200),
   }, input => browser('select', input), web);
 

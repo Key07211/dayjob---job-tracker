@@ -166,13 +166,48 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const [width, height] = window.getContentSize();
     for (const tab of tabs) {
       const shown = tab === active && Boolean(bounds);
-      const unseen = !shown && (atWork(tab) || readers.has(tab));
+      const unseen = !shown && (atWork(tab) || readers.has(tab) || Boolean(tab.engaged));
       tab.view.setBounds(unseen ? { ...place, x: width - 1, y: height - 1 } : place);
       tab.view.setVisible(shown || unseen);
     }
   }
   // The corner moves with the window.
-  window.on('resize', () => { if (!window.isDestroyed() && (runs.size || readers.size)) layout(); });
+  window.on('resize', () => { if (!window.isDestroyed() && (runs.size || readers.size || tabs.some(tab => tab.engaged))) layout(); });
+  // 在操作的标签页. A page behaves under Claude's or the assistant's hands as it does under a person's only if two
+  // things hold that are a matter of course in front of a person. It is being drawn: a list fades in, and a form
+  // waits for the next frame before it scrolls or lays itself out. And it has the keyboard: only then does a
+  // field tell its form that it was left (which is when Workday checks and keeps what was typed), and a list that
+  // takes the keyboard hear of it. A tab that is not on show is not drawn, and one in a window the user is not
+  // typing in has no keyboard. So while something acts on a tab, and for a little while after, the tab is kept
+  // drawn (in the window's last corner, see layout) and is told that it has the keyboard, through the debugger's
+  // focus emulation: the page believes its window is in front. Where the user's typing really goes does not change.
+  const ENGAGED_MS = 20000;
+  function keyboard(tab, on) {
+    const contents = tab.view.webContents;
+    if (contents.isDestroyed() || Boolean(tab.focusKept) === on) return;
+    try {
+      if (!contents.debugger.isAttached()) {
+        if (!on) return;
+        contents.debugger.attach('1.3');
+        contents.debugger.once('detach', () => { tab.focusKept = false; });
+      }
+      tab.focusKept = on;
+      contents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: on }).catch(() => { tab.focusKept = false; });
+    } catch { /* its developer tools are open: the page is in front of someone already */ }
+  }
+  function engage(tab) {
+    clearTimeout(tab.rest);
+    tab.rest = setTimeout(() => {
+      tab.engaged = false;
+      if (!tabs.includes(tab) || window.isDestroyed()) return;
+      keyboard(tab, false);
+      layout();
+    }, ENGAGED_MS);
+    tab.rest.unref?.();
+    keyboard(tab, true);
+    if (!tab.engaged) { tab.engaged = true; layout(); }
+    return tab;
+  }
   function setBounds(rect) {
     const valid = rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) && rect.width > 0 && rect.height > 0;
     bounds = valid ? { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } : null;
@@ -475,6 +510,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   function forget(tab) {
     const index = tabs.indexOf(tab);
     if (index < 0) return;
+    clearTimeout(tab.rest);
     tabs.splice(index, 1);
     // A question about a page that is gone has its answer.
     for (const item of approvals.values()) if (item.tab === tab) item.resolve(false);
@@ -550,12 +586,12 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   const busyIn = (tab, context) => [...runs.values()].find(run => run.busy && run.key !== context?.run?.key && tabOf(run) === tab) || null;
   function mine(context) {
     const run = runOf(context);
-    if (run) return tabOf(run) || fail(409, 'The tab this application was open in has been closed. Open the application again (open_application) to go on.');
+    if (run) return engage(tabOf(run) || fail(409, 'The tab this application was open in has been closed. Open the application again (open_application) to go on.'));
     if (context?.run?.own) fail(409, 'No page is open for this application yet. Open one first (open_application, or dayjob_browser_open).');
     const tab = current();
     const other = busyIn(tab, context);
     if (other) fail(409, `The tab on show belongs to an application the assistant is working on${other.job ? ` (${other.job})` : ''}. Switch to another tab, or open the page in a new one.`);
-    return tab;
+    return engage(tab);
   }
   // An application's reply is over (close: it was sent and recorded, so its tabs can go, unless one is on show), or
   // its conversation is gone (forgotten). The tabs of one that did not go through stay for the user to carry on in.
@@ -662,6 +698,20 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     try { shown = await page(tab, 'pointer', { x: target.x, y: target.y, press }); } catch { /* the click matters, not the picture of it */ }
     const wait = Math.max(shown?.wait || 0, target.moved ? SCROLL_REST : 0);
     if (wait) await delay(wait);
+    // The page may have moved under the pointer meanwhile: a list scrolls back to its chosen row once it has
+    // opened (Workday's does), a line of the form unfolds. Where the thing is now is looked up again, and the
+    // mouse goes there; if it had to be scrolled to once more, the page is given its moment again.
+    if (target.aimed) {
+      for (let tries = 0; tries < 3 && tabs.includes(tab); tries += 1) {
+        let now = null;
+        try { now = await page(tab, 'target', { ref: target.ref }); } catch { break; }
+        if (!now || now.error || now.coveredBy) break;
+        const still = Math.abs(now.x - target.x) < 2 && Math.abs(now.y - target.y) < 2;
+        target = { ...target, x: now.x, y: now.y };
+        if (!now.moved) { if (!still) await page(tab, 'pointer', { x: now.x, y: now.y, press }).catch(() => {}); break; }
+        await delay(SCROLL_REST);
+      }
+    }
     await page(tab, 'mark');
     const zoom = contents.getZoomFactor();
     const x = Math.round(target.x * zoom);
@@ -749,7 +799,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
   // Closes the list of a dropdown Dayjob opened only to read it, the way a person would: a second click on the
   // dropdown, or a press of Escape. Escape is kept away from a page a dialog holds, which might take it for its own;
-  // and a dropdown that a row of its list now lies over is not clicked, since that would choose the row.
+  // and a dropdown that a row of its list now lies over is not clicked, since that would choose the row. A list
+  // that stays open through both (Workday's search prompts do) is closed by a click on an empty spot beside it.
   async function shut(tab, ref, typed) {
     const state = async () => { try { return await page(tab, 'listOpen', { ref }); } catch { return { open: false }; } };
     const again = async () => {
@@ -763,8 +814,15 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       press(tab.view.webContents, 'Escape');
       await delay(250);
     };
+    const away = async () => {
+      let spot = null;
+      try { spot = await page(tab, 'blank', { ref }); } catch { return; }
+      if (!spot || spot.error) return;
+      await mouse(tab, spot);
+      await delay(250);
+    };
     let now = await state();
-    for (const way of typed ? [escape, again] : [again, escape]) {
+    for (const way of typed ? [escape, again, away] : [again, escape, away]) {
       if (!now.open) return true;
       await way(now.modal);
       now = await state();
@@ -1100,6 +1158,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         if (own && !run) { run = { key: context.run.key, tabs: [], job: String(context.run.job || '').slice(0, 200), busy: true }; runs.set(run.key, run); }
         if (run) { run.tabs.push(tab); layout(); }
       } else loading = tab.view.webContents.loadURL(target);
+      engage(tab);
       remember(tab, target);
       const outcome = await Promise.race([loading.then(() => null, error => error), delay(30000).then(() => 'timeout')]);
       if (outcome instanceof Error && !/ERR_ABORTED/.test(outcome.message)) {
@@ -1195,7 +1254,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       // A dropdown is chosen from, not typed in: whatever tool the answer came through, it is taken as the option
       // meant, so that no text is left in a box that only keeps a row of its list.
       const kind = checked(await page(tab, 'kind', { ref }), ref);
-      if (kind.select || kind.opens === 'list') {
+      if (kind.select || kind.opens === 'list' || kind.search) {
         if (!text.trim()) fail(409, `${ref} (“${kind.name}”) is a dropdown, not a text field. Choose one of its options with dayjob_browser_select.`);
         const chosen = await actions.select({ ref, option: text }, context);
         return { ...chosen, note: [`${ref} is a dropdown, so Dayjob chose the option that reads like what you typed. Use dayjob_browser_select for dropdowns.`, chosen.note].filter(Boolean).join(' ') };
@@ -1294,32 +1353,94 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       const documents = tab.documents;
       const same = () => tabs.includes(tab) && tab.documents === documents;
       const contents = tab.view.webContents;
-      const open = async () => {
-        if (target.coveredBy) fail(409, covered(target));
-        await mouse(tab, target);
+      const open = async (at = target) => {
+        if (at.coveredBy) fail(409, covered(at));
+        await mouse(tab, at);
       };
-      if (target.editable) {
+      const type = async () => {
         await page(tab, 'mark');
         checked(await page(tab, 'focus', { ref }), ref);
         await contents.insertText(option);
-      } else if (!target.expanded) await open();
-      let found = await rows(tab, ref, option, same, target.editable ? 4500 : 2500, target.editable);
-      // A control that does not say whether it is open was open already, and that click closed it.
-      if (!found.count && !target.editable && target.expanded === undefined && same()) {
-        await open();
-        found = await rows(tab, ref, option, same, 2500);
-      }
-      if (!found.match && found.search && same()) {
-        const box = await page(tab, 'focus', { ref: found.search });
-        if (!box?.error) {
+      };
+      let found;
+      // Chosen by the page itself: what the field shows once a search found one row only.
+      let taken = '';
+      // What the list read before anything was looked for in it, and whether something was.
+      let listed = null;
+      let searched = false;
+      let closed = false;
+      if (target.search === 'enter') {
+        // A box that searches a list when Enter is pressed (Workday's prompts). A click opens its list, focus alone
+        // does not; the row is taken from what shows, else looked for by typing it and pressing Enter.
+        const standing = await page(tab, 'listOpen', { ref });
+        if (!standing.open) await open();
+        found = await rows(tab, ref, option, same, 1500);
+        if (!found.match && same()) {
+          listed = found;
+          searched = true;
+          const shown = `${found.count}|${found.options.join('|')}`;
+          checked(await page(tab, 'focus', { ref }), ref);
           await contents.insertText(option);
-          found = await rows(tab, ref, option, same, 4500, true);
+          found = await rows(tab, ref, option, same, 1200, true);
+          if (!found.match && same()) {
+            press(contents, 'Enter');
+            const until = Date.now() + 5000;
+            for (let turn = 0; same(); turn += 1) {
+              found = await rows(tab, ref, option, same, 450, turn === 0);
+              if (found.match) break;
+              let now = null;
+              try { now = await page(tab, 'shows', { ref, option }); } catch { break; }
+              if (now?.fits) { taken = now.value; break; }
+              // The search is over once the list has changed and settled, or nothing has come of it in time.
+              if (Date.now() > until || (turn >= 2 && found.count && `${found.count}|${found.options.join('|')}` !== shown)) break;
+            }
+          }
+          // Nothing like it: what was typed is taken out again, so that the box does not keep words that are no
+          // answer, and the list, which now shows what the search left of it, is closed.
+          if (!found.match && !taken && same()) {
+            const box = await page(tab, 'focus', { ref });
+            if (!box?.error) contents.delete();
+            closed = await shut(tab, ref, true);
+          }
+        }
+      } else {
+        if (target.editable) await type();
+        else if (!target.expanded) await open();
+        found = await rows(tab, ref, option, same, target.editable ? 4500 : 2500, target.editable);
+        // No list came. The page may have drawn the dropdown again under the mouse, or the list was open already
+        // and that click closed it: it is looked at afresh and, unless it says it is open now, clicked once more.
+        if (!found.count && !target.editable && same()) {
+          const again = await page(tab, 'target', { ref });
+          if (!again.error && !again.coveredBy && !again.disabled && !again.expanded) {
+            await open(again);
+            found = await rows(tab, ref, option, same, 2500);
+          }
+        }
+        if (!found.match && found.search && same()) {
+          const box = await page(tab, 'focus', { ref: found.search });
+          if (!box?.error) {
+            await contents.insertText(option);
+            found = await rows(tab, ref, option, same, 4500, true);
+          }
         }
       }
-      if (!found.match) {
-        if (!found.count) fail(409, `${ref} (“${target.name}”) did not open a list with options${found.search ? ' for that' : ''}. Click it with dayjob_browser_click and look at what appears.`);
+      if (!found.match && !taken) {
+        if (searched) {
+          const rest = found.count && found.options.join('|') !== listed.options.join('|') ? `Its search found only: ${found.options.join(' | ')}. ` : 'Its search found nothing like it. ';
+          fail(409, `No option like “${option}” in ${ref} (“${target.name}”). ${rest}${listed.count ? `${listed.count > listed.options.length ? `The first ${listed.options.length} of its ${listed.count} options` : 'Its options'}: ${listed.options.join(' | ')}. ` : ''}`
+            + `Choose again with an option as it reads there (a row may open a further list).${closed ? '' : ' Its list is still open: click an empty part of the page to close it.'}`);
+        }
+        if (!found.count) {
+          let stands = {};
+          try { stands = await page(tab, 'listOpen', { ref }); } catch { /* the page went on */ }
+          fail(409, `${ref} (“${target.name}”) did not open a list with options${found.search || target.search ? ' for that' : ''}${stands.open ? ' (it says it is open, but no rows are on show)' : ''}. Click it with dayjob_browser_click and look at what appears.`);
+        }
         fail(409, `No option like “${option}” in ${ref} (“${target.name}”). ${found.count > found.options.length ? `The first ${found.options.length} of ${found.count} options` : 'Options'}: ${found.options.join(' | ')}. `
-          + `The list is still open: choose again with the option as it reads there, or click ${ref} again to close it. Do not press Escape when the form is in a dialog: it may close the dialog and lose what is filled in.`);
+          + `The list is still open: choose again with the option as it reads there, or click ${ref} again to close it${target.search ? ' (if it stays open, click an empty part of the page)' : ''}. Do not press Escape when the form is in a dialog: it may close the dialog and lose what is filled in.`);
+      }
+      if (taken) {
+        await settle(tab, 200);
+        return result(tab, before, { selected: { ref, name: target.name, value: taken } }, context);
       }
       const row = checked(await page(tab, 'target', { ref: found.match.ref }), found.match.ref);
       // A row of a list is a choice, like an option of a real dropdown; anything else that opened (a menu's "Delete") may be an action.
@@ -1329,8 +1450,21 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       await settle(tab, 200);
       let now = {};
       if (same()) try { now = await page(tab, 'read', { ref }); } catch { /* the page drew the control again */ }
+      // A row that is a heading opens the list under it ("Job Board or Social Media", then the boards): the rows
+      // of that list come back, to be chosen from the same way.
+      let further = null;
+      if (same() && target.search) {
+        let stands = { open: false };
+        try { stands = await page(tab, 'listOpen', { ref }); } catch { /* the page went on */ }
+        if (stands.open) {
+          const next = await rows(tab, ref, '', same, 1500);
+          if (next.count && next.options.join('|') !== found.options.join('|')) further = next;
+        }
+      }
       return result(tab, before, { selected: { ref, name: target.name, value: found.match.name, ...(now.value && now.value !== found.match.name ? { shows: now.value } : {}),
-        ...(now.expanded ? { open: true } : {}) } }, context);
+        ...(now.expanded || further ? { open: true } : {}) },
+        ...(further ? { further: further.options, ...(further.count > further.options.length ? { furtherCount: further.count } : {}),
+          note: `“${found.match.name}” opened a further list, and nothing is chosen yet: choose from it with dayjob_browser_select on ${ref} again, giving one of these options as it reads.` } : {}) }, context);
     },
     async key({ key }, context) {
       const tab = mine(context);

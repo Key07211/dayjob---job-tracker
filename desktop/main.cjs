@@ -516,6 +516,210 @@ const notes = document.getElementById('notes-button');
 notes.addEventListener('click', () => { document.getElementById('notes-link').hidden = false; notes.setAttribute('aria-expanded', 'true'); });
 </script></body></html>`;
 
+// A page of Workday's application form ("My Information"), built after what such a page really holds. Three
+// dropdowns that are buttons: each names itself with its choice in the name ("State Select One"), and puts its
+// list at the end of the page, where it fades in, takes the keyboard, and scrolls back to its chosen row a moment
+// after it opened (the third one's fade stays at nothing for a while, as every fade does in a page that is not
+// being drawn). Two search prompts: a box that says nothing of a list; a click opens one at the end of the page
+// with only the rows in view drawn, Enter looks for what was typed and takes the only hit by itself, a row with an
+// arrow opens a further list, the choice is kept beside the box, and neither Escape nor a second click closes the
+// list, only a click elsewhere. A box for robots, clipped to nothing where it stands. And a field that keeps
+// what was typed only when it is left.
+const WORKDAY_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>My Information · Smoke Co Careers</title><style>
+body{margin:0;font:14px sans-serif}main{max-width:420px;margin:0 auto;padding:16px 16px 500px}.field{margin:14px 0}.field label{display:block;margin-bottom:4px;font-weight:bold}
+.field input{box-sizing:border-box;width:300px;height:32px}.sel{width:300px;height:36px;padding:0 10px;text-align:left;border:1px solid #888;border-radius:4px;background:#fff}.gone{display:none}
+.menu{position:absolute;z-index:30;opacity:0;transition:opacity .15s}.menu.late{transition-delay:4s}
+.menu ul{width:300px;max-height:200px;overflow-y:auto;margin:0;padding:0;list-style:none;background:#fff;border:1px solid #888;outline:0}
+.menu li{height:32px;padding:0 10px;line-height:32px;cursor:pointer}.menu li[aria-selected=true]{background:#dde}
+.trap{position:relative;height:0}.trap label,.trap input{position:absolute;clip:rect(1px,1px,1px,1px);clip-path:polygon(0 0,0 0,0 0,0 0);overflow:clip;width:1px;height:0;margin:0;padding:0;border:0}
+.ms{box-sizing:border-box;width:300px;padding:3px 6px;border:1px solid #888;border-radius:4px}.ms input{width:240px;height:26px;border:0;outline:0}
+.ms ul{margin:0;padding:0;list-style:none}.ms li{display:inline-block;margin:2px 0;padding:2px 8px;border-radius:10px;background:#dde}
+.prompt{position:absolute;z-index:30;width:300px;background:#fff;border:1px solid #888}.grid{position:relative;overflow:auto}.grid .inner{position:relative}
+.grid [role=option]{position:absolute;left:0;right:0;height:32px;line-height:32px;cursor:pointer}.leaf{display:flex;gap:8px;align-items:center;padding:0 10px}
+.leaf input{margin:0}.chev{width:7px;height:7px;margin-left:auto;border:solid #555;border-width:2px 2px 0 0;transform:rotate(45deg)}.none{padding:8px 10px;color:#555}.err{color:#b00}
+</style></head><body><main><h1>My Information</h1><form action="/answered" method="get">
+<div class="trap"><label for="bee">Enter website. This input is for robots only, do not enter if you're human.</label><input data-automation-id="beecatcher" name="website" type="text" id="bee"></div>
+<div class="field" data-automation-id="formField-source"><label for="source--source">How Did You Hear About Us?<abbr title="required">*</abbr></label>
+<div class="ms" data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect" tabindex="-1"><div data-automation-id="multiselectInputContainer">
+<ul role="listbox" tabindex="0" data-automation-id="selectedItemList" aria-label="items selected"></ul>
+<input enterkeyhint="search" placeholder="Search" aria-required="true" autocomplete="off" data-uxi-widget-type="selectinput" data-uxi-multiselect-id="ms-source" id="source--source"></div></div></div>
+<div class="field" data-automation-id="formField-country"><label for="country--country">Country<abbr title="required">*</abbr></label>
+<div><button aria-haspopup="listbox" type="button" aria-label="Country United States of America Required" name="country" id="country--country" class="sel" value="United States of America">United States of America</button><input type="text" class="gone" value="United States of America"></div></div>
+<div class="field"><label for="address--line1">Address Line 1<abbr title="required">*</abbr></label><input id="address--line1" name="line1" aria-required="true" autocomplete="off">
+<div class="err" id="line1-error" hidden>Error: The field Address Line 1 is required and must have a value.</div></div>
+<div class="field"><label for="address--city">City</label><input id="address--city" name="town" autocomplete="off"></div>
+<div class="field" data-automation-id="formField-countryRegion"><label for="address--countryRegion">State</label>
+<div><button aria-haspopup="listbox" type="button" aria-label="State Select One" name="countryRegion" id="address--countryRegion" class="sel" value="">Select One</button><input type="text" class="gone" value=""></div></div>
+<div class="field" data-automation-id="formField-phoneType"><label for="phoneNumber--phoneType">Phone Device Type<abbr title="required">*</abbr></label>
+<div><button aria-haspopup="listbox" type="button" aria-label="Phone Device Type Select One Required" name="phoneType" id="phoneNumber--phoneType" class="sel" value="">Select One</button><input type="text" class="gone" value=""></div></div>
+<div class="field" data-automation-id="formField-countryPhoneCode"><label for="phoneNumber--countryPhoneCode">Country Phone Code<abbr title="required">*</abbr></label>
+<div class="ms" data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect" tabindex="-1"><div data-automation-id="multiselectInputContainer">
+<ul role="listbox" tabindex="0" data-automation-id="selectedItemList" aria-label="items selected"><li role="option"><div data-automation-id="selectedItem">United States of America (+1)</div></li></ul>
+<input enterkeyhint="search" placeholder="Search" aria-required="true" autocomplete="off" data-uxi-widget-type="selectinput" data-uxi-multiselect-id="ms-code" id="phoneNumber--countryPhoneCode"></div></div></div>
+</form></main><script>
+var answers = { country: 'United States of America', code: 'United States of America (+1)' };
+var make = function (tag, text, attributes) { var item = document.createElement(tag); item.textContent = text || ''; for (var key in attributes || {}) item.setAttribute(key, attributes[key]); return item; };
+var CODES = ('Afghanistan (+93)|Albania (+355)|Algeria (+213)|Andorra (+376)|Angola (+244)|Argentina (+54)|Armenia (+374)|Australia (+61)|Austria (+43)|Bahamas (+1)|Bangladesh (+880)|Belgium (+32)|Bolivia (+591)|Brazil (+55)|Bulgaria (+359)'
+  + '|Cambodia (+855)|Cameroon (+237)|Canada (+1)|Chile (+56)|China (+86)|Colombia (+57)|Costa Rica (+506)|Croatia (+385)|Cuba (+53)|Cyprus (+357)|Denmark (+45)|Ecuador (+593)|Egypt (+20)|Equatorial Guinea (+240)|Estonia (+372)'
+  + '|Ethiopia (+251)|Fiji (+679)|Finland (+358)|France (+33)|Germany (+49)|Ghana (+233)|Greece (+30)|Guatemala (+502)|Guinea (+224)|Guinea-Bissau (+245)|Hungary (+36)|Iceland (+354)|India (+91)|Indonesia (+62)|Ireland (+353)'
+  + '|Israel (+972)|Italy (+39)|Jamaica (+1)|Japan (+81)|Kenya (+254)|Mexico (+52)|Netherlands (+31)|New Zealand (+64)|Nigeria (+234)|Norway (+47)|Papua New Guinea (+675)|Peru (+51)|Poland (+48)|Portugal (+351)|Singapore (+65)'
+  + '|South Africa (+27)|Spain (+34)|Sweden (+46)|Switzerland (+41)|Thailand (+66)|Turkey (+90)|Ukraine (+380)|United Arab Emirates (+971)|United Kingdom (+44)|United States of America (+1)|Vietnam (+84)|Zimbabwe (+263)').split('|');
+var STATES = ('Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota'
+  + '|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont'
+  + '|Virginia|Washington|West Virginia|Wisconsin|Wyoming').split('|');
+var HEARD = [{ text: 'Smoke Co Corporate Website', rows: ['Careers page', 'Company blog'] }, { text: 'I currently work at/for Smoke Co', rows: ['Employee', 'Contractor'] },
+  { text: 'Job Board or Social Media', rows: ['Glassdoor', 'Handshake', 'Indeed', 'LinkedIn'] }, { text: 'Career Fair or Recruiting Event', rows: ['Campus career fair', 'Conference'] },
+  { text: 'Staffing Agency', rows: ['Agency recruiter', 'Agency website'] }];
+
+function select(id, key, rows, late) {
+  var button = document.getElementById(id);
+  var label = document.querySelector('label[for="' + id + '"]').firstChild.nodeValue;
+  var required = / Required$/.test(button.getAttribute('aria-label'));
+  var menu = null;
+  var timer = 0;
+  function close(focus) {
+    if (!menu) return;
+    clearTimeout(timer);
+    menu.remove();
+    menu = null;
+    button.removeAttribute('aria-expanded');
+    button.removeAttribute('aria-controls');
+    if (focus) button.focus();
+  }
+  function choose(text) {
+    var none = text === 'Select One';
+    button.textContent = text;
+    button.value = none ? '' : text;
+    button.nextElementSibling.value = button.value;
+    button.setAttribute('aria-label', label + ' ' + text + (required ? ' Required' : ''));
+    answers[key] = button.value;
+    close(true);
+  }
+  function toChosen(list) {
+    var row = list.querySelector('[aria-selected=true]');
+    if (row) list.scrollTop = row.offsetTop - (list.clientHeight - row.offsetHeight) / 2;
+  }
+  function open() {
+    var at = button.getBoundingClientRect();
+    var outer = make('div');
+    var box = make('div', '', { 'class': 'menu' + (late ? ' late' : ''), style: 'left:' + (at.left + scrollX) + 'px;top:' + (at.bottom + scrollY) + 'px' });
+    var list = make('ul', '', { role: 'listbox', tabindex: '-1', id: id + '-menu' });
+    ['Select One'].concat(rows).forEach(function (text, index) {
+      var row = make('li', '', { role: 'option', id: id + '-row-' + index, 'data-value': index ? text : '' });
+      row.append(make('div', text));
+      if (text === button.textContent) { row.setAttribute('aria-selected', 'true'); list.setAttribute('aria-activedescendant', row.id); }
+      if (!index && required) row.setAttribute('aria-disabled', 'true');
+      else row.addEventListener('click', function () { choose(text); });
+      list.append(row);
+    });
+    list.addEventListener('keydown', function (event) { if (event.key === 'Escape') close(true); });
+    box.append(list);
+    outer.append(box);
+    document.body.append(outer);
+    menu = outer;
+    button.setAttribute('aria-expanded', 'true');
+    button.setAttribute('aria-controls', list.id);
+    requestAnimationFrame(function () { if (menu !== outer) return; box.style.opacity = '1'; list.focus(); toChosen(list); });
+    timer = setTimeout(function () { toChosen(list); }, 350);
+  }
+  button.addEventListener('click', function () { if (menu) close(false); else open(); });
+  document.addEventListener('mousedown', function (event) { if (menu && !menu.contains(event.target) && event.target !== button) close(false); });
+}
+select('address--countryRegion', 'state', STATES);
+select('country--country', 'country', CODES.map(function (text) { return text.replace(/ [(].*/, ''); }));
+select('phoneNumber--phoneType', 'device', ['Landline', 'Mobile'], true);
+
+function prompt(id, key, tree) {
+  var input = document.getElementById(id);
+  var widget = input.getAttribute('data-uxi-multiselect-id');
+  var holder = input.closest('[data-uxi-widget-type=multiselect]');
+  var pills = holder.querySelector('[data-automation-id=selectedItemList]');
+  var top = tree.map(function (item) { return typeof item === 'string' ? { text: item } : item; });
+  var leaves = top.reduce(function (all, item) { return all.concat(item.rows ? item.rows.map(function (text) { return { text: text }; }) : [item]); }, []);
+  var pop = null;
+  var grid = null;
+  var inner = null;
+  var shown = [];
+  var wait = 0;
+  function close() {
+    if (!pop) return;
+    clearTimeout(wait);
+    pop.remove();
+    pop = null;
+    input.value = '';
+    input.removeAttribute('data-automation-id');
+  }
+  function choose(text) {
+    var kept = make('li', '', { role: 'option' });
+    kept.append(make('div', text, { 'data-automation-id': 'selectedItem', title: text }));
+    pills.replaceChildren(kept);
+    answers[key] = text;
+    close();
+  }
+  function rowFor(item, index) {
+    var row = make('div', '', { role: 'option', 'data-automation-id': 'menuItem', tabindex: '-1', 'aria-setsize': shown.length, 'aria-posinset': index + 1,
+      'aria-label': item.text + ' not checked', 'aria-selected': 'false', style: 'top:' + index * 32 + 'px' });
+    var leaf = make('div', '', { 'class': 'leaf', 'data-automation-id': 'promptLeafNode', 'data-automation-checked': 'Not Checked', 'data-uxi-multiselectlistitem-hassidecharm': String(Boolean(item.rows)) });
+    if (!item.rows) leaf.append(make('input', '', { type: 'radio', 'aria-checked': 'false', 'data-automation-id': 'radioBtn', tabindex: '-1' }));
+    leaf.append(make('div', item.text, { 'data-automation-id': 'promptOption', 'data-automation-label': item.text }));
+    if (item.rows) leaf.append(make('span', '', { 'class': 'chev' }));
+    row.append(leaf);
+    row.addEventListener('click', function () { if (item.rows) show(item.rows.map(function (text) { return { text: text }; })); else choose(item.text); });
+    return row;
+  }
+  function draw() {
+    var first = Math.max(0, Math.floor(grid.scrollTop / 32) - 2);
+    var rows = [];
+    for (var index = first; index < Math.min(shown.length, first + 15); index += 1) rows.push(rowFor(shown[index], index));
+    if (!shown.length) rows.push(make('div', 'No matches found', { 'class': 'none' }));
+    inner.replaceChildren.apply(inner, rows);
+  }
+  function show(list) {
+    shown = list;
+    inner.style.height = Math.max(32, list.length * 32) + 'px';
+    grid.style.height = Math.max(32, Math.min(list.length, 10) * 32) + 'px';
+    grid.scrollTop = 0;
+    draw();
+  }
+  function open() {
+    var at = holder.getBoundingClientRect();
+    var outer = make('div');
+    pop = make('div', '', { 'class': 'prompt', 'data-associated-widget': widget, 'data-automation-type': 'singleSelectPrompt', 'data-automation-id': 'responsiveMonikerPrompt', 'data-uxi-widget-type': 'prompt',
+      style: 'left:' + (at.left + scrollX) + 'px;top:' + (at.bottom + scrollY) + 'px' });
+    var lists = make('div', '', { 'data-uxi-widget-type': 'multiselectlist' });
+    grid = make('div', '', { 'class': 'grid ReactVirtualized__Grid ReactVirtualized__List', role: 'listbox', 'data-automation-id': 'activeListContainer', 'aria-label': 'Options Expanded' });
+    inner = make('div', '', { 'class': 'inner ReactVirtualized__Grid__innerScrollContainer', role: 'presentation' });
+    grid.addEventListener('scroll', draw);
+    grid.append(inner);
+    lists.append(grid);
+    pop.append(lists);
+    outer.append(pop);
+    document.body.append(outer);
+    input.setAttribute('data-automation-id', 'searchBox');
+    show(top);
+  }
+  input.addEventListener('click', function () { if (!pop) open(); });
+  input.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (!pop) open();
+    var words = input.value.trim().toLowerCase();
+    clearTimeout(wait);
+    wait = setTimeout(function () {
+      var hits = words ? leaves.filter(function (item) { return item.text.toLowerCase().indexOf(words) >= 0; }) : top;
+      if (words && hits.length === 1) choose(hits[0].text);
+      else show(hits);
+    }, 150);
+  });
+  document.addEventListener('mousedown', function (event) { if (pop && !pop.contains(event.target) && event.target !== input) close(); });
+}
+prompt('source--source', 'source', HEARD);
+prompt('phoneNumber--countryPhoneCode', 'code', CODES);
+
+var line1 = document.getElementById('address--line1');
+line1.addEventListener('blur', function () { answers.line1 = line1.value; document.getElementById('line1-error').hidden = Boolean(line1.value); });
+</script></body></html>`;
+
 // A second job at the same company, and an application form that never says which job or company it is for.
 const SECOND_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Research Analyst · Smoke Co</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Research Analyst","hiringOrganization":{"@type":"Organization","name":"Smoke Co"},
@@ -600,6 +804,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/choices') return response.end(CHOICE_PAGE);
     if (url.pathname === '/marked-hidden') return response.end(MARKED_HIDDEN_PAGE);
     if (url.pathname === '/widgets') return response.end(WIDGET_PAGE);
+    if (url.pathname === '/workday') return response.end(WORKDAY_PAGE);
     if (url.pathname === '/jobs/9') return response.end(SECOND_JOB_PAGE);
     if (url.pathname === '/board') return response.end(BOARD_PAGE);
     if (url.pathname === '/jobs/long') return response.end(LONG_JOB_PAGE);
@@ -1059,6 +1264,62 @@ async function smokeBrowser(token) {
     await pageAt(`${base}/widgets`).executeJavaScript("document.getElementById('heard-pop')?.remove()");
     const hinted = await browser.agent('type', { ref: field('Current city').ref, text: 'menlo' }, byAssistant);
     steps.typedSuggests = hinted.typed.value === 'menlo' && (hinted.suggestions || []).includes('West Menlo Park, CA') && /browser_select|dayjob_browser_select/.test(hinted.note || '');
+    // Workday: its dropdowns are read under their labels' names, which do not change with the choice; the box for
+    // robots is neither read nor filled in from the profile.
+    service.repo.updateSettings({ applicant: { ...service.repo.getSettings().applicant, website: 'https://smoke.example.com' } });
+    await call('open', { url: `${base}/workday` });
+    const info = await call('read');
+    const wd = name => info.elements.find(item => item.name.startsWith(name)) || {};
+    const answered = async () => JSON.parse(await pageAt(`${base}/workday`).executeJavaScript(
+      "JSON.stringify(Object.assign({ open: document.querySelectorAll('.menu, .prompt').length, bee: document.getElementById('bee').value, box: document.getElementById('source--source').value }, answers))"));
+    const choose = async (name, option) => (await call('select', { ref: wd(name).ref, option })).selected;
+    steps.workdayRead = info.elements.length === 7 && wd('State').name === 'State' && wd('State').opens === 'list' && !wd('State').value
+      && wd('Country').name === 'Country*' && wd('Country').value === 'United States of America' && wd('How Did You Hear').opens === 'suggestions' && !wd('How Did You Hear').value
+      && wd('Country Phone Code').value === 'United States of America (+1)' && !info.elements.some(item => /website|robots/i.test(item.name));
+    const trapped = await browser.autofill({});
+    steps.workdayTrap = !trapped.filled.some(item => item.key === 'website') && (await answered()).bee === '';
+    // A row far down a list that scrolls back to its chosen row once it has opened is still the row that gets the
+    // click, down the list and up again; the name stays what it was.
+    const york = await choose('State', 'New York');
+    const texas = await choose('State', 'Texas');
+    const alabama = await choose('State', 'Alabama');
+    const canada = await choose('Country', 'Canada');
+    const chosenNow = await answered();
+    steps.workdayLists = york.value === 'New York' && york.name === 'State' && texas.value === 'Texas' && alabama.value === 'Alabama' && canada.value === 'Canada' && canada.name === 'Country*'
+      && chosenNow.state === 'Alabama' && chosenNow.country === 'Canada' && chosenNow.open === 0;
+    // A list whose fade has not got anywhere yet is there all the same.
+    steps.workdayFading = (await choose('Phone Device Type', 'Mobile')).value === 'Mobile' && (await answered()).device === 'Mobile';
+    // A search prompt: a row on show is clicked; one further down the list is looked for, and the page takes the
+    // only hit itself; of several hits the closest is clicked.
+    const albania = await choose('Country Phone Code', 'Albania');
+    const kingdom = await choose('Country Phone Code', 'United Kingdom');
+    const guinea = await choose('Country Phone Code', 'Guinea');
+    const dialled = await answered();
+    steps.workdayPrompt = albania.value === 'Albania (+355)' && kingdom.value === 'United Kingdom (+44)' && guinea.value === 'Guinea (+224)' && dialled.code === 'Guinea (+224)' && dialled.open === 0;
+    // A row that opens a further list says so, with its rows; the next choice is made in that list.
+    const boards = await call('select', { ref: wd('How Did You Hear').ref, option: 'Job Board or Social Media' });
+    const linked = await choose('How Did You Hear', 'LinkedIn');
+    steps.workdayFurther = boards.selected.open === true && (boards.further || []).join('|') === 'Glassdoor|Handshake|Indeed|LinkedIn' && /further list/.test(boards.note || '')
+      && linked.value === 'LinkedIn' && (await answered()).source === 'LinkedIn';
+    // Nothing like it: the answer names the options, the words typed are taken out again and the list is closed.
+    const pigeon = await post('select', { ref: wd('How Did You Hear').ref, option: 'Carrier pigeon' });
+    const cooed = (await pigeon.json()).error || '';
+    const cleared = await answered();
+    steps.workdayNoRow = pigeon.status === 409 && /^No option like “Carrier pigeon”/.test(cooed) && /Its options: Smoke Co Corporate Website \| I currently work/.test(cooed)
+      && cleared.box === '' && cleared.open === 0 && cleared.source === 'LinkedIn';
+    // A field that keeps what was typed only when it is left hears that it was left, in a window nobody is typing in.
+    await call('type', { ref: wd('Address Line 1').ref, text: '1 Smoke St' });
+    await call('type', { ref: wd('City').ref, text: 'Berkeley' });
+    steps.workdayLeft = (await answered()).line1 === '1 Smoke St';
+    // All five lists are read in one go, the long ones with how many rows there are, and every one is closed again
+    // (a prompt's by a click beside it) with nothing chosen.
+    const untouchedForm = JSON.stringify(await answered());
+    const prompts = (await browser.agent('options', {}, byAssistant)).dropdowns;
+    const prompt = name => prompts.find(item => item.name.startsWith(name)) || {};
+    steps.workdayOptions = prompts.length === 5 && prompts.every(item => !item.open && item.options?.length) && prompt('State').options.includes('Alaska') && prompt('State').more > 0
+      && prompt('How Did You Hear').options.join('|') === 'Smoke Co Corporate Website|I currently work at/for Smoke Co|Job Board or Social Media|Career Fair or Recruiting Event|Staffing Agency'
+      && prompt('Country Phone Code').options[0] === 'Afghanistan (+93)' && prompt('Country Phone Code').more > 40 && prompt('Country Phone Code').search === true
+      && JSON.stringify(await answered()) === untouchedForm && JSON.parse(untouchedForm).open === 0;
     // 读岗位: for the assistant, Dayjob reads each job's own page in a working tab that is not on show, one after
     // another, and closes it afterwards; the page the assistant is on stays where it is. Nobody but the assistant
     // in the Dayjob window can ask for it.
@@ -1091,7 +1352,7 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);

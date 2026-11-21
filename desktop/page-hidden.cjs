@@ -8,6 +8,10 @@
 //
 // So a marked box is taken at its word unless it is plainly in view: drawn, a large part of the window, no dialog
 // open beside it, and on top where it shows (a click on it lands in it, so nothing like a backdrop lies over it).
+//
+// A box to type in that the page clips to nothing is kept away too, though no mark says so: it is there to catch
+// robots (Workday's "Enter website. This input is for robots only, do not enter if you're human."), and a form
+// that comes back with it answered is thrown away.
 function installHidden() {
   const MARK = '[aria-hidden="true"]';
   const MODAL = 'dialog[open], [aria-modal="true"]';
@@ -69,8 +73,23 @@ function installHidden() {
     return verdict.hides;
   }
 
+  // A plain box to type in that nobody can see: no width or no height, or clipped to a point where it stands. (A
+  // checkbox or a file field drawn that way is another matter, since its label is what people click; so is the box
+  // inside a dropdown a page draws itself, which says what it is.)
+  const TYPED = ['', 'text', 'email', 'url', 'tel', 'search', 'number'];
+  const NOTHING = /^(inset\(\s*(50|100)%|polygon\(\s*0(px|%)? 0(px|%)?,\s*0(px|%)? 0(px|%)?,\s*0(px|%)? 0(px|%)?)/;
+  function clippedAway(element) {
+    const box = element.tagName === 'TEXTAREA' || (element.tagName === 'INPUT' && TYPED.includes((element.getAttribute('type') || '').toLowerCase()));
+    if (!box || element.readOnly || element.matches('[role], [aria-haspopup], [aria-autocomplete]') || !drawn(element)) return false;
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return true;
+    const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+    return Boolean(style) && /^(absolute|fixed)$/.test(style.position) && (/^rect\(\s*[01]px/.test(style.clip) || NOTHING.test(style.clipPath));
+  }
+
   return function hidden(element) {
     if (element.closest('[inert]')) return true;
+    if (clippedAway(element)) return true;
     for (let box = element.closest(MARK); box; box = box.parentElement?.closest(MARK)) {
       if (hides(box)) return true;
     }
