@@ -98,7 +98,7 @@ export function guideSteps({ browser = true } = {}) {
       id: 'browser', key: 'browser', target: [key('browser')],
       title: ['浏览器', 'Browser'],
       say: [
-        { text: ['Dayjob 自带的浏览器，点这个键就从窗口右边弹出来，盖在页面上，页面本身不动。在里面看招聘页，一键把你的资料填进申请表，并附上合适的简历。', 'Dayjob\'s own browser: this key opens it from the right of the window, over the page, which stays as it is. Read job pages in it, fill an application form with your details in one click, and attach the resume that fits.'] },
+        { text: ['Dayjob 自带的浏览器，点这个键就在页面旁边打开。在里面看招聘页，一键把你的资料填进申请表，并附上合适的简历。', 'Dayjob\'s own browser: this key opens it beside the page. Read job pages in it, fill an application form with your details in one click, and attach the resume that fits.'] },
         { text: ['网站密码只保存在这台电脑上，登录时自动填好，不会交给任何 AI。', 'Site passwords stay on this computer and are filled in when you sign in. They are never given to any AI.'] },
       ],
       where: [

@@ -33,7 +33,7 @@ export function addressUrl(value) {
 }
 const hostOf = url => { try { return new URL(url).host; } catch { return ''; } };
 
-// Opens a job page in the Dayjob browser (at the right, over the current view) when the
+// Opens a job page in the Dayjob browser (beside the current view) when the
 // desktop app has one.
 export function openInBrowser(url, setView) {
   if (!desktop) { window.open(url, '_blank', 'noopener'); return; }
@@ -788,7 +788,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
         </div>
         <div className="browser-window">
           {state.agentBusy ? <span className="agent-pill" title={t('Claude 正在操作', 'Claude is working')}><Bot size={14} /></span> : null}
-          {canSide ? <button className="icon-button" data-fx="pop" title={wide ? t('只占右边一部分', 'Take only part of the page, at the right') : t('盖住整个页面', 'Cover the whole page')} onClick={() => onWide(!wide)}>
+          {canSide ? <button className="icon-button" data-fx="pop" title={wide ? t('和当前页面并排显示', 'Show beside the current page') : t('铺满窗口', 'Fill the window')} onClick={() => onWide(!wide)}>
             {wide ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button> : null}
           <button className="icon-button" title={t('关闭浏览器', 'Close the browser')} aria-expanded={asking} onClick={close}><X size={16} /></button>
         </div>

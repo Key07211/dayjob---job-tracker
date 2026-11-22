@@ -10,8 +10,7 @@ import { ApplicationsView } from './dayjob/ApplicationsView.jsx';
 import { SearchesView } from './dayjob/SearchesView.jsx';
 import { ResumeView } from './dayjob/ResumeView.jsx';
 import { SettingsView } from './dayjob/SettingsView.jsx';
-import { RESIZER, SIDEBAR, layersFor, paneLimits } from './dayjob/layers.js';
-import { holdPageWidth } from './dayjob/page-edge.js';
+import { paneLimits, panesFor } from './dayjob/panes.js';
 import { NotificationsPanel } from './dayjob/NotificationsPanel.jsx';
 import { BrowserView, hasBrowser, useBrowserState } from './dayjob/BrowserView.jsx';
 import { UpdateItem, useUpdateState } from './dayjob/UpdateButton.jsx';
@@ -108,7 +107,7 @@ function App() {
   const [resizing, setResizing] = useState(false);
   // A job or application picked on Home or in the browser, for its view to
   // open with; any other way of changing views clears it. "browser" opens the
-  // browser at the right, over the current view.
+  // browser beside the current view.
   const [focus, setFocus] = useState(null);
   // Going to a page while the assistant has the whole one: the page comes forward and the chat docks at the side.
   const dockAssistant = () => { if (assistant.get().form === 'full') assistant.setForm('side'); };
@@ -170,11 +169,6 @@ function App() {
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { keep(sessionStorage, 'dayjob-view', view); }, [view]);
   useEffect(() => { keep(sessionStorage, 'dayjob-browser', browserOpen ? 'open' : 'closed'); }, [browserOpen]);
-  // While a layer is open over the page, the window's own scroll bar is put away and the page keeps the width it
-  // had with the bar (page-edge.js). The page still scrolls with the wheel and the keys. (A guide puts the layers
-  // out of the way, see guide.css.)
-  const layered = (browserOpen || chat.open || chat.form === 'full') && !tour.on;
-  useLayoutEffect(() => (layered ? holdPageWidth() : undefined), [layered]);
   // The sidebar's browser key, pressed while the browser is open: the browser closes as its own × does, asking first.
   const [closeAsked, setCloseAsked] = useState(0);
   useEffect(() => {
@@ -373,17 +367,16 @@ function App() {
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')), runStarted };
   const focusFor = target => (focus?.view === target ? focus.id : null);
-  // Where the browser and the assistant stand, as layers at the right of the window over the page (layers.js).
-  const layers = layersFor({ windowWidth, browserOpen, browserWide, chatOpen: chat.open, chatForm: chat.form, paneWidth });
-  const { assistantFull, assistantOpen, beside, canSide, wide, width, minPane, maxPane } = layers;
+  // Who stands where (panes.js): the page, then the assistant's side chat, then the browser at the window's edge.
+  // The assistant as a full page stands where the view does; when the browser takes the page instead (made wide,
+  // or the window too narrow for both), the chat goes to the side so it stays in sight.
+  const { assistantFull, assistantOpen, beside, canSide, wide, width, minPane, maxPane } = panesFor({ windowWidth, browserOpen, browserWide, chatOpen: chat.open, chatForm: chat.form, paneWidth });
   const assistantForm = assistantFull ? 'full' : assistantOpen ? 'side' : 'closed';
-  // Nothing of the page is in sight: it is left alone until it shows again. (A guide puts the layers out of the way.)
-  const pageCovered = layers.pageCovered && !tour.on;
   // A question from the assistant waits for the user (several can, one for each application it works on).
   const asking = (browser?.approvals || (browser?.approval ? [browser.approval] : [])).some(item => item.by === 'assistant');
   const pianoKeys = VIEWS.map(item => ({
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
-    active: item.id === 'browser' ? browserOpen : view === item.id && !pageCovered,
+    active: item.id === 'browser' ? browserOpen : view === item.id && !wide && !assistantFull,
     badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
     onSelect: () => (item.id === 'browser' ? (browserOpen ? setCloseAsked(count => count + 1) : setBrowserOpen(true)) : goTo(item.id)),
   }));
@@ -400,9 +393,10 @@ function App() {
     event.preventDefault();
     setResizing(true);
     let last = width;
+    // The browser is at the window's edge: its width is what lies right of the pointer.
     const move = moved => {
-      const [low, high] = paneLimits(Math.max(0, window.innerWidth - SIDEBAR) - beside);
-      last = Math.min(high, Math.max(low, window.innerWidth - beside - moved.clientX));
+      const [low, high] = paneLimits(window.innerWidth - beside);
+      last = Math.min(high, Math.max(low, window.innerWidth - moved.clientX));
       setPaneWidth(last);
     };
     const stop = () => {
@@ -459,29 +453,32 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} openItem={openItem} /> : null}
-      <main inert={tour.on} className={`main${tourDocked ? ' with-guide' : ''}`}
-        style={{ '--layer-assistant': `${beside}px`, '--layer-browser': `${browserOpen && !wide ? width + RESIZER : 0}px` }}>
-        <div className="main-view" inert={pageCovered}>
-          {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
-          {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} browser={browser} lastRun={status?.runs?.find(run => run.finishedAt) || null} /> : null}
-          {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} browser={browser} /> : null}
-          {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
-          {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
-          {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}
-          {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
+      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}${tourDocked ? ' with-guide' : ''}`}>
+        <div className="main-view">
+          {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
+            <>
+              {view === 'home' ? <HomeView {...shared} openItem={openItem} /> : null}
+              {view === 'feed' ? <FeedView key={`feed-${focusFor('feed')}`} mode="active" focus={focusFor('feed')} {...shared} browser={browser} lastRun={status?.runs?.find(run => run.finishedAt) || null} /> : null}
+              {view === 'saved' ? <FeedView key={`saved-${focusFor('saved')}`} mode="saved" focus={focusFor('saved')} {...shared} browser={browser} /> : null}
+              {view === 'applications' ? <ApplicationsView key={`applications-${focusFor('applications')}`} focus={focusFor('applications')} {...shared} /> : null}
+              {view === 'searches' ? <SearchesView {...shared} status={status} /> : null}
+              {view === 'resume' ? <ResumeView key={`resume-${focusFor('resume')}`} focus={focusFor('resume')} {...shared} status={status} openItem={openItem} /> : null}
+              {view === 'settings' ? <SettingsView key={`settings-${focusFor('settings')}`} focus={focusFor('settings')} {...shared} update={update} /> : null}
+            </>
+          )}
         </div>
-        {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
+        {/* The side chat stands left of the browser: the browser is always the one at the window's edge. */}
+        {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
         {browserOpen ? (
-          <div className={`browser-layer${wide ? ' wide' : ''}`}>
+          <>
             {!wide ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
               onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
             <div className="browser-pane" style={wide ? undefined : { width }}>
               <BrowserView state={browser} covered={showNotifications || resizing || tour.on} boot={boot} dataVersion={dataVersion} openItem={openItem}
                 wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} closeAsked={closeAsked} />
             </div>
-          </div>
+          </>
         ) : null}
-        {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
         {tourDocked ? <div className="guide-dock" aria-hidden="true" /> : null}
       </main>
       {tour.on ? <Guide views={VIEWS} startView={view} goTo={goTo} openItem={openItem} theme={theme} hasBrowser={hasBrowser} /> : null}

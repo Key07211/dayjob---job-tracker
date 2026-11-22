@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3 } from 'lucide-react';
 import { useI18n } from '../../i18n.jsx';
 import { cue, reducedMotion } from './sound.js';
-import { pageRight } from '../page-edge.js';
 import { E8, flipIn, press } from './fx.js';
 
 // Dropdowns, dates and times drawn by Dayjob itself, so that their open panels wear the theme like the rest of the
@@ -15,10 +14,10 @@ import { E8, flipIn, press } from './fx.js';
 const GAP = 6;
 const EDGE = 8;
 
-// Where the card goes. One that opens from the page keeps to what is in sight of it, left of the browser and the assistant.
+// Where the card goes. It keeps inside the page beside a docked browser, whose page is drawn over the window.
 function placeFor(box, panel) {
   const rect = box.getBoundingClientRect();
-  const right = (box.closest('.main-view') ? pageRight() : window.innerWidth) - EDGE;
+  const right = Math.min(window.innerWidth, box.closest('.main-view')?.getBoundingClientRect().right ?? window.innerWidth) - EDGE;
   const below = window.innerHeight - rect.bottom - GAP - EDGE;
   const above = rect.top - GAP - EDGE;
   const up = panel.scrollHeight > below && above > below;
