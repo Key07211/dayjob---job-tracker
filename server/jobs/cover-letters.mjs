@@ -3,18 +3,21 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../http.mjs';
 
-// 求职信: the template the user uploaded as a model for their cover letters, and the letters written for postings.
+// 求职信: the samples the user uploaded (cover letters of their own, which new ones are written from), and the
+// letters written for postings.
 //
 // A letter is kept twice: its text in the database (what the assistant reads back, what the window shows and what
 // an application form is given), and a file in the cover letter folder, <data folder>/cover-letters, named after
 // the company and the job, for the user to open, send or print. The file is a PDF when Dayjob can make one (the
 // desktop app lays it out), a text file otherwise. One letter for each posting: writing it again replaces it.
 //
-// The template is kept as text only: the letters follow its wording and its structure, not its page layout.
+// A sample is kept as text only: the letters follow its wording and its structure, not its page layout.
 export const COVER_LETTER_FOLDER = 'cover-letters';
 export const LETTER_MAX = 6000;
-export const TEMPLATE_MAX = 20000;
-const TEMPLATE_KEY = 'coverLetterTemplate';
+export const SAMPLE_MAX = 20000;
+export const MAX_SAMPLES = 8;
+// How much of one sample the assistant is given: a letter is a page, and eight of them are read together.
+export const SAMPLE_GIVEN = 6000;
 
 // A file name out of a company and a job title: nothing Windows refuses, no dots or spaces at its ends.
 export function letterFileBase(company, title) {
@@ -107,21 +110,26 @@ export function createCoverLetters({ db, repo, dir = null, makePdf = null, now =
     return true;
   }
 
-  function template(withText = false) {
-    const kept = repo.getMeta(TEMPLATE_KEY);
-    if (!kept?.text) return null;
-    return { name: kept.name || '', characters: kept.text.length, updatedAt: kept.updatedAt || null, ...(withText ? { text: kept.text } : { preview: kept.text.slice(0, 600) }) };
+  // 样本: in the order they were added.
+  const sampleView = (item, withText = false) => ({ id: item.id, name: item.name, characters: item.text.length, createdAt: item.created_at,
+    ...(withText ? { text: item.text } : { preview: item.text.slice(0, 600) }) });
+  const samples = (withText = false) => q('SELECT * FROM cover_letter_samples ORDER BY created_at, rowid').all().map(item => sampleView(item, withText));
+  // The same letter uploaded again is kept once (under its newest name).
+  function addSample({ name = '', text }) {
+    const value = String(text || '').replace(/\r\n?/g, '\n').trim().slice(0, SAMPLE_MAX);
+    if (value.length < 80) throw new HttpError(422, 'Almost no text was found in this sample. A cover letter sample needs at least a few sentences.');
+    const label = String(name || '').slice(0, 200);
+    const same = q('SELECT id FROM cover_letter_samples WHERE text = ?').get(value);
+    if (same) {
+      if (label) q('UPDATE cover_letter_samples SET name = ? WHERE id = ?').run(label, same.id);
+      return sampleView(q('SELECT * FROM cover_letter_samples WHERE id = ?').get(same.id));
+    }
+    if (q('SELECT count(*) AS n FROM cover_letter_samples').get().n >= MAX_SAMPLES) throw new HttpError(409, `Dayjob keeps up to ${MAX_SAMPLES} cover letter samples. Delete one to add another.`);
+    const id = randomUUID();
+    q('INSERT INTO cover_letter_samples (id, name, text, created_at) VALUES (?, ?, ?, ?)').run(id, label, value, stamp());
+    return sampleView(q('SELECT * FROM cover_letter_samples WHERE id = ?').get(id));
   }
-  function setTemplate({ name = '', text }) {
-    const value = String(text || '').replace(/\r\n?/g, '\n').trim();
-    if (value.length < 80) throw new HttpError(422, 'Almost no text was found in this template. A cover letter template needs at least a few sentences.');
-    repo.setMeta(TEMPLATE_KEY, { name: String(name || '').slice(0, 200), text: value.slice(0, TEMPLATE_MAX), updatedAt: stamp() });
-    return template();
-  }
-  function clearTemplate() {
-    repo.setMeta(TEMPLATE_KEY, null);
-    return true;
-  }
+  const removeSample = id => q('DELETE FROM cover_letter_samples WHERE id = ?').run(id).changes > 0;
 
   return {
     folder: dir,
@@ -130,6 +138,6 @@ export function createCoverLetters({ db, repo, dir = null, makePdf = null, now =
     forPosting: (postingId, withText = false) => view(rowFor(postingId), withText),
     // Where a letter's file is, when it is there.
     filePath(id) { const current = row(id); return current && onDisk(current.file) ? pathOf(current.file) : null; },
-    save, restore, remove, template, setTemplate, clearTemplate,
+    save, restore, remove, samples, addSample, removeSample,
   };
 }

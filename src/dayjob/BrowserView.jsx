@@ -647,7 +647,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
 // Under this width of page and helper together, the open helper would leave the page less than about 300 px.
 const TIGHT_BODY = 540;
 
-export function BrowserView({ state, covered, boot, dataVersion, openItem, wide, canSide, onWide, onClose }) {
+export function BrowserView({ state, covered, boot, dataVersion, openItem, wide, canSide, onWide, onClose, closeAsked = 0 }) {
   const { t } = useI18n();
   const frame = useRef(null);
   const address = useRef(null);
@@ -738,11 +738,31 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     address.current?.blur();
     desktop.go(url).catch(() => setError(t('这个地址打不开。', 'That address cannot be opened.')));
   }
-  const close = event => {
-    const page = event.currentTarget.closest('.browser-page');
+  // 关闭浏览器: with pages open, closing asks first. 确定 closes every tab; 取消 keeps them, also for the next
+  // time Dayjob starts. Either way the browser is put away. With nothing open there is nothing to ask.
+  const section = useRef(null);
+  const [asking, setAsking] = useState(false);
+  const pages = (state?.tabs || []).filter(tab => tab.url && tab.url !== 'about:blank').length;
+  const putAway = () => {
+    setAsking(false);
     setClosing(true);
-    leave(page, 'right', onClose);
+    leave(section.current, 'right', onClose);
   };
+  const close = () => {
+    if (!pages) { putAway(); return; }
+    setAsking(now => !now);
+  };
+  const closeAll = async () => {
+    try { await desktop.command('closeAll'); } catch (failure) { setError(bridgeMessage(failure)); setAsking(false); return; }
+    putAway();
+  };
+  // The sidebar's browser key closes the same way.
+  const asked = useRef(closeAsked);
+  useEffect(() => {
+    if (closeAsked === asked.current) return;
+    asked.current = closeAsked;
+    close();
+  }, [closeAsked]);
   function collapse(value) {
     // While it is folded for want of room, opening it is for now only: the saved choice stays.
     if (tight) { setHeld(!value); return; }
@@ -752,7 +772,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
 
   if (!state) return <div className="browser-page"><div className="detail-empty"><BeatLoader /></div></div>;
   return (
-    <section className={`browser-page${arriving ? ' arriving' : ''}`}>
+    <section ref={section} className={`browser-page${arriving ? ' arriving' : ''}`}>
       <div className="browser-tabs">
         <div className="browser-tab-list">
           {state.tabs.map(tab => (
@@ -770,7 +790,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
           {state.agentBusy ? <span className="agent-pill" title={t('Claude 正在操作', 'Claude is working')}><Bot size={14} /></span> : null}
           {canSide ? <button className="icon-button" data-fx="pop" title={wide ? t('和当前页面并排显示', 'Show beside the current page') : t('铺满窗口', 'Fill the window')} onClick={() => onWide(!wide)}>
             {wide ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button> : null}
-          <button className="icon-button" title={t('收起浏览器（标签页会保留）', 'Hide the browser (tabs stay open)')} onClick={close}><X size={16} /></button>
+          <button className="icon-button" title={t('关闭浏览器', 'Close the browser')} aria-expanded={asking} onClick={close}><X size={16} /></button>
         </div>
       </div>
       <form className="browser-bar" onSubmit={go}>
@@ -782,6 +802,18 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
         <input ref={address} className="browser-address" value={typed ?? shownUrl} spellCheck={false} placeholder={t('输入网址或搜索', 'Enter an address or search')}
           onChange={event => setTyped(event.target.value)} onBlur={() => setTyped(null)} onFocus={event => event.target.select()} />
       </form>
+      {asking ? (
+        <div className="browser-offer browser-close-ask" role="alertdialog" aria-live="polite">
+          <X size={18} />
+          <p>{t(`关闭浏览器？确定会关掉打开的 ${pages} 个标签页；取消则保留它们，下次打开浏览器时还在，重启 Dayjob 也在。`,
+            `Close the browser? OK closes the ${pages} open ${pages === 1 ? 'tab' : 'tabs'}. Cancel keeps ${pages === 1 ? 'it' : 'them'}: ${pages === 1 ? 'it is' : 'they are'} here when you open the browser again, also after Dayjob restarts.`)}
+            {state.agentBusy ? t(' 助手正在这些页面里操作，关掉会打断它。', ' The assistant is working in these pages; closing them stops it.') : ''}</p>
+          <div className="form-actions">
+            <button type="button" className="button" onClick={putAway}>{t('取消，保留标签页', 'Cancel, keep the tabs')}</button>
+            <button type="button" className="button primary" data-fx="pop" onClick={closeAll}>{t('确定，全部关闭', 'OK, close them all')}</button>
+          </div>
+        </div>
+      ) : null}
       {state.approval ? <Approval key={state.approval.id} approval={state.approval} elsewhere={Boolean(state.approval.tabId && state.approval.tabId !== state.activeId)} /> : null}
       {state.applied && !state.approval ? <AppliedStrip key={state.applied.id} applied={state.applied} openItem={openItem} /> : null}
       {state.login?.offer ? <SaveOffer key={`${state.login.offer.site}\n${state.login.offer.username}`} offer={state.login.offer} locked={state.login.closed} onKept={setKept} />

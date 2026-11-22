@@ -177,6 +177,8 @@ function App() {
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => { keep(sessionStorage, 'dayjob-view', view); }, [view]);
   useEffect(() => { keep(sessionStorage, 'dayjob-browser', browserOpen ? 'open' : 'closed'); }, [browserOpen]);
+  // The sidebar's browser key, pressed while the browser is open: the browser closes as its own × does, asking first.
+  const [closeAsked, setCloseAsked] = useState(0);
   useEffect(() => {
     const resize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', resize);
@@ -387,7 +389,7 @@ function App() {
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
     active: item.id === 'browser' ? browserOpen : view === item.id && !wide && !assistantFull,
     badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
-    onSelect: () => (item.id === 'browser' ? setBrowserOpen(open => !open) : goTo(item.id)),
+    onSelect: () => (item.id === 'browser' ? (browserOpen ? setCloseAsked(count => count + 1) : setBrowserOpen(true)) : goTo(item.id)),
   }));
   // On: sound waves grow out of the button and it turns yellow. Off: the waves draw back.
   function toggleSound(event) {
@@ -484,7 +486,7 @@ function App() {
               onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
             <div className="browser-pane" style={wide ? undefined : { width }}>
               <BrowserView state={browser} covered={showNotifications || resizing || tour.on} boot={boot} dataVersion={dataVersion} openItem={openItem}
-                wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} />
+                wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} closeAsked={closeAsked} />
             </div>
           </>
         ) : null}

@@ -23,7 +23,7 @@ import { createGoals } from './jobs/goals.mjs';
 import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES, resumeFileType, sameResume } from './jobs/resume.mjs';
-import { COVER_LETTER_FOLDER, createCoverLetters, TEMPLATE_MAX } from './jobs/cover-letters.mjs';
+import { COVER_LETTER_FOLDER, createCoverLetters, MAX_SAMPLES, SAMPLE_MAX } from './jobs/cover-letters.mjs';
 import { message } from './messages.mjs';
 import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -256,7 +256,7 @@ export async function createApp(options = {}) {
     }
     let match = pathname.match(/^\/api\/postings\/([^/]+)$/);
     if (match) return { ...need(repo.getPosting(match[1]), 'Posting'), coverLetter: letters.forPosting(match[1]) };
-    if (pathname === '/api/cover-letters') return { folder: letters.folder, template: letters.template(), letters: letters.list() };
+    if (pathname === '/api/cover-letters') return { folder: letters.folder, samples: letters.samples(), maxSamples: MAX_SAMPLES, letters: letters.list() };
     match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
     if (match) return need(letters.get(match[1]), 'Cover letter');
     if (pathname === '/api/searches') return repo.listSearches();
@@ -284,7 +284,7 @@ export async function createApp(options = {}) {
   }
 
   async function mutate(request, pathname, method, source) {
-    const input = await readJson(request, /^\/api\/(resumes(\/[^/]+\/file)?|cover-letters\/template)$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
+    const input = await readJson(request, /^\/api\/(resumes(\/[^/]+\/file)?|cover-letters\/samples)$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
     if (pathname === '/api/settings' && method === 'PATCH') {
       const settings = repo.updateSettings(settingsPatch(input));
       options.onSettings?.(settings);
@@ -468,16 +468,17 @@ export async function createApp(options = {}) {
     }
     match = pathname.match(/^\/api\/resumes\/([^/]+)$/);
     if (match && method === 'DELETE') return { ok: need(repo.deleteResume(match[1]), 'Resume') };
-    // 求职信模板: a letter of the user's own that the assistant writes after, as a file (read like a resume) or as
-    // text typed in. Only its text is kept.
-    if (pathname === '/api/cover-letters/template' && method === 'POST') {
-      if (typeof input.text === 'string') return letters.setTemplate({ name: typeof input.name === 'string' ? input.name : '', text: input.text.slice(0, TEMPLATE_MAX) });
-      if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the template file as base64 data.');
+    // 求职信样本: letters of the user's own that the assistant writes from, each as a file (read like a resume) or
+    // as text typed in. Only their text is kept.
+    if (pathname === '/api/cover-letters/samples' && method === 'POST') {
+      if (typeof input.text === 'string') return letters.addSample({ name: typeof input.name === 'string' ? input.name : '', text: input.text.slice(0, SAMPLE_MAX) });
+      if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the sample file as base64 data.');
       const parsed = await extractResumeText({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', mime: typeof input.mime === 'string' ? input.mime : '', data: Buffer.from(input.data, 'base64') },
-        { what: 'cover letter template', min: 80 });
-      return letters.setTemplate({ name: parsed.name, text: parsed.text });
+        { what: 'cover letter sample', min: 80 });
+      return letters.addSample({ name: parsed.name, text: parsed.text });
     }
-    if (pathname === '/api/cover-letters/template' && method === 'DELETE') return { ok: letters.clearTemplate() };
+    match = pathname.match(/^\/api\/cover-letters\/samples\/([^/]+)$/);
+    if (match && method === 'DELETE') return { ok: need(letters.removeSample(match[1]), 'Cover letter sample') };
     match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
     if (match && method === 'DELETE') return { ok: need(letters.remove(match[1]), 'Cover letter') };
     if (pathname === '/api/recommendations' && method === 'POST') {

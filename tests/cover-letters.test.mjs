@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createApp } from '../server/app.mjs';
 import { posting } from '../server/jobs/normalize.mjs';
 import { letterFileBase } from '../server/jobs/cover-letters.mjs';
+import { openDatabase, SCHEMA_VERSION } from '../server/jobs/db.mjs';
 import { SYSTEM_PROMPT } from '../server/assistant/prompt.mjs';
 
 const USAGE = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -74,32 +75,68 @@ test('a file name out of a company and a job title is one Windows takes', () => 
   assert.ok(letterFileBase('A'.repeat(200), 'B'.repeat(200)).length <= 143);
 });
 
-test('the template is read from a file or taken as text, shown without being sent whole, and can be removed', async t => {
+test('samples are read from files or taken as text, several of them, shown without being sent whole, and removed one by one', async t => {
   const { call } = await start(t);
-  assert.deepEqual((await call('/api/cover-letters')).body.template, null);
-  const short = await call('/api/cover-letters/template', { method: 'POST', body: { name: 'short.txt', mime: 'text/plain', data: Buffer.from('Dear Sir,').toString('base64') } });
-  assert.equal(short.status, 422);
-  const image = await call('/api/cover-letters/template', { method: 'POST', body: { name: 'letter.png', mime: 'image/png', data: Buffer.from('x').toString('base64') } });
-  assert.equal(image.status, 415);
-  const saved = await call('/api/cover-letters/template', { method: 'POST', body: { name: 'My letter.txt', mime: 'text/plain', data: Buffer.from(TEMPLATE).toString('base64') } });
+  const state = (await call('/api/cover-letters')).body;
+  assert.deepEqual({ samples: state.samples, maxSamples: state.maxSamples }, { samples: [], maxSamples: 8 });
+  const add = (name, text, mime = 'text/plain') => call('/api/cover-letters/samples', { method: 'POST', body: { name, mime, data: Buffer.from(text).toString('base64') } });
+  assert.equal((await add('short.txt', 'Dear Sir,')).status, 422);
+  assert.equal((await add('letter.png', 'x', 'image/png')).status, 415);
+  const saved = await add('My letter.txt', TEMPLATE);
   assert.equal(saved.status, 200);
   assert.equal(saved.body.name, 'My letter.txt');
   assert.equal(saved.body.characters, TEMPLATE.length);
-  assert.ok(saved.body.preview.startsWith('Dear Hiring Manager'));
-  const typed = await call('/api/cover-letters/template', { method: 'POST', body: { text: `${TEMPLATE}\n\nP.S. typed in.` } });
+  assert.ok(saved.body.preview.startsWith('Dear Hiring Manager') && saved.body.text === undefined);
+  const typed = await call('/api/cover-letters/samples', { method: 'POST', body: { name: 'typed', text: `${TEMPLATE}\n\nP.S. typed in.` } });
   assert.ok(typed.body.preview.includes('Dear Hiring Manager') && typed.body.characters > TEMPLATE.length);
-  assert.deepEqual((await call('/api/cover-letters/template', { method: 'DELETE' })).body, { ok: true });
-  assert.equal((await call('/api/cover-letters')).body.template, null);
+  // The same letter again is kept once, under the newer name.
+  const again = await add('My letter (copy).txt', TEMPLATE);
+  assert.equal(again.body.id, saved.body.id);
+  assert.deepEqual((await call('/api/cover-letters')).body.samples.map(item => item.name), ['My letter (copy).txt', 'typed']);
+  // Eight at most.
+  for (let count = 3; count <= 8; count += 1) assert.equal((await add(`letter ${count}.txt`, `${TEMPLATE}\n\nVersion ${count}.`)).status, 200);
+  const ninth = await add('letter 9.txt', `${TEMPLATE}\n\nVersion 9.`);
+  assert.equal(ninth.status, 409);
+  assert.match(ninth.body.error, /up to 8 cover letter samples/);
+  assert.deepEqual((await call(`/api/cover-letters/samples/${saved.body.id}`, { method: 'DELETE' })).body, { ok: true });
+  assert.equal((await call(`/api/cover-letters/samples/${saved.body.id}`, { method: 'DELETE' })).status, 404);
+  assert.equal((await call('/api/cover-letters')).body.samples.length, 7);
+  assert.equal((await add('letter 9.txt', `${TEMPLATE}\n\nVersion 9.`)).status, 200);
 });
 
-test('the assistant reads the template and saves the letter for a posting as a file in the cover letter folder', async t => {
+test('the template an earlier Dayjob kept becomes the first sample', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-letters-old-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const first = openDatabase(dataDir);
+  first.db.exec('DROP TABLE cover_letter_samples');
+  first.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('meta:coverLetterTemplate', JSON.stringify({ name: 'old.docx', text: TEMPLATE, updatedAt: '2026-11-20T05:00:00.000Z' }));
+  first.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+  first.db.close();
+  const again = openDatabase(dataDir);
+  assert.deepEqual(again.db.prepare('SELECT name, text, created_at FROM cover_letter_samples').all().map(row => ({ ...row })),
+    [{ name: 'old.docx', text: TEMPLATE, created_at: '2026-11-20T05:00:00.000Z' }]);
+  assert.equal(again.db.prepare("SELECT count(*) AS n FROM settings WHERE key = 'meta:coverLetterTemplate'").get().n, 0);
+  // A template that was taken away again (kept as null) leaves no sample.
+  again.db.exec('DELETE FROM cover_letter_samples; DROP TABLE cover_letter_samples');
+  again.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('meta:coverLetterTemplate', 'null');
+  again.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+  again.db.close();
+  const third = openDatabase(dataDir);
+  assert.equal(third.db.prepare('SELECT count(*) AS n FROM cover_letter_samples').get().n, 0);
+  third.db.close();
+});
+
+test('the assistant reads the samples and saves the letter for a posting as a file in the cover letter folder', async t => {
   const { app, url, call, chat, add, engine, folder, files } = await start(t);
   const job = add('101');
-  await call('/api/cover-letters/template', { method: 'POST', body: { text: TEMPLATE, name: 'mine.docx' } });
+  await call('/api/cover-letters/samples', { method: 'POST', body: { text: TEMPLATE, name: 'mine.docx' } });
+  // A long sample is given to the assistant cut to its first 6000 characters, and says so.
+  const long = `${LETTER}\n\n${'More about a project. '.repeat(400)}`;
+  await call('/api/cover-letters/samples', { method: 'POST', body: { text: long, name: 'long.txt' } });
   assert.ok((await call('/api/assistant')).body.tools.some(tool => tool.name === 'save_cover_letter' && tool.tier === 'undoable'));
 
-  await chat(`call:get_cover_letter_template ${JSON.stringify({ postingId: job.id })}`);
-  assert.deepEqual(engine.results.at(-1).value, { template: { name: 'mine.docx', text: TEMPLATE }, general: null, saved: null });
+  await chat(`call:get_cover_letter_samples ${JSON.stringify({ postingId: job.id })}`);
+  assert.deepEqual(engine.results.at(-1).value, { samples: [{ name: 'mine.docx', text: TEMPLATE }, { name: 'long.txt', text: long.trim().slice(0, 6000), cut: true }], general: null, saved: null });
 
   const first = await chat(`call:save_cover_letter ${JSON.stringify({ postingId: job.id, text: LETTER })}`);
   assert.equal(engine.results.at(-1).ok, true);
@@ -128,7 +165,7 @@ test('the assistant reads the template and saves the letter for a posting as a f
   assert.equal(engine.results.at(-1).value.letter.replaced, true);
   assert.deepEqual(files(), ['Acme - Data Analyst.pdf']);
   assert.ok(fs.readFileSync(path.join(folder, 'Acme - Data Analyst.pdf'), 'utf8').includes('I would be glad of the chance'));
-  await chat(`call:get_cover_letter_template ${JSON.stringify({ postingId: job.id })}`);
+  await chat(`call:get_cover_letter_samples ${JSON.stringify({ postingId: job.id })}`);
   assert.equal(engine.results.at(-1).value.saved.text, SECOND);
 
   // Undo puts the earlier letter back, words and file; undoing the first one takes the letter away.
@@ -213,6 +250,8 @@ test('in an application the saved letter goes into the form, and a letter writte
 });
 
 test('the assistant is told how a cover letter is written', () => {
-  for (const name of ['get_cover_letter_template', 'save_cover_letter', 'browser_cover_letter']) assert.ok(SYSTEM_PROMPT.includes(name), name);
+  for (const name of ['get_cover_letter_samples', 'save_cover_letter', 'browser_cover_letter']) assert.ok(SYSTEM_PROMPT.includes(name), name);
   assert.match(SYSTEM_PROMPT, /Never invent an experience/);
+  assert.match(SYSTEM_PROMPT, /passages from different samples/);
+  assert.match(SYSTEM_PROMPT, /never carried over/);
 });

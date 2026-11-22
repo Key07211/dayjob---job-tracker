@@ -42,6 +42,8 @@ const logUpdate = message => writeLog('update.log', String(message).replace(/^\[
 const logApp = message => writeLog('app.log', message);
 // How long quitting may wait for the local service, and then for the quit itself, before Dayjob ends anyway.
 const QUIT_WAIT_MS = 5000;
+// The smoke run: where the page it finds kept from "the last run" is served.
+const KEPT_PORT = 45871;
 let service;
 let window;
 let tray;
@@ -286,6 +288,12 @@ async function createWindow() {
   // It changes nothing on Windows and macOS, and an installed Dayjob never asks for it.
   if (!app.isPackaged && process.platform === 'linux') safeStorage.setUsePlainTextEncryption(true);
   vault = createVault({ file: path.join(profileDir, 'vault.json'), safeStorage });
+  // The smoke run starts as if two pages had been left open the last time (and two addresses that are no web pages).
+  if (smoke) {
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(path.join(profileDir, 'browser.json'), JSON.stringify({ activeTab: 1, tabs: [{ url: `http://127.0.0.1:${KEPT_PORT}/kept`, title: 'Kept one' },
+      { url: 'https://kept.invalid/two', title: 'Kept two' }, { url: 'file:///etc/hosts', title: 'Not a page' }, { url: `${origin}/`, title: 'Dayjob itself' }] }));
+  }
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
@@ -830,6 +838,21 @@ async function smokeBrowser(token) {
   };
   const steps = {};
   try {
+    // 保留标签页: the pages of the last run are tabs again, with their titles, and none has loaded. One loads when
+    // it is switched to; what is open is written down for the next run. 关闭浏览器，确定 closes every tab and
+    // keeps none.
+    const keptFile = () => JSON.parse(fs.readFileSync(path.join(profileDir, 'browser.json'), 'utf8'));
+    const back = browser.state();
+    steps.tabsBack = back.tabs.length === 2 && back.activeId === back.tabs[1].id && back.tabs[0].title === 'Kept one' && back.tabs[0].url === `http://127.0.0.1:${KEPT_PORT}/kept`
+      && back.tabs[0].loading === false && back.tabs[1].url === 'https://kept.invalid/two' || JSON.stringify(back.tabs);
+    const keptSite = http.createServer((request, response) => { response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); response.end('<!doctype html><title>Kept page awake</title><p>kept</p>'); });
+    await new Promise(resolve => keptSite.listen(KEPT_PORT, '127.0.0.1', resolve));
+    browser.command('switch', back.tabs[0].id);
+    steps.tabWoke = await until(() => browser.state().tabs[0]?.title === 'Kept page awake' && browser.state().activeId === back.tabs[0].id, 8000);
+    steps.tabsKept = await until(() => { const file = keptFile(); return file.activeTab === 0 && file.tabs.length === 2 && file.tabs[0].title === 'Kept page awake' && file.autoTrack === true; }, 4000);
+    browser.command('closeAll');
+    steps.tabsClosed = browser.state().tabs.length === 0 && browser.state().activeId === null && keptFile().tabs.length === 0;
+    keptSite.close();
     steps.refusesDayjob = (await post('open', { url: `${origin}/` })).status === 400;
     steps.opened = (await call('open', { url: `${base}/jobs/7` })).page.title === 'Data Analyst · Smoke Co';
     const page = await call('read');

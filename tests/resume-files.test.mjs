@@ -90,7 +90,8 @@ test('a database from before files were kept gains the column and keeps its resu
     first.db.exec('ALTER TABLE resumes DROP COLUMN file');
     first.db.exec('DROP TABLE assistant_steps');
     first.db.exec('DROP TABLE cover_letters');
-    first.db.exec(`PRAGMA user_version = ${version - 3}`);
+    first.db.exec('DROP TABLE cover_letter_samples');
+    first.db.exec(`PRAGMA user_version = ${version - 4}`);
     first.db.prepare('INSERT INTO resumes (id, name, mime, size, text, uploaded_at) VALUES (?, ?, ?, ?, ?, ?)').run('r1', 'old.pdf', 'application/pdf', 3, DATA, '2026-10-01T00:00:00.000Z');
     first.db.close();
     const again = openDatabase(directory);
