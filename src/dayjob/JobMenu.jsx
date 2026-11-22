@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { reducedMotion } from './groove/sound.js';
 import { E8 } from './groove/fx.js';
+import { pageRight } from './page-edge.js';
 
 const EDGE = 8;
 
@@ -25,8 +26,8 @@ export function JobMenu({ at, title, items, onClose, returnFocus }) {
   useLayoutEffect(() => {
     const card = panel.current;
     if (!card) return;
-    // It keeps inside the page beside a docked browser, whose page is drawn over the window.
-    const right = Math.min(window.innerWidth, document.querySelector('.main-view')?.getBoundingClientRect().right ?? window.innerWidth) - EDGE;
+    // It keeps to what is in sight of the page, left of the browser and the assistant: the browser's page is drawn over the window.
+    const right = pageRight() - EDGE;
     const width = card.offsetWidth;
     const height = card.offsetHeight;
     const up = at.y + height > window.innerHeight - EDGE && at.y - height >= EDGE;
