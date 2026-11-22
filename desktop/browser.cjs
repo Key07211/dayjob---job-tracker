@@ -1,4 +1,4 @@
-const { BrowserWindow, WebContentsView, Menu, clipboard, session, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, clipboard, session, shell } = require('electron');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { PAGE_SOURCE } = require('./browser-page.cjs');
@@ -105,13 +105,53 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   let autoSubmit = false;
   // An application the page confirms is recorded by itself, unless the user turned that off.
   let autoTrack = true;
+  // 保留标签页: the pages that were open when Dayjob last ran (their address and title), opened again as tabs at
+  // the end of this function. kept is what the file holds; once Dayjob is quitting it stays as it was then, since
+  // the tabs go one by one while the window is taken down.
+  let kept = { tabs: [], activeTab: 0 };
+  let quitting = false;
+  let tabsTimer = null;
   try {
     const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
     agentControl = saved.agentControl !== false;
     autoLogin = saved.autoLogin !== false;
     autoTrack = saved.autoTrack !== false;
+    if (Array.isArray(saved.tabs)) kept = { tabs: saved.tabs.filter(item => item && typeof item.url === 'string').slice(0, MAX_TABS), activeTab: Number.isInteger(saved.activeTab) ? saved.activeTab : 0 };
   } catch { /* first run */ }
-  const saveSettings = () => { try { fs.writeFileSync(settingsFile, JSON.stringify({ agentControl, autoLogin, autoTrack })); } catch { /* applies until Dayjob restarts */ } };
+  const saveSettings = () => { try { fs.writeFileSync(settingsFile, JSON.stringify({ agentControl, autoLogin, autoTrack, ...kept })); } catch { /* applies until Dayjob restarts */ } };
+  // A tab opened again from the last run is asleep until it is first shown or used: it has its address and title,
+  // and loads then. So a dozen kept pages do not all load when Dayjob starts.
+  const addressOf = tab => (tab.asleep ? tab.asleep.url : tab.view.webContents.getURL());
+  function keepTabs() {
+    if (quitting) return;
+    const open = tabs.map(tab => ({ tab, url: pageUrl(addressOf(tab)) })).filter(item => item.url && item.url !== 'about:blank');
+    const next = { tabs: open.map(item => ({ url: item.url, title: String(item.tab.asleep ? item.tab.asleep.title : item.tab.view.webContents.getTitle() || '').slice(0, 200) })),
+      activeTab: Math.max(0, open.findIndex(item => item.tab === active)) };
+    if (JSON.stringify(next) === JSON.stringify(kept)) return;
+    kept = next;
+    saveSettings();
+  }
+  function noteTabs() {
+    if (quitting || tabsTimer) return;
+    tabsTimer = setTimeout(() => { tabsTimer = null; keepTabs(); }, 800);
+    tabsTimer.unref?.();
+  }
+  // Quitting: what is open now is what comes back.
+  function holdTabs() {
+    if (quitting) return;
+    clearTimeout(tabsTimer);
+    tabsTimer = null;
+    keepTabs();
+    quitting = true;
+  }
+  app.once('before-quit', holdTabs);
+  function wake(tab) {
+    if (!tab?.asleep) return tab;
+    const { url } = tab.asleep;
+    tab.asleep = null;
+    tab.view.webContents.loadURL(url).catch(() => { /* the tab shows the failure */ });
+    return tab;
+  }
 
   // Web pages only, and never Dayjob's own server.
   function pageUrl(value) {
@@ -125,6 +165,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
 
   function info(tab) {
     const contents = tab.view.webContents;
+    if (tab.asleep) return { id: tab.id, url: tab.asleep.url, title: tab.asleep.title, loading: false, canGoBack: false, canGoForward: false, favicon: null };
     return { id: tab.id, url: contents.getURL(), title: contents.getTitle(), loading: contents.isLoading(),
       canGoBack: contents.navigationHistory.canGoBack(), canGoForward: contents.navigationHistory.canGoForward(), favicon: tab.favicon };
   }
@@ -141,6 +182,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         applicationId: applied.applicationId || null, postingId: applied.postingId || null } };
   }
   function broadcast() {
+    noteTabs();
     if (pending) return;
     pending = setTimeout(() => {
       pending = null;
@@ -162,6 +204,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // their content up only once the page is on show.
   const readers = new Set();
   function layout() {
+    // The tab on show loads now, if it was kept from the last run.
+    if (bounds) wake(active);
     const place = bounds || fallbackBounds();
     const [width, height] = window.getContentSize();
     for (const tab of tabs) {
@@ -470,7 +514,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     return state();
   }
 
-  function openTab(url, { activate = true, from = null } = {}) {
+  function openTab(url, { activate = true, from = null, asleep = null } = {}) {
     if (tabs.length >= MAX_TABS) fail(409, `The Dayjob browser already has ${MAX_TABS} tabs open. Close one first (dayjob_browser_tabs).`);
     const view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false,
       webSecurity: true, backgroundThrottling: false, devTools } });
@@ -480,7 +524,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     // (job), the application form last seen (form) and when something was last sent from it (sentAt, sentBy).
     // An "Apply" link that opens a new tab carries the job page's trail along.
     const tab = { id: `tab-${counter}`, view, documents: 0, readAt: -1, favicon: null, trail: from ? from.trail.slice() : [], job: from?.job || null, guess: from?.guess || null,
-      form: null, sentAt: 0, sentBy: '', own: null, seen: { url: '', tries: 0, done: false } };
+      form: null, sentAt: 0, sentBy: '', own: null, seen: { url: '', tries: 0, done: false }, asleep };
     const contents = view.webContents;
     secure(contents);
     for (const name of ['did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-navigate-in-page', 'render-process-gone']) contents.on(name, broadcast);
@@ -503,6 +547,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (activate || !active) active = tab;
     layout();
     broadcast();
+    if (tab.asleep) return { tab, loading: Promise.resolve() };
     const loading = contents.loadURL(url);
     loading.catch(() => { /* the tab shows the failure */ });
     return { tab, loading };
@@ -527,7 +572,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
   function switchTab(id) {
     const tab = tabs.find(item => item.id === id) || fail(404, `No tab ${id}. List them with dayjob_browser_tabs.`);
-    active = tab;
+    active = wake(tab);
     layout();
     broadcast();
     void checkLogin();
@@ -536,9 +581,10 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // Opens a page for the user: an existing tab with that page, or a new one.
   function show(url, { newTab = true } = {}) {
     const target = pageUrl(url) || fail(400, 'Only web pages (http or https) can be opened.');
-    const existing = tabs.find(tab => tab.view.webContents.getURL() === target);
+    const existing = tabs.find(tab => addressOf(tab) === target);
     if (existing) return info(switchTab(existing.id));
     if (!newTab && active) {
+      active.asleep = null;
       active.view.webContents.loadURL(target).catch(() => {});
       return info(active);
     }
@@ -570,7 +616,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     return seen;
   }
   function current() {
-    return active || fail(409, 'No page is open in the Dayjob browser. Open one with dayjob_browser_open.');
+    return wake(active) || fail(409, 'No page is open in the Dayjob browser. Open one with dayjob_browser_open.');
   }
   // 同时申请. Whoever asks for an action says who they are in context.run: { key, own, job }. An application with
   // a tab of its own (own) works there, wherever the user is looking, and a link that opens a new tab takes it
@@ -586,7 +632,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   const busyIn = (tab, context) => [...runs.values()].find(run => run.busy && run.key !== context?.run?.key && tabOf(run) === tab) || null;
   function mine(context) {
     const run = runOf(context);
-    if (run) return engage(tabOf(run) || fail(409, 'The tab this application was open in has been closed. Open the application again (open_application) to go on.'));
+    if (run) return engage(wake(tabOf(run)) || fail(409, 'The tab this application was open in has been closed. Open the application again (open_application) to go on.'));
     if (context?.run?.own) fail(409, 'No page is open for this application yet. Open one first (open_application, or dayjob_browser_open).');
     const tab = current();
     const other = busyIn(tab, context);
@@ -1157,7 +1203,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         ({ tab, loading } = openTab(target, { activate: !own }));
         if (own && !run) { run = { key: context.run.key, tabs: [], job: String(context.run.job || '').slice(0, 200), busy: true }; runs.set(run.key, run); }
         if (run) { run.tabs.push(tab); layout(); }
-      } else loading = tab.view.webContents.loadURL(target);
+      } else { tab.asleep = null; loading = tab.view.webContents.loadURL(target); }
       engage(tab);
       remember(tab, target);
       const outcome = await Promise.race([loading.then(() => null, error => error), delay(30000).then(() => 'timeout')]);
@@ -1828,7 +1874,10 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (name === 'new') return info(openTab('about:blank').tab);
     if (name === 'switch') return info(switchTab(id));
     if (name === 'close') { closeTab(id); return null; }
+    // 关闭浏览器，确定: every tab goes, so nothing is kept for the next time either.
+    if (name === 'closeAll') { for (const tab of [...tabs]) closeTab(tab.id); keepTabs(); return null; }
     if (!contents) return null;
+    wake(active);
     if (name === 'back' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
     if (name === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
     if (name === 'reload') contents.reload();
@@ -1862,7 +1911,17 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     await browserSession.clearAuthCache();
   }
 
-  return { state, setBounds, agent, answer, endRun, command, go, show, setAgentControl, setAutoSubmit, extract, clearData, fillLogin, answerOffer, retryLogin, dismissLogin, setAutoLogin,
+  // 保留标签页: the pages of the last run, in their order, asleep (see wake).
+  let chosen = null;
+  for (const [index, item] of kept.tabs.entries()) {
+    const url = pageUrl(item.url);
+    if (!url || url === 'about:blank' || tabs.length >= MAX_TABS) continue;
+    const { tab } = openTab(url, { activate: false, asleep: { url, title: typeof item.title === 'string' ? item.title.slice(0, 200) : '' } });
+    if (index === kept.activeTab) chosen = tab;
+  }
+  if (chosen) active = chosen;
+
+  return { state, setBounds, agent, answer, endRun, command, go, show, holdTabs, setAgentControl, setAutoSubmit, extract, clearData, fillLogin, answerOffer, retryLogin, dismissLogin, setAutoLogin,
     answerApplied, setAutoTrack,
     refreshLogin: () => broadcast(),
     autofill: options => autofill(current(), { submit: Boolean(options?.submit) && autoSubmit, resume: typeof options?.resume === 'string' ? options.resume : 'auto' }),

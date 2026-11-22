@@ -503,6 +503,9 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .browser-offer > p { flex: 1 1 220px; font-size: 13.5px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
 .browser-offer > input { flex: 0 1 200px; min-width: 120px; height: 32px; }
 .browser-offer > .notice { flex-basis: 100%; margin: 0; }
+/* 关闭浏览器: the question before the tabs are closed. */
+.browser-close-ask { background: var(--amber-soft); }
+.browser-close-ask > svg { color: var(--orange); }
 .browser-applied > p > strong { display: block; }
 .browser-applied > p > span { margin-left: 8px; color: var(--muted); font-size: 12.5px; }
 .browser-applied.ask { background: var(--amber-soft); }

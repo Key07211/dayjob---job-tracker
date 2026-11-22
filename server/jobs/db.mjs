@@ -259,6 +259,21 @@ const migrations = [
   );
   CREATE UNIQUE INDEX cover_letters_posting ON cover_letters (posting_id) WHERE posting_id IS NOT NULL;
   `,
+  // 求职信样本: cover letters of the user's own that new ones are written from, several of them. Only their text
+  // is kept. The one template Dayjob kept before (in settings) becomes the first sample.
+  `
+  CREATE TABLE cover_letter_samples (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  INSERT INTO cover_letter_samples (id, name, text, created_at)
+    SELECT lower(hex(randomblob(16))), coalesce(json_extract(value, '$.name'), ''), json_extract(value, '$.text'),
+      coalesce(json_extract(value, '$.updatedAt'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    FROM settings WHERE key = 'meta:coverLetterTemplate' AND json_valid(value) AND length(coalesce(json_extract(value, '$.text'), '')) > 0;
+  DELETE FROM settings WHERE key = 'meta:coverLetterTemplate';
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

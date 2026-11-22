@@ -9,6 +9,7 @@ import { leanReading, staleReading } from './page-lean.mjs';
 import { posting as toPosting, postingId } from '../jobs/normalize.mjs';
 import { companyJobMatches } from '../jobs/matching.mjs';
 import { fuller, jobTypeOf, pageIsAbout, siteName, webJob } from '../jobs/web-jobs.mjs';
+import { SAMPLE_GIVEN } from '../jobs/cover-letters.mjs';
 
 // What the in-app assistant can do, for both engines (Claude Code reaches these
 // through MCP, the Claude API as tool calls). Each tool has a tier:
@@ -381,18 +382,19 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
   // ---------- 求职信: cover letters written for postings ----------
   const letterTools = !letters ? [] : [
     {
-      name: 'get_cover_letter_template', tier: 'read', view: 'resume',
-      description: 'Read what a cover letter is written from, before you write one: the template the user uploaded as a model for their letters (template), the general cover '
-        + 'letter of the application profile (general), and, with postingId, the letter already saved for that posting (saved). Any of them can be null.',
+      name: 'get_cover_letter_samples', tier: 'read', view: 'resume',
+      description: 'Read what a cover letter is written from, before you write one: the cover letters of their own the user uploaded as samples (samples: letters written for '
+        + 'other jobs, to take the structure, the tone and the fitting examples from), the general cover letter of the application profile (general), and, with postingId, the '
+        + 'letter already saved for that posting (saved). samples can be empty; the others can be null.',
       shape: { postingId: id.optional() },
-      label: (input, result) => (result.template ? [`看了求职信模板：${short(result.template.name || '模板', 40)}`, `Read the cover letter template: ${short(result.template.name || 'template', 40)}`]
-        : ['看了求职信模板（还没有上传）', 'Looked for a cover letter template (none uploaded yet)']),
+      label: (input, result) => (result.samples.length ? [`看了 ${result.samples.length} 份求职信样本`, `Read ${result.samples.length} cover letter ${result.samples.length === 1 ? 'sample' : 'samples'}`]
+        : ['看了求职信样本（还没有上传）', 'Looked for cover letter samples (none uploaded yet)']),
       run(input) {
-        const template = letters.template(true);
+        const samples = letters.samples(true).map(sample => ({ name: sample.name, text: sample.text.slice(0, SAMPLE_GIVEN), ...(sample.text.length > SAMPLE_GIVEN ? { cut: true } : {}) }));
         const saved = input.postingId ? letters.forPosting(need(repo.getPosting(input.postingId), 'Posting').id, true) : null;
-        return { result: { template: template ? { name: template.name, text: template.text } : null, general: repo.getSettings().applicant.coverLetter || null,
+        return { result: { samples, general: repo.getSettings().applicant.coverLetter || null,
           saved: saved ? { text: saved.text, file: saved.file, updatedAt: saved.updatedAt } : null,
-          ...(template ? {} : { note: 'No template is uploaded. The user can add one on the Resume & AI page; without it, write the letter in a plain, standard form.' }) } };
+          ...(samples.length ? {} : { note: 'No sample is uploaded. The user can add some on the Resume & AI page; without them, write the letter in a plain, standard form.' }) } };
       },
     },
     {
@@ -691,7 +693,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
         let text = input.text?.trim();
         if (!text) {
           text = posting ? letters.forPosting(posting.id, true)?.text : null;
-          if (!text) throw new HttpError(409, 'No cover letter is saved for this job. Write one and pass it as text (see get_cover_letter_template for what to write it from).');
+          if (!text) throw new HttpError(409, 'No cover letter is saved for this job. Write one and pass it as text (see get_cover_letter_samples for what to write it from).');
         }
         const outcome = await inBrowser('letter', { text }, context);
         let kept = null;

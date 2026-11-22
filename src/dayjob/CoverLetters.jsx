@@ -8,7 +8,7 @@ import { cue } from './groove/sound.js';
 import { leaveThen } from './groove/fx.js';
 import { assistant, onAssistantEffect } from './assistant/store.js';
 
-// 求职信: the template the assistant writes after, and the letters it has written, one for each job. A letter's
+// 求职信: the samples the assistant writes from, and the letters it has written, one for each job. A letter's
 // file is in Dayjob's cover letter folder on this computer; the desktop app opens it, a browser downloads it.
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -40,7 +40,7 @@ export function LetterButton({ posting, letter, onError = () => {} }) {
   const { t } = useI18n();
   const write = () => { onError(''); void assistant.write(request(posting, t)); };
   if (!letter) {
-    return <button type="button" className="button" data-fx="press" onClick={write} title={t('助手按你的简历和求职信模板为这个岗位写一封求职信，存进求职信文件夹', 'The assistant writes a cover letter for this job from your resume and your template, and keeps it in the cover letter folder')}><PenLine size={15} />{t('写求职信', 'Write cover letter')}</button>;
+    return <button type="button" className="button" data-fx="press" onClick={write} title={t('助手按你的简历和求职信样本为这个岗位写一封求职信，存进求职信文件夹', 'The assistant writes a cover letter for this job from your resume and your sample letters, and keeps it in the cover letter folder')}><PenLine size={15} />{t('写求职信', 'Write cover letter')}</button>;
   }
   return (
     <>
@@ -51,7 +51,7 @@ export function LetterButton({ posting, letter, onError = () => {} }) {
   );
 }
 
-// On the Resume & AI page: the template and the letters.
+// On the Resume & AI page: the samples and the letters.
 export function CoverLetters() {
   const { t } = useI18n();
   const input = useRef(null);
@@ -64,21 +64,34 @@ export function CoverLetters() {
   // The assistant saved or replaced a letter: the list follows.
   useEffect(() => onAssistantEffect(({ changed }) => { if (changed) { setTexts({}); void load(); } }), []);
 
-  async function upload(file) {
+  // Several files at once, one after the other. A file that cannot be read is named with the reason; the others
+  // are still added.
+  async function upload(chosen) {
+    const files = [...(chosen || [])];
     if (input.current) input.current.value = '';
-    if (!file) return;
+    if (!files.length) return;
     setError('');
-    if (file.size > MAX_BYTES) { setError(t('文件超过 8 MB。', 'The file is larger than 8 MB.')); return; }
     setBusy(true);
-    try {
-      await api('/api/cover-letters/template', { method: 'POST', body: { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) } });
-      await load();
-      cue('done');
-    } catch (failure) { setError(serverText(failure.message)); } finally { setBusy(false); }
+    const failed = [];
+    let added = 0;
+    for (const file of files) {
+      if (file.size > MAX_BYTES) { failed.push(`${file.name}: ${t('文件超过 8 MB。', 'The file is larger than 8 MB.')}`); continue; }
+      try {
+        await api('/api/cover-letters/samples', { method: 'POST', body: { name: file.name, mime: file.type, data: await toBase64(file, t('读取文件失败。', 'Could not read the file.')) } });
+        added += 1;
+      } catch (failure) { failed.push(files.length > 1 ? `${file.name}: ${serverText(failure.message)}` : serverText(failure.message)); }
+    }
+    await load();
+    if (added) cue('done');
+    if (failed.length) setError(failed.join('\n'));
+    setBusy(false);
   }
-  async function removeTemplate() {
-    if (!window.confirm(t('删除求职信模板？已经写好的求职信不受影响。', 'Delete the cover letter template? Letters already written stay as they are.'))) return;
-    try { await api('/api/cover-letters/template', { method: 'DELETE' }); await load(); } catch (failure) { setError(serverText(failure.message)); }
+  function removeSample(sample, row) {
+    if (!window.confirm(t(`删除样本“${sample.name || '求职信样本'}”？已经写好的求职信不受影响。`, `Delete the sample “${sample.name || 'cover letter sample'}”? Letters already written stay as they are.`))) return;
+    leaveThen(row, 'shrink', async () => {
+      try { await api(`/api/cover-letters/samples/${sample.id}`, { method: 'DELETE' }); await load(); return true; }
+      catch (failure) { setError(serverText(failure.message)); return false; }
+    });
   }
   function remove(letter, row) {
     const job = [letter.company, letter.title].filter(Boolean).join(' · ');
@@ -94,28 +107,35 @@ export function CoverLetters() {
     api(`/api/cover-letters/${letter.id}`).then(full => setTexts(now => ({ ...now, [letter.id]: full.text }))).catch(failure => setError(serverText(failure.message)));
   }
 
-  const template = state?.template;
+  const samples = state?.samples || [];
+  const full = samples.length >= (state?.maxSamples || 8);
   const letters = state?.letters || [];
   return (
     <section className="card-section cover-letters">
       <h2>{t(`求职信（${letters.length}）`, `Cover letters (${letters.length})`)}</h2>
-      <p className="hint">{t('上传一封你自己的求职信做模板。之后在岗位详情里点“写求职信”，或者直接跟助手说“给这个岗位写求职信”：助手读你的简历和模板，挑出和岗位最对得上的经历，按模板的结构和语气写好，存成 PDF 放进求职信文件夹。每个岗位一封，重写会替换旧的。模板和求职信都只保存在本机。',
-        'Upload a cover letter of your own as the template. Then press “Write cover letter” in a job\'s details, or just ask the assistant: it reads your resume and the template, picks the experience that fits the job best, writes the letter in the template\'s structure and tone, and keeps it as a PDF in the cover letter folder. One letter a job; writing it again replaces it. The template and the letters stay on this computer.')}</p>
-      <input ref={input} type="file" hidden accept={TYPES} onChange={event => upload(event.target.files[0])} />
+      <p className="hint">{t('上传几封你自己写过的求职信做样本，可以一次选多个文件。之后在岗位详情里点“写求职信”，或者直接跟助手说“给这个岗位写求职信”：助手读你的简历和全部样本，从里面挑出和岗位最对得上的经历和例子，合在一起，按样本的结构和语气写好，存成 PDF 放进求职信文件夹。每个岗位一封，重写会替换旧的。样本和求职信都只保存在本机。',
+        'Upload a few cover letters you have written as samples; several files can be chosen at once. Then press “Write cover letter” in a job\'s details, or just ask the assistant: it reads your resume and all the samples, picks the experiences and examples that fit the job best, puts them together, writes the letter in the samples\' structure and tone, and keeps it as a PDF in the cover letter folder. One letter a job; writing it again replaces it. The samples and the letters stay on this computer.')}</p>
+      <input ref={input} type="file" hidden multiple accept={TYPES} onChange={event => upload(event.target.files)} />
       <ul className="resume-list">
         <li>
           <div>
-            <strong>{t('模板', 'Template')}{template?.name ? t(`：${template.name}`, `: ${template.name}`) : ''}</strong>
-            {template ? (
-              <>
-                <span>{template.updatedAt ? `${formatTime(template.updatedAt)} · ` : ''}{t(`${template.characters.toLocaleString()} 字符`, `${template.characters.toLocaleString()} characters`)}</span>
-                <details className="resume-preview"><summary>{t('查看读出的文字（前 600 字）', 'Show the text that was read (first 600 characters)')}</summary><pre>{template.preview}</pre></details>
-              </>
-            ) : <span>{t('还没有模板。没有模板时，助手按常见的求职信格式写。支持 PDF、Word（.docx）和纯文本。', 'No template yet. Without one the assistant writes a letter in a plain, standard form. PDF, Word (.docx) or plain text.')}</span>}
+            <strong>{t(`样本（${samples.length} / ${state?.maxSamples || 8}）`, `Samples (${samples.length} / ${state?.maxSamples || 8})`)}</strong>
+            <span>{samples.length ? t('助手写信时会把这些样本都读一遍。支持 PDF、Word（.docx）和纯文本。', 'The assistant reads all of these when it writes a letter. PDF, Word (.docx) or plain text.')
+              : t('还没有样本。没有样本时，助手按常见的求职信格式写。支持 PDF、Word（.docx）和纯文本。', 'No samples yet. Without them the assistant writes a letter in a plain, standard form. PDF, Word (.docx) or plain text.')}</span>
           </div>
-          <button className="button" data-fx="press" disabled={busy} onClick={() => input.current?.click()}>{busy ? <LoaderCircle size={15} className="spin" /> : <FileUp size={15} />}{template ? t('换一份', 'Replace') : t('上传模板', 'Upload a template')}</button>
-          {template ? <button className="icon-button" title={t('删除模板', 'Delete the template')} onClick={removeTemplate}><Trash2 size={15} /></button> : null}
+          <button className="button" data-fx="press" disabled={busy || full} title={full ? t('样本已满，先删掉一份', 'The list is full: delete a sample first') : undefined} onClick={() => input.current?.click()}>
+            {busy ? <LoaderCircle size={15} className="spin" /> : <FileUp size={15} />}{t('上传样本', 'Upload samples')}</button>
         </li>
+        {samples.map(sample => (
+          <li key={sample.id} className="letter-sample">
+            <div>
+              <strong>{sample.name || t('求职信样本', 'Cover letter sample')}</strong>
+              <span>{formatTime(sample.createdAt)} · {t(`${sample.characters.toLocaleString()} 字符`, `${sample.characters.toLocaleString()} characters`)}</span>
+              <details className="resume-preview"><summary>{t('查看读出的文字（前 600 字）', 'Show the text that was read (first 600 characters)')}</summary><pre>{sample.preview}</pre></details>
+            </div>
+            <button className="icon-button" title={t('删除这份样本', 'Delete this sample')} onClick={event => removeSample(sample, event.currentTarget.closest('li'))}><Trash2 size={15} /></button>
+          </li>
+        ))}
         {letters.map(letter => (
           <li key={letter.id}>
             <div>
