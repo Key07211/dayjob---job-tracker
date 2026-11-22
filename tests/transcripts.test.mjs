@@ -16,9 +16,9 @@ const upload = (label, more = {}) => ({ index: 0, frame: 0, label, name: '', id:
 
 function folder(t) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-transcripts-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const { db } = openDatabase(dataDir);
-  t.after(() => db.close());
+  // The database is closed before its folder goes: Windows does not delete a file that is still open.
+  t.after(() => { db.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
   const dir = path.join(dataDir, 'transcripts');
   let tick = 0;
   return { dir, transcripts: createTranscripts({ db, dir, now: () => new Date(Date.UTC(2026, 10, 22, 12, 0, tick++)) }) };
