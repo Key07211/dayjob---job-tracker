@@ -84,14 +84,14 @@ test('the browser tools exist only where there is a Dayjob browser, and none of 
   assert.equal(there.settings.apply, 'confirm', 'sending waits for the user unless they say otherwise');
   const tiers = Object.fromEntries(there.tools.map(tool => [tool.name, tool.tier]));
   for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_options', 'browser_press_key', 'browser_scroll', 'browser_navigate',
-    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_sign_in', 'browser_sign_up', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
+    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_upload_transcript', 'browser_sign_in', 'browser_sign_up', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
   assert.equal(tiers.get_profile, 'read');
   assert.equal(tiers.update_profile, 'undoable');
-  assert.ok(there.tools.every(tool => !/vault|password|secret|delete|key\b|upload_file|evaluate|script/i.test(tool.name) || tool.name === 'browser_press_key'), there.tools.map(tool => tool.name).join(' '));
+  assert.ok(there.tools.every(tool => !/vault|password|secret|delete|key\b|upload_file|evaluate|(?<!tran)script/i.test(tool.name) || tool.name === 'browser_press_key'), there.tools.map(tool => tool.name).join(' '));
   // No tool takes a password, a file's contents or a script as input.
   for (const definition of desktop.app.assistant.tools.definitions()) {
     assert.equal(definition.input_schema.additionalProperties, false, definition.name);
-    assert.ok(Object.keys(definition.input_schema.properties || {}).every(key => !/password|secret|username|script/i.test(key) && !['file', 'data', 'content', 'code'].includes(key)), definition.name);
+    assert.ok(Object.keys(definition.input_schema.properties || {}).every(key => !/password|secret|username|(?<!tran)script/i.test(key) && !['file', 'data', 'content', 'code'].includes(key)), definition.name);
   }
 
   const without = (await plain.call('/api/assistant')).body;
@@ -480,4 +480,25 @@ test('the steps of an application are read off the tools the assistant used', ()
   // A page opened by its address after one application was recorded is a new run too; before that it is the same one.
   assert.equal(applyRun([{ role: 'assistant', tools: [tool('open_application', 'open', { job: 'A', postingId: 'p1' }), tool('browser_open', 'open', { site: 'jobs.example.com' })] }]).job, 'A');
   assert.equal(applyRun([{ role: 'assistant', tools: [tool('open_application', 'open', { job: 'A', postingId: 'p1' }), tool('mark_applied', 'record'), tool('browser_open', 'open', { site: 'jobs.example.com' })] }]).job, '');
+});
+
+test('the assistant lists the transcripts and has Dayjob attach one, without ever getting a file', async t => {
+  const browser = fakeBrowser({
+    transcript: input => ({ uploaded: { transcripts: [{ name: 'Example Transcript.pdf', note: 'Example University' }], field: 'College Transcript', chosenBy: input.transcriptIds ? 'chosen' : 'only' } }),
+  });
+  const { app, chat, engines } = await start({ browser });
+  t.after(() => app.close());
+  const kept = app.transcripts.add({ name: 'Example Transcript.pdf', note: 'Example University', data: Buffer.from('%PDF-1.4\n% grades: all of them\n%%EOF\n') });
+
+  const listed = await chat('call:list_transcripts {}');
+  assert.deepEqual(engines['claude-cli'].results[0].value, { transcripts: [{ id: kept.id, name: 'Example Transcript.pdf', note: 'Example University', isDefault: false }] });
+  const attached = await chat('call:browser_upload_transcript {}', listed.id);
+  assert.equal(browser.calls[0].action, 'transcript');
+  assert.deepEqual(browser.calls[0].input, { transcriptIds: null });
+  assert.equal(attached.tool.step, 'resume');
+  assert.deepEqual(attached.tool.facts, { transcript: 'Example Transcript.pdf' });
+  await chat(`call:browser_upload_transcript {"transcriptIds":["${kept.id}"]}`, listed.id);
+  assert.deepEqual(browser.calls[1].input, { transcriptIds: [kept.id] });
+  assert.equal(JSON.stringify(engines['claude-cli'].results).includes('grades'), false, 'what a transcript says never reaches the model');
+  assert.equal(app.assistant.tools.get('list_transcripts').tier, 'read');
 });

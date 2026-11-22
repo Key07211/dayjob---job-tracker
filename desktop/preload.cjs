@@ -8,7 +8,7 @@ const listen = (channel, callback) => {
 
 contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
   getInfo: () => ipcRenderer.invoke('dayjob:get-info'),
-  openDataFolder: what => ipcRenderer.invoke('dayjob:open-data-folder', ['feedback', 'cover-letters'].includes(what) ? what : undefined),
+  openDataFolder: what => ipcRenderer.invoke('dayjob:open-data-folder', ['feedback', 'cover-letters', 'transcripts'].includes(what) ? what : undefined),
   openCoverLetter: id => ipcRenderer.invoke('dayjob:open-cover-letter', String(id)),
   getClaudeStatus: () => ipcRenderer.invoke('dayjob:claude-status'),
   checkClaude: () => ipcRenderer.invoke('dayjob:check-claude'),
@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
     // The resume that goes with the open page ('auto', or a resume's id), and attaching its file to the form.
     resumeFor: choice => ipcRenderer.invoke('dayjob:browser-resume-for', choice),
     uploadResume: choice => ipcRenderer.invoke('dayjob:browser-upload-resume', choice),
+    uploadTranscript: id => ipcRenderer.invoke('dayjob:browser-upload-transcript', id),
     extract: () => ipcRenderer.invoke('dayjob:browser-extract'),
     clearData: () => ipcRenderer.invoke('dayjob:browser-clear'),
     fillLogin: id => ipcRenderer.invoke('dayjob:browser-login-fill', id),

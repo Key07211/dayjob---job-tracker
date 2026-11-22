@@ -142,8 +142,12 @@ function installAutofill(name, makeHidden) {
           item.options = [...element.options].map(option => clean(option.text, 120));
           item.filled = element.selectedIndex >= 0 && !placeholderOption(element.options[element.selectedIndex]);
         } else if (type === 'checkbox') item.filled = element.checked;
-        else if (type === 'file') item.filled = element.files?.length > 0;
-        else item.filled = Boolean(clean(element.value));
+        else if (type === 'file') {
+          item.filled = element.files?.length > 0;
+          // Named as files() names it: by the line over its box when its own name says nothing.
+          const over = clean(uploadLabel(element)).replace(/\s*\*$/, '');
+          if (over) item.label = over;
+        } else item.filled = Boolean(clean(element.value));
         fields.push(item);
       }
     }
@@ -289,16 +293,27 @@ function installAutofill(name, makeHidden) {
   // that holds only it and its button.
   // Words that say how to hand a file over and not what the file is: "Drop or select (.doc / .docx / .pdf)",
   // "Browse", "点击上传". A field whose only label reads like that is named by the line over its box instead.
-  const UPLOAD_ACT = /\b(drag|drop|select|choose|browse|upload|attach|click|tap)\b|拖|点击|选择|上传|浏览|添加/i;
-  const UPLOAD_HOW = /\.[a-z0-9]{2,5}\b|\b(drag|drop|and|or|select|choose|browse|upload|attach|add|click|tap|paste|here|to|a|an|the|your|you|from|this|device|computer|files?|documents?|max(imum)?|size|up|mb|kb|only|supported|formats?|types?|pdf|docx?|rtf|txt|\d+)\b|拖放|拖拽|拖入|拖到|点击|选择|上传|浏览|添加|文件|文档|或者?|此处|这里|格式|支持|大小|不超过|将|请|到/gi;
+  const UPLOAD_ACT = /\b(drag|drop|select(ed)?|choose|chosen|browse|upload|attach|click|tap)\b|拖|点击|选择|上传|浏览|添加/i;
+  const UPLOAD_HOW = /\.[a-z0-9]{2,5}\b|\b(drag|drop|and|or|select(ed)?|choose|chosen|browse|upload|attach|add|click|tap|paste|here|to|a|an|the|your|you|from|this|device|computer|files?|documents?|max(imum)?|size|up|mb|kb|only|supported|formats?|types?|pdf|docx?|rtf|txt|no|none|not|yet|is|are|\d+)\b|拖放|拖拽|拖入|拖到|点击|选择|上传|浏览|添加|文件|文档|或者?|此处|这里|格式|支持|大小|不超过|没有|尚未|未|被|已|将|请|到/gi;
   const howOnly = text => UPLOAD_ACT.test(text || '') && !text.replace(UPLOAD_HOW, ' ').replace(/[^\p{L}]+/gu, '');
+  // A name a page's own code gave the field, the same on every upload of the form: "file-input", "Upload",
+  // "Attachment". It says no more than a label that only says how.
+  const UPLOAD_THING = /\b(inputs?|fields?|uploader|picker|control|box|zone|area|dropzone|buttons?|attachments?)\b|附件|上传栏|文件框/gi;
+  const nameless = text => howOnly(text) || !String(text || '').replace(UPLOAD_HOW, ' ').replace(UPLOAD_THING, ' ').replace(/[^\p{L}]+/gu, '');
+  // What a line beside the field says once its buttons are left out: "Choose file" and "No file selected" are
+  // the field's own works, not its question.
+  function besides(sibling) {
+    let text = textOf(sibling);
+    for (const button of sibling.querySelectorAll('button, [role="button"]')) text = text.replace(textOf(button), ' ');
+    return clean(text);
+  }
   function uploadLabel(element) {
     const own = ownLabel(element);
-    if (own && !howOnly(own)) return own;
+    if (own && !nameless(own)) return own;
     for (let node = element, depth = 0; node && depth < 5; depth += 1) {
       for (let sibling = node.previousElementSibling, step = 0; sibling && step < 4; sibling = sibling.previousElementSibling, step += 1) {
         if (sibling.matches('input:not([type="hidden"]), select, textarea') || sibling.querySelector('input:not([type="hidden"]), select, textarea')) break;
-        const text = textOf(sibling);
+        const text = besides(sibling);
         if (!text || text.length > 80 || howOnly(text) || sibling.matches('button, [role="button"]')) continue;
         if (sibling.tagName === 'LABEL' && sibling.control && sibling.control !== element) break;
         if (sibling.matches(LABEL_LIKE) || /[*:：]\s*$/.test(text)) return text;
@@ -327,18 +342,23 @@ function installAutofill(name, makeHidden) {
     }
     return found;
   }
-  // Puts a file into a file field, as choosing it in the file dialog would. data is the file in base64.
-  function attach({ index, name: fileName, mime, data }) {
+  // Puts a file into a file field, as choosing it in the file dialog would. data is the file in base64. A field
+  // that takes several files can be given several at once (more: [{ name, mime, data }]).
+  function attach({ index, name: fileName, mime, data, more = [] }) {
     const element = uploads[index];
     if (!element?.isConnected) return { error: 'missing' };
     try {
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let at = 0; at < binary.length; at += 1) bytes[at] = binary.charCodeAt(at);
       const transfer = new DataTransfer();
-      transfer.items.add(new File([bytes], fileName, { type: mime, lastModified: Date.now() }));
+      let size = 0;
+      for (const item of [{ name: fileName, mime, data }, ...more]) {
+        const binary = atob(item.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let at = 0; at < binary.length; at += 1) bytes[at] = binary.charCodeAt(at);
+        size += bytes.length;
+        transfer.items.add(new File([bytes], item.name, { type: item.mime, lastModified: Date.now() }));
+      }
       element.files = transfer.files;
-      const attached = element.files?.length === 1 && element.files[0].size === bytes.length;
+      const attached = element.files?.length === 1 + more.length && [...element.files].reduce((sum, file) => sum + file.size, 0) === size;
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
       if (element.checkVisibility?.({ visibilityProperty: true })) glow(element);
@@ -432,9 +452,12 @@ const DATE_KEYS = ['eduStart', 'graduation', 'workStart', 'workEnd'];
 const ENTRY_KEYS = { school: 'education', degree: 'education', major: 'education', gpa: 'education', eduStart: 'education', graduation: 'education',
   company: 'experience', title: 'experience', workLocation: 'experience', workStart: 'experience', workEnd: 'experience', workSummary: 'experience', workCurrent: 'experience' };
 
+// A field that says it is there to catch robots, should a page leave one where people can see it: nobody is
+// meant to fill it in, so it is not one of the fields left for the user either.
+const TRAP = /robots? only|if you.?(a)?re (a )?human|leave (this|the) (field|box|one|input) (blank|empty)|do not fill (in |out )?this (field|box)|honey ?pot|(此栏|此处|这里|本栏|此项|请)留空|请勿填写|不要填写/;
+const isTrap = field => field.kind === 'text' && TRAP.test(String(field.label || '').toLowerCase());
 // Fields about someone else, or ones Dayjob should never guess.
-// (Also a field that says it is there to catch robots, should a page leave one where people can see it.)
-const SKIP = /emergency|reference|referee|recruiter|hiring manager|\breferr(er|ed)\b|referral('?s)? (name|email|phone)|employee('?s)? (name|email)|captcha|password|signature|签名|robots? only|if you.?(a)?re (a )?human|leave (this|the) (field|box) (blank|empty)|honey ?pot/;
+const SKIP = new RegExp(`emergency|reference|referee|recruiter|hiring manager|\\breferr(er|ed)\\b|referral('?s)? (name|email|phone)|employee('?s)? (name|email)|captcha|password|signature|签名|${TRAP.source}`);
 const YES_NO_KEYS = ['needsSponsorship', 'workAuthorized', 'willingToRelocate', 'authorizedWithoutSponsorship'];
 const DECLINE = /decline|prefer not|don.?t wish|do not wish|not wish to|rather not|choose not|not to (answer|disclose|say|self.?identify)|i don.?t want|不愿|不透露/;
 
@@ -682,8 +705,9 @@ function planFill(fields, profile) {
 const FILE_WORDS = {
   resume: /r[eé]sum[eé]|\bcv\b|curriculum|vitae|简历|履历/i,
   coverLetter: /cover\s*letter|motivation|求职信|自荐信/i,
+  transcript: /transcript|academic record|grade (report|sheet)|成绩/i,
 };
-const OTHER_FILE = /transcript|成绩|portfolio|作品|photo|picture|headshot|avatar|头像|照片|certificat|证书|reference|推荐信|writing sample|passport|licen[cs]e|additional|other (file|document)|其他|附加/i;
+const OTHER_FILE = /portfolio|作品|photo|picture|headshot|avatar|头像|照片|certificat|证书|reference|推荐信|writing sample|passport|licen[cs]e|additional|other (file|document)|其他|附加/i;
 const imagesOnly = accept => Boolean(accept) && accept.split(',').every(item => /^\s*(image\/|\.(png|jpe?g|gif|webp|bmp|svg|heic)\b)/i.test(item));
 
 // The field (from the page's files()) a file of this kind goes into, or null. A field that says it is for
@@ -726,4 +750,4 @@ function autofillScript(name, method, args) {
   return `(${installAutofill.toString()})(${JSON.stringify(name)}, ${HIDDEN_SOURCE}).${method}(${args === undefined ? '' : JSON.stringify(args)})`;
 }
 
-module.exports = { autofillScript, planFill, keyFor, optionFor, pickFileField, acceptsFile };
+module.exports = { autofillScript, planFill, keyFor, optionFor, pickFileField, acceptsFile, isTrap };

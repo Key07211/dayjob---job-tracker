@@ -68,7 +68,7 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, letters = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, letters = null, transcripts = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
@@ -627,8 +627,9 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     {
       name: 'browser_autofill', tier: 'browser', view: 'browser',
       description: 'Fill in the application form on the current page from the user\'s application profile, including a form embedded from another site, and attach the resume when the form '
-        + 'has a resume field: the one matched to the posting from open_application, else the one that fits the page. Only empty fields whose label clearly matches are filled; it never '
-        + 'submits. Returns what it filled, what happened with the resume (its name and the field, or why it was not attached), and the required fields still empty. Read the page again afterwards.',
+        + 'has a resume field: the one matched to the posting from open_application, else the one that fits the page. A field that asks for a transcript gets one of the user\'s '
+        + 'transcripts the same way. Only empty fields whose label clearly matches are filled; it never submits. Returns what it filled, what happened with the resume and the '
+        + 'transcript (the file\'s name and the field, or why it was not attached), and the required fields still empty. Read the page again afterwards.',
       shape: { resumeId: id.optional().describe('Attach this resume instead (an id from list_resumes).'), resume: z.boolean().optional().describe('false leaves the resume field alone.') },
       label: (input, result) => (result.resume?.attached ? [`填好 ${result.filled.length} 项，附上简历“${short(result.resume.resume.name, 40)}”`, `Filled ${result.filled.length} fields and attached “${short(result.resume.resume.name, 40)}”`]
         : [`填好 ${result.filled.length} 项`, `Filled ${result.filled.length} ${result.filled.length === 1 ? 'field' : 'fields'}`]),
@@ -648,6 +649,27 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       async run(input, context) {
         const outcome = await inBrowser('upload', browserInput('upload', { resumeId: resumeOf(context, input.resumeId) }), context);
         return { result: outcome, step: 'resume', facts: { resume: outcome.uploaded.resume } };
+      },
+    },
+    ...(!transcripts ? [] : [{
+      name: 'list_transcripts', tier: 'read', view: 'resume',
+      description: 'List the transcripts the user keeps in Dayjob (PDF files): id, file name, the user\'s note on what each is (a school, a degree), and which one is the default. '
+        + 'You can attach them to a form with browser_upload_transcript; you cannot read them.',
+      shape: {},
+      label: (input, result) => [`看了成绩单列表（${result.transcripts.length} 份）`, `Looked at the transcripts (${result.transcripts.length})`],
+      run: () => ({ result: { transcripts: transcripts.list().map(item => ({ id: item.id, name: item.name, note: item.note, isDefault: item.isDefault })) } }),
+    }]),
+    {
+      name: 'browser_upload_transcript', tier: 'browser', view: 'browser',
+      description: 'Attach a transcript to the application form on the current page, into the field that asks for one (“Transcript”, “Academic record”, 成绩单), also when it is hidden '
+        + 'behind a button or in a form embedded from another site. Dayjob puts the PDF in; you get its name and the field\'s label, never the file. Without transcriptIds Dayjob picks one: '
+        + 'the only one there is, else the one whose note or name says what the field asks for (a level of study, a school), else the one the user marked as the default. Give '
+        + 'transcriptIds (from list_transcripts) when the form says which one it wants and Dayjob could not know; several only for a field that takes several files. It never submits.',
+      shape: { transcriptIds: z.array(id).min(1).max(4).optional() },
+      label: (input, result) => [`附上成绩单：${short(result.uploaded.transcripts.map(item => item.name).join('、'), 40)}`, `Attached the transcript: ${short(result.uploaded.transcripts.map(item => item.name).join(', '), 40)}`],
+      async run(input, context) {
+        const outcome = await inBrowser('transcript', browserInput('transcript', { transcriptIds: input.transcriptIds ?? null }), context);
+        return { result: outcome, step: 'resume', facts: { transcript: outcome.uploaded.transcripts.map(item => item.name).join(', ') } };
       },
     },
     {
@@ -966,9 +988,9 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
   // out of the prompt until the model asks for the group (engine-api.mjs); everything else is always at hand.
   const GROUPS = {
     apply: { about: 'working in the Dayjob browser and applying to a job there (open_application and every browser_ tool: open, read, click, type, select, autofill, sign in, create '
-      + 'an account, attach the resume, cover letter), start_applications for several jobs at once, report_application for how one went, add_postings, which puts jobs read on a '
+      + 'an account, attach the resume, a transcript, cover letter), start_applications for several jobs at once, report_application for how one went, add_postings, which puts jobs read on a '
       + 'web page (Handshake, a careers site) into Today, and update_profile, which saves an answer the user gave into the application profile',
-      has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs', 'add_postings'].includes(tool.name) },
+      has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs', 'add_postings', 'list_transcripts'].includes(tool.name) },
     searches: { about: 'what Dayjob fetches every day (list_searches, save_search and run_search for saved searches; find_company_board and follow_company for a company\'s own job board)',
       has: tool => ['list_searches', 'save_search', 'run_search', 'find_company_board', 'follow_company'].includes(tool.name) },
   };

@@ -37,6 +37,8 @@ export function elementLine(item, { href = true } = {}) {
   if (item.opens === 'list') parts.push('opens-list');
   if (item.opens === 'suggestions') parts.push('suggests-list');
   if (item.required) parts.push('required');
+  // A box put there to catch robots: nothing is ever typed in it.
+  if (item.trap) parts.push('trap-leave-empty');
   if (item.disabled) parts.push('disabled');
   if (Array.isArray(item.options)) {
     const shown = item.options.slice(0, OPTIONS_SHOWN).map(quote).join(' | ');

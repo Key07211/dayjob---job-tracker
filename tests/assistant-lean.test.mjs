@@ -213,7 +213,7 @@ test('the tools are grouped by what they are for, and a conversation starts with
   assert.deepEqual(Object.keys(groups), ['apply', 'searches']);
   assert.deepEqual(groups.searches.tools, ['list_searches', 'save_search', 'run_search', 'find_company_board', 'follow_company']);
   assert.ok(groups.apply.tools.includes('open_application') && groups.apply.tools.includes('browser_sign_up') && groups.apply.tools.includes('update_profile'));
-  assert.equal(groups.apply.tools.filter(name => name.startsWith('browser_')).length, 16);
+  assert.equal(groups.apply.tools.filter(name => name.startsWith('browser_')).length, 17);
   const all = app.assistant.tools.definitions().map(tool => tool.name);
   const always = all.filter(name => !groups.apply.tools.includes(name) && !groups.searches.tools.includes(name));
   for (const name of ['get_status', 'list_postings', 'get_posting', 'list_applications', 'mark_applied', 'get_profile', 'remember']) assert.ok(always.includes(name), name);

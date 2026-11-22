@@ -119,10 +119,10 @@ function setupIpc() {
     return { version: app.getVersion(), dataPath: dataDir, isPackaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR) };
   });
   // what: 'feedback' for the folder of the assistant's feedback file, 'cover-letters' for the folder of the cover
-  // letters; anything else is the data folder itself.
+  // letters, 'transcripts' for the folder of the transcripts; anything else is the data folder itself.
   ipcMain.handle('dayjob:open-data-folder', async (event, what) => {
     verifiedSender(event);
-    const folder = ['feedback', 'cover-letters'].includes(what) ? path.join(dataDir, what) : dataDir;
+    const folder = ['feedback', 'cover-letters', 'transcripts'].includes(what) ? path.join(dataDir, what) : dataDir;
     if (folder !== dataDir) fs.mkdirSync(folder, { recursive: true });
     const error = await shell.openPath(folder);
     if (error) throw new Error(error);
@@ -155,6 +155,7 @@ function setupIpc() {
   handle('dayjob:browser-autofill', options => browser.autofill({ submit: options?.submit === true, resume: options?.resume }));
   handle('dayjob:browser-resume-for', choice => browser.resumeFor(choice));
   handle('dayjob:browser-upload-resume', choice => browser.uploadResume(choice));
+  handle('dayjob:browser-upload-transcript', id => browser.uploadTranscript(id));
   handle('dayjob:browser-extract', () => browser.extract());
   handle('dayjob:browser-clear', () => browser.clearData());
   handle('dayjob:browser-login-fill', id => browser.fillLogin(String(id)));
@@ -297,6 +298,7 @@ async function createWindow() {
   browser = createBrowser({ window, appOrigin: origin, settingsFile: path.join(profileDir, 'browser.json'), copy: () => text().browser,
     getProfile: () => service.repo.getSettings().applicant, vault,
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
+    transcripts: { pick: input => service.transcripts.pick(input), file: id => service.transcripts.file(id) },
     track: { applied: input => service.trackApplied(input), posting: url => service.postingAt(url) },
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
@@ -368,6 +370,22 @@ const DROP_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="ut
 <input id="two" type="file" accept=".doc,.docx,.pdf,.txt" style="display:none"></label></div></div><p id="got"></p></form>
 <script>document.getElementById('one').addEventListener('change', event => { const file = event.target.files[0];
 document.getElementById('got').textContent = file ? file.name + '|' + file.size : 'none'; });</script></body></html>`;
+
+// A form drawn the way BambooHR's is: three uploads whose own name is the same "file-input", each under a plain
+// line that says what the file is, the buttons in the reader's language; and a box that says to leave it empty,
+// put there to catch robots. The page writes down what each upload got.
+const FABRIC_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Fabric Co</title></head>
+<body><h1>Economic Analyst</h1><form action="/applied" method="get"><div><label for="first">First name</label> <input id="first" name="first"></div>
+<div><label for="hp">请将此栏留空</label> <input id="hp" type="text" name="nickname_hpcsaf"></div>
+<div data-fabric-component="Flex"><p data-fabric-component="BodyText">Cover Letter*</p><div data-fabric-component="FileUpload"><div data-fabric-component="FileUploadInput"><div data-fabric-component="FileUploadToggle"><div><button type="button"><span>选择文件*</span></button><div><p>没有文件被选择</p></div></div></div>
+<input aria-label="file-input" data-kind="cover" required tabindex="-1" type="file" accept=".pdf,.doc,.docx,.txt" style="display:block;opacity:0;position:absolute;width:0;height:0"></div></div></div>
+<div data-fabric-component="Flex"><p data-fabric-component="BodyText">Resume*</p><div data-fabric-component="FileUpload"><div data-fabric-component="FileUploadInput"><div data-fabric-component="FileUploadToggle"><div><button type="button"><span>选择文件*</span></button><div><p>没有文件被选择</p></div></div></div>
+<input aria-label="file-input" data-kind="resume" required tabindex="-1" type="file" accept=".pdf,.doc,.docx,.txt" style="display:block;opacity:0;position:absolute;width:0;height:0"></div></div></div>
+<div data-fabric-component="Flex"><p data-fabric-component="BodyText">College Transcript*</p><div data-fabric-component="FileUpload"><div data-fabric-component="FileUploadInput"><div data-fabric-component="FileUploadToggle"><div><button type="button"><span>Choose Files*</span></button><div><p>No files selected</p></div></div></div>
+<input aria-label="file-input" data-kind="transcript" required tabindex="-1" type="file" multiple accept=".pdf,.doc,.docx,.txt" style="display:block;opacity:0;position:absolute;width:0;height:0"></div></div></div>
+<p id="got"></p></form>
+<script>const got = {}; for (const input of document.querySelectorAll('input[type=file]')) input.addEventListener('change', () => {
+got[input.dataset.kind] = [...input.files].map(file => file.name + '|' + file.size).join('+'); document.getElementById('got').textContent = JSON.stringify(got); });</script></body></html>`;
 
 // Questions with choices, drawn the ways application forms draw them: the real radio button see-through and stretched
 // over its own label; shrunk to a dot beside a label that stands in for it; lying under a picture of itself; and a
@@ -821,6 +839,7 @@ async function smokeBrowser(token) {
     if (url.pathname === '/board/job/31') return response.end(DIALOG_JOB_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/upload-drop') return response.end(DROP_UPLOAD_PAGE);
+    if (url.pathname === '/upload-fabric') return response.end(FABRIC_UPLOAD_PAGE);
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
       ? `<!doctype html><title>Submitted</title><h1>Thanks ${escape(url.searchParams.get('name'))}</h1><p>Source: ${escape(url.searchParams.get('source'))}</p>`
@@ -1074,6 +1093,34 @@ async function smokeBrowser(token) {
     steps.resumeUnderHeading = underHeading.uploaded.resume === 'Smoke Resume.txt' && underHeading.uploaded.field === 'Résumé'
       && await until(async () => (await dropPage.executeJavaScript("document.getElementById('got').textContent")) === `Smoke Resume.txt|${Buffer.byteLength(resumeText)}`, 5000)
       && (await dropPage.executeJavaScript("document.getElementById('two').files.length")) === 0;
+    // 成绩单: transcripts are PDF files in the transcript folder; one put there by hand is listed too. On a form
+    // whose three uploads all call themselves "file-input", the line over each says which is which: the resume
+    // goes under "Resume", the transcript marked as the default under "College Transcript", and the cover letter's
+    // is left alone. A box that says to leave it empty is never typed in.
+    const pdf = words => Buffer.from(`%PDF-1.4\n% ${words}\n%%EOF\n`);
+    const firstTranscript = await (await send('/api/transcripts', 'POST', { name: 'Smoke Transcript.pdf', note: 'Smoke University', data: pdf('one').toString('base64') })).json();
+    fs.writeFileSync(path.join(dataDir, 'transcripts', 'Put By Hand.pdf'), pdf('two, by hand'));
+    const transcriptList = (await (await fetch(`${origin}/api/transcripts`)).json()).transcripts;
+    steps.transcriptsKept = fs.existsSync(path.join(dataDir, 'transcripts', 'Smoke Transcript.pdf')) && transcriptList.length === 2
+      && transcriptList.some(item => item.name === 'Put By Hand.pdf') && (await send('/api/transcripts', 'POST', { name: 'not.pdf', data: Buffer.from('plain words').toString('base64') })).status === 415;
+    await send(`/api/transcripts/${firstTranscript.id}`, 'PATCH', { isDefault: true });
+    await call('open', { url: `${base}/upload-fabric` });
+    const fabricPage = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/upload-fabric`)).webContents;
+    const fabricGot = async () => JSON.parse((await fabricPage.executeJavaScript("document.getElementById('got').textContent")) || '{}');
+    const underLine = await call('upload');
+    steps.resumeUnderLine = underLine.uploaded.resume === 'Smoke Resume.txt' && underLine.uploaded.field === 'Resume'
+      && await until(async () => (await fabricGot()).resume === `Smoke Resume.txt|${Buffer.byteLength(resumeText)}`, 5000);
+    const transcribed = await call('transcript');
+    steps.transcriptUploaded = transcribed.uploaded.transcripts.length === 1 && transcribed.uploaded.transcripts[0].name === 'Smoke Transcript.pdf'
+      && transcribed.uploaded.field === 'College Transcript' && transcribed.uploaded.chosenBy === 'default' && transcribed.others.length === 1
+      && await until(async () => (await fabricGot()).transcript === `Smoke Transcript.pdf|${pdf('one').length}`, 5000)
+      && (await fabricGot()).cover === undefined && (await post('transcript')).status === 409;
+    const fabric = await call('read');
+    const trapBox = fabric.elements.find(item => item.name === '请将此栏留空');
+    steps.trapLeftEmpty = trapBox?.trap === true && (await post('type', { ref: trapBox.ref, text: 'Smoke' })).status === 409
+      && (await fabricPage.executeJavaScript("document.getElementById('hp').value")) === '';
+    for (const item of transcriptList) await send(`/api/transcripts/${item.id}`, 'DELETE');
+    steps.transcriptsGone = !fs.existsSync(path.join(dataDir, 'transcripts', 'Smoke Transcript.pdf')) && !fs.existsSync(path.join(dataDir, 'transcripts', 'Put By Hand.pdf'));
     await send(`/api/resumes/${kept.id}`, 'DELETE');
 
     // 密码保管: a saved sign-in is filled into its site's login form, where

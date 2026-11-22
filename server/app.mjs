@@ -24,6 +24,7 @@ import { createDashboard, DASHBOARD_WEEKS } from './jobs/dashboard.mjs';
 import { contactFromResume, extractProfile } from './jobs/applicant.mjs';
 import { extractResumeText, MAX_RESUME_BYTES, resumeFileType, sameResume } from './jobs/resume.mjs';
 import { COVER_LETTER_FOLDER, createCoverLetters, MAX_SAMPLES, SAMPLE_MAX } from './jobs/cover-letters.mjs';
+import { createTranscripts, MAX_TRANSCRIPT_BYTES, MAX_TRANSCRIPTS, TRANSCRIPT_FOLDER } from './jobs/transcripts.mjs';
 import { message } from './messages.mjs';
 import { createAssistant } from './assistant/index.mjs';
 import { normalizeScore } from './jobs/scoring/prompt.mjs';
@@ -51,6 +52,8 @@ export async function createApp(options = {}) {
   // 求职信: beside the database; options.letterPdf lays a letter out as a PDF (the desktop app does).
   const letters = createCoverLetters({ db, repo, now, log: options.log || console.warn, makePdf: options.letterPdf || null,
     dir: dataDir === ':memory:' ? null : path.join(dataDir, COVER_LETTER_FOLDER) });
+  // 成绩单: PDF files in a folder beside the database.
+  const transcripts = createTranscripts({ db, now, dir: dataDir === ':memory:' ? null : path.join(dataDir, TRANSCRIPT_FOLDER) });
   const dashboard = createDashboard({ db, now });
   repo.abandonRunningRuns();
   // Databases from before multiple resumes have postings with no matched resume.
@@ -224,6 +227,7 @@ export async function createApp(options = {}) {
     if (pathname === '/api/bootstrap') {
       return { csrfToken, version: VERSION, dataFile: filename, serverTime: now().toISOString(), settings: publicSettings(repo.getSettings()), languageChosen: repo.languageChosen(),
         stats: repo.stats(), searches: repo.listSearches(), companies: repo.listCompanies(), sites: await sites(), resumes: repo.listResumes(),
+        transcripts: transcripts.list().map(item => ({ id: item.id, name: item.name, note: item.note, isDefault: item.isDefault })),
         scoring: await scorer.status(), scheduler: schedulerState(), runs: repo.listRuns(10), applicationStatuses: APPLICATION_STATUSES,
         countries: Object.keys(COUNTRIES) };
     }
@@ -259,6 +263,7 @@ export async function createApp(options = {}) {
     if (pathname === '/api/cover-letters') return { folder: letters.folder, samples: letters.samples(), maxSamples: MAX_SAMPLES, letters: letters.list() };
     match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
     if (match) return need(letters.get(match[1]), 'Cover letter');
+    if (pathname === '/api/transcripts') return { folder: transcripts.folder, max: MAX_TRANSCRIPTS, maxBytes: MAX_TRANSCRIPT_BYTES, transcripts: transcripts.list() };
     if (pathname === '/api/searches') return repo.listSearches();
     if (pathname === '/api/companies') return repo.listCompanies();
     if (pathname === '/api/resumes') return repo.listResumes();
@@ -284,7 +289,8 @@ export async function createApp(options = {}) {
   }
 
   async function mutate(request, pathname, method, source) {
-    const input = await readJson(request, /^\/api\/(resumes(\/[^/]+\/file)?|cover-letters\/samples)$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096 : undefined);
+    const input = await readJson(request, /^\/api\/(resumes(\/[^/]+\/file)?|cover-letters\/samples)$/.test(pathname) ? Math.ceil(MAX_RESUME_BYTES * 1.4) + 4096
+      : pathname === '/api/transcripts' ? Math.ceil(MAX_TRANSCRIPT_BYTES * 1.4) + 4096 : undefined);
     if (pathname === '/api/settings' && method === 'PATCH') {
       const settings = repo.updateSettings(settingsPatch(input));
       options.onSettings?.(settings);
@@ -481,6 +487,19 @@ export async function createApp(options = {}) {
     if (match && method === 'DELETE') return { ok: need(letters.removeSample(match[1]), 'Cover letter sample') };
     match = pathname.match(/^\/api\/cover-letters\/([^/]+)$/);
     if (match && method === 'DELETE') return { ok: need(letters.remove(match[1]), 'Cover letter') };
+    // 成绩单: a PDF goes into the transcript folder as it is; nothing reads its text. note says what it is (a
+    // school, a degree); isDefault marks the one a form gets when it does not say which it wants.
+    if (pathname === '/api/transcripts' && method === 'POST') {
+      if (typeof input.data !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(input.data)) throw new HttpError(400, 'Send the transcript file as base64 data.');
+      return [201, transcripts.add({ name: typeof input.name === 'string' ? input.name.slice(0, 200) : '', note: typeof input.note === 'string' ? input.note : '', data: Buffer.from(input.data, 'base64') })];
+    }
+    match = pathname.match(/^\/api\/transcripts\/([^/]+)$/);
+    if (match && method === 'PATCH') {
+      if (Object.hasOwn(input, 'note') && typeof input.note !== 'string') throw new HttpError(400, 'note must be text.');
+      if (Object.hasOwn(input, 'isDefault') && typeof input.isDefault !== 'boolean') throw new HttpError(400, 'isDefault must be true or false.');
+      return need(transcripts.update(match[1], { ...(Object.hasOwn(input, 'note') ? { note: input.note } : {}), ...(Object.hasOwn(input, 'isDefault') ? { isDefault: input.isDefault } : {}) }), 'Transcript');
+    }
+    if (match && method === 'DELETE') return { ok: need(transcripts.remove(match[1]), 'Transcript') };
     if (pathname === '/api/recommendations' && method === 'POST') {
       const { preference } = recommendInput(input);
       if (!repo.countResumes()) throw new HttpError(409, 'Upload a resume first.');
@@ -541,7 +560,7 @@ export async function createApp(options = {}) {
   }
 
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, log, engines: options.assistantEngines,
-    companies: { find: findCompany, follow: followCompany }, letters,
+    companies: { find: findCompany, follow: followCompany }, letters, transcripts,
     browser: options.browser || null, onSettings: settings => options.onSettings?.(settings), notify,
     // 问题反馈文件: beside the database; a database in memory has no folder, and keeps its entries in memory too.
     feedbackDir: dataDir === ':memory:' ? null : path.join(dataDir, 'feedback'),
@@ -642,6 +661,14 @@ export async function createApp(options = {}) {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(where))}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
         return response.end(data);
       }
+      // A transcript's file, the same way.
+      const transcriptFile = method === 'GET' && pathname.match(/^\/api\/transcripts\/([^/]+)\/file$/);
+      if (transcriptFile) {
+        const file = need(transcripts.file(transcriptFile[1]), 'Transcript file');
+        response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Length': file.data.length,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+        return response.end(file.data);
+      }
       if (method === 'GET') return respond(response, 200, await get(pathname, url));
       if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not allowed.');
       requireToken(request);
@@ -659,7 +686,7 @@ export async function createApp(options = {}) {
   server.headersTimeout = 15000;
   let listening = false;
   return {
-    server, repo, scheduler, scorer, assistant, filename, trackApplied, postingAt, letters,
+    server, repo, scheduler, scorer, assistant, filename, trackApplied, postingAt, letters, transcripts,
     // Which JobSpy is in use and whether it starts: { command, builtIn, available, version }. refresh starts it to see.
     jobspy: (refresh = false) => jobspyStatus(refresh),
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {

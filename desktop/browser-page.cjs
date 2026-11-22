@@ -314,8 +314,14 @@ function install(makeHidden, pickOption) {
     return box.tagName === 'FIELDSET' ? clean(textOf(box.querySelector(':scope > legend')), 160) : '';
   }
 
+  // A box that is there to catch robots, should a page leave one where people can see it: its label says to leave
+  // it empty. Whatever is typed there marks the application as a robot's.
+  const TRAP = /robots? only|if you.?(a)?re (a )?human|leave (this|the) (field|box|one|input) (blank|empty)|do not fill (in |out )?this (field|box)|(此栏|此处|这里|本栏|此项|请)留空|请勿填写|不要填写/i;
+  const trap = (element, said) => element.matches('input, textarea') && TRAP.test(said || '');
+
   function describe(element, ref) {
     const item = { ref, role: role(element), name: name(element) };
+    if (trap(element, item.name)) item.trap = true;
     marks.set(ref, { tag: element.tagName, type: element.type || '', role: item.role, name: item.name, only: false });
     if (item.role === 'radio' || item.role === 'checkbox') {
       const group = question(element);
@@ -488,6 +494,7 @@ function install(makeHidden, pickOption) {
     if (element.tagName === 'SELECT') info.select = true;
     else if (opensList(element)) info.opens = 'list';
     else if (suggests(element)) info.opens = 'suggestions';
+    if (trap(element, info.name)) info.trap = true;
     if (searchPrompt(element)) info.search = 'enter';
     // A real checkbox or radio button can also be set without the mouse, so a drawn one that sits under its own
     // picture, or under another option's, is still answered.
