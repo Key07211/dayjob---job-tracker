@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { backupBeforeUpgrade } from './backup.mjs';
 
 // Each entry upgrades the schema by one version. Never edit a released entry;
 // append a new one so existing databases migrate forward in place.
@@ -276,6 +277,8 @@ export function openDatabase(directory) {
     db.close();
     throw new Error(`This database was created by a newer Dayjob (schema ${current}). Update Dayjob before opening it.`);
   }
+  // A copy of the database as it was, before an upgrade changes its tables.
+  if (directory !== ':memory:' && current > 0 && current < migrations.length) backupBeforeUpgrade(db, directory, current);
   for (let version = current; version < migrations.length; version += 1) {
     transaction(db, () => {
       db.exec(migrations[version]);

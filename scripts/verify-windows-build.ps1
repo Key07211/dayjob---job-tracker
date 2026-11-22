@@ -104,6 +104,20 @@ function Test-McpBridge([string]$Exe) {
   }
 }
 
+# PostgreSQL built into Dayjob (PGlite), run by the packaged executable in Node mode from inside app.asar: it must
+# open, write, search, close and reopen. Dayjob does not use it yet; this keeps it known to work on Windows.
+function Test-Pg([string]$Exe) {
+  $check = Join-Path (Split-Path -Parent $Exe) 'resources\app.asar\server\db\selftest.mjs'
+  $env:ELECTRON_RUN_AS_NODE = '1'
+  try {
+    $line = (& $Exe $check $work | Out-String).Trim()
+    $exit = $LASTEXITCODE
+  } finally { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
+  $result = $line | ConvertFrom-Json
+  if ($exit -ne 0 -or -not $result.ok) { throw "Built-in PostgreSQL check failed: $line" }
+  Write-Output ("Built-in PostgreSQL {0}: first open {1} ms, reopen {2} ms, {3} MB in memory" -f $result.version, $result.firstOpenMs, $result.reopenMs, $result.rssMb)
+}
+
 # What electron-updater reads: latest.yml next to the installer it names, and
 # app-update.yml (the GitHub feed) inside the app.
 function Test-UpdateFiles {
@@ -124,6 +138,7 @@ try {
   Test-Jobspy $unpacked
   Invoke-Smoke 'unpacked' $unpacked
   Test-McpBridge $unpacked
+  Test-Pg $unpacked
 
   if ($Install) {
     $setup = Join-Path $release "Dayjob-Setup-$Version.exe"

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { HttpError, readJson, respond } from './http.mjs';
 import { createNotifier, nativeNotification } from './notify.mjs';
 import { openDatabase } from './jobs/db.mjs';
+import { createDailyBackups } from './jobs/backup.mjs';
 import { APPLICATION_STATUSES, createRepository, MAX_API_KEYS, MAX_RESUMES } from './jobs/repository.mjs';
 import { createHttp } from './jobs/scrapers/http-client.mjs';
 import { SITES } from './jobs/scrapers/index.mjs';
@@ -47,6 +48,9 @@ export async function createApp(options = {}) {
   const dataDir = options.dataDir || process.env.DAYJOB_DATA_DIR || path.join(root, 'data');
   const { db, filename } = openDatabase(dataDir);
   const repo = createRepository(db, { now });
+  // One copy of the database a day in <data>/backups, the newest 14 kept.
+  const backups = dataDir === ':memory:' ? null : createDailyBackups({ db, directory: dataDir, log: options.log || console.warn });
+  backups?.start();
   const goals = createGoals({ db, repo, now });
   // 求职信: beside the database; options.letterPdf lays a letter out as a PDF (the desktop app does).
   const letters = createCoverLetters({ db, repo, now, log: options.log || console.warn, makePdf: options.letterPdf || null,
@@ -669,6 +673,7 @@ export async function createApp(options = {}) {
     },
     async close() {
       scheduler.stop();
+      backups?.stop();
       // A search still going is stopped, as "click again to stop" does: what it found stays, and the Python that
       // JobSpy runs in ends now instead of minutes later (it would keep an update from replacing Dayjob's files).
       scheduler.cancel();

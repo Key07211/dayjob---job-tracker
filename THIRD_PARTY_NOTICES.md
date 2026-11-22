@@ -78,6 +78,13 @@ and each package's in its own
 certifi is under the Mozilla Public License 2.0; its source is at
 https://github.com/certifi/python-certifi.
 
+## PGlite (PostgreSQL)
+
+Dayjob includes PGlite 0.5.15 (`@electric-sql/pglite`, https://github.com/electric-sql/pglite), PostgreSQL
+compiled to WebAssembly, under the Apache License 2.0 (full text in the package's `LICENSE`). PostgreSQL itself
+is under the PostgreSQL License: Portions Copyright (c) 1996-2025, The PostgreSQL Global Development Group;
+Portions Copyright (c) 1994, The Regents of the University of California (https://www.postgresql.org/about/licence/).
+
 ## Fonts
 
 The interface bundles two fonts under the SIL Open Font License 1.1
