@@ -78,7 +78,9 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
   // conversation of its own works in a tab of its own, see desktop/browser.cjs).
   async function inBrowser(action, input, context) {
     try {
-      const outcome = await browser.run(action, input, { by: 'assistant', takeover: applyMode() === 'takeover', signal: context?.signal, ...(context?.run ? { run: context.run } : {}) });
+      // A status check only looks (context.check): a click that would send something is refused, never asked about.
+      const outcome = await browser.run(action, input, { by: 'assistant', takeover: !context?.check && applyMode() === 'takeover', signal: context?.signal,
+        ...(context?.run ? { run: context.run } : {}), ...(context?.check ? { unattended: true } : {}) });
       if (outcome?.page) delete outcome.page.favicon;
       return outcome;
     } catch (error) {

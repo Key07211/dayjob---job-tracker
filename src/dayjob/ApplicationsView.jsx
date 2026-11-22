@@ -10,6 +10,7 @@ import { emit } from './groove/bus.js';
 import { BEAT, cue } from './groove/sound.js';
 import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tint, underline, wiggle } from './groove/fx.js';
 import { BeatLoader } from './groove/BrandMark.jsx';
+import { StatusCheck } from './assistant/StatusCheck.jsx';
 import { DateField } from './groove/Picker.jsx';
 
 const TABS = [
@@ -248,7 +249,7 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
   );
 }
 
-export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = null }) {
+export function ApplicationsView({ boot, reload, dataVersion, refreshStatus, setView, focus = null }) {
   const { t } = useI18n();
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
@@ -310,6 +311,7 @@ export function ApplicationsView({ dataVersion, refreshStatus, setView, focus = 
     <section className="applications">
       {header}
       {items.length ? <Funnel items={items} /> : null}
+      {items.length ? <StatusCheck boot={boot} reload={reload} /> : null}
       {adding ? <NewApplication onCancel={() => setAdding(false)} onCreated={created => { flip.measure(); setItems(current => [created, ...current]); setAdding(false); setTab('open'); setSelected(created.id); setArrived(created.id); cue('note'); void refreshStatus(); }} /> : null}
       <div className="tabs">
         {TABS.map(entry => {

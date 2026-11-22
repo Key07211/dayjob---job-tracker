@@ -691,6 +691,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   const sender = context => (context?.by === 'assistant' ? 'assistant' : 'claude');
   // Resolves true when auto-submit, or the assistant's full takeover, allowed it without asking.
   async function approve(tab, action, name, context = {}) {
+    // 申请状态检查: it runs with nobody there and only looks, whatever auto-submit and takeover say.
+    if (context.unattended) fail(409, 'Nothing happened: this is the status check, which only looks. It never sends or submits anything.');
     if (autoSubmit || context.takeover) return true;
     const id = randomUUID();
     const byAssistant = context.by === 'assistant';

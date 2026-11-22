@@ -619,19 +619,21 @@ function Background({ boot, reload }) {
   const { t } = useI18n();
   const [error, setError] = useState('');
   if (!desktop) return null;
-  async function toggle(event) {
+  const save = key => async event => {
     setError('');
-    try { await api('/api/settings', { method: 'PATCH', body: { desktop: { closeToTray: event.target.checked } } }); await reload(); }
+    try { await api('/api/settings', { method: 'PATCH', body: { desktop: { [key]: event.target.checked } } }); await reload(); }
     catch (failure) { setError(serverText(failure.message)); }
-  }
+  };
   return (
     <section className="card-section" data-guide="close">
       <h2><Power size={18} />{t('关闭窗口时', 'Closing the window')}<GuideHelp id="close" /></h2>
       <p className="hint">{t('开着这一项，关掉窗口后 Dayjob 留在任务栏右下角的托盘里，按时做每日抓取、发提醒，Claude 也能随时通过 MCP 使用它；要完全退出，在托盘图标的菜单里点“退出 Dayjob”。关掉这一项，关窗口就完全退出，不在后台运行；错过的每日抓取会在当天下次打开 Dayjob 时补上。',
         'With this on, closing the window leaves Dayjob in the tray at the bottom right of the taskbar, so the daily search and reminders still run and Claude can use it through MCP at any time; to quit completely, choose “Quit Dayjob” from the tray icon\'s menu. With it off, closing the window quits Dayjob and nothing keeps running; a daily search it missed runs when you next open Dayjob that day.')}</p>
       <div className="form-grid">
-        <label className="check-line"><input type="checkbox" checked={boot.settings.desktop.closeToTray} onChange={toggle} />{t('关闭窗口后继续在后台运行', 'Keep running in the tray')}</label>
+        <label className="check-line"><input type="checkbox" checked={boot.settings.desktop.closeToTray} onChange={save('closeToTray')} />{t('关闭窗口后继续在后台运行', 'Keep running in the tray')}</label>
+        <label className="check-line"><input type="checkbox" checked={Boolean(boot.settings.desktop.openAtLogin)} onChange={save('openAtLogin')} />{t('开机时启动 Dayjob（留在托盘里）', 'Start Dayjob with the computer (in the tray)')}</label>
       </div>
+      <p className="hint">{t('开机启动后，Dayjob 不弹出窗口，只在托盘里：每日抓取照常进行，“投递追踪”里的申请状态检查也会在开机后自己查一次（如果打开了）。', 'Started with the computer, Dayjob opens no window and sits in the tray: the daily search runs as usual, and the status check under Applications runs once after the computer starts, if it is switched on.')}</p>
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   );

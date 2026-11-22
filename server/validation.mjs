@@ -155,6 +155,7 @@ export function settingsPatch(input) {
   }));
   section('desktop', value => pick(value, {
     closeToTray: item => boolean(item, 'Keep running after closing the window'),
+    openAtLogin: item => boolean(item, 'Start with the computer'),
   }));
   section('tracking', value => pick(value, {
     followUpDays: item => integer(item, 'Follow-up days', 0, 90),

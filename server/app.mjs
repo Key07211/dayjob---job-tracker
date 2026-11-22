@@ -542,7 +542,7 @@ export async function createApp(options = {}) {
 
   const assistant = createAssistant({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, log, engines: options.assistantEngines,
     companies: { find: findCompany, follow: followCompany }, letters,
-    browser: options.browser || null, onSettings: settings => options.onSettings?.(settings),
+    browser: options.browser || null, onSettings: settings => options.onSettings?.(settings), notify,
     // 问题反馈文件: beside the database; a database in memory has no folder, and keeps its entries in memory too.
     feedbackDir: dataDir === ':memory:' ? null : path.join(dataDir, 'feedback'),
     baseUrl: () => `http://127.0.0.1:${server.address().port}` });
@@ -665,7 +665,11 @@ export async function createApp(options = {}) {
     async listen(port = Number(process.env.DAYJOB_PORT || DEFAULT_PORT)) {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); }); });
       listening = true;
-      if (options.startScheduler !== false) scheduler.start();
+      if (options.startScheduler !== false) {
+        scheduler.start();
+        // 申请状态检查: the one owed today runs a little after Dayjob has started.
+        assistant.watchChecks(options.checkTimes);
+      }
       return `http://127.0.0.1:${server.address().port}`;
     },
     async close() {
