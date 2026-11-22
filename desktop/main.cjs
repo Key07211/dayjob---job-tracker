@@ -1560,11 +1560,29 @@ async function runSmoke() {
   window.close();
 }
 
+// 开机启动: Dayjob registers itself with the system to start when the user signs in, in the tray (--hidden), or takes
+// that back, as Settings say. The system is only told when it differs: an update or a moved folder puts it right
+// at the next start. The portable Dayjob registers the exe the user started, not the copy it unpacked to run.
+// Only the installed or portable app does this, never a run from source or a smoke run.
+let loginItem = null;
+function applyLoginItem(settings) {
+  const wanted = Boolean(settings?.desktop?.openAtLogin);
+  if (!app.isPackaged || smoke || !['win32', 'darwin'].includes(process.platform)) return;
+  const item = { path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath, args: ['--hidden'] };
+  try {
+    if (loginItem === null) loginItem = app.getLoginItemSettings(item).openAtLogin;
+    if (loginItem === wanted) return;
+    app.setLoginItemSettings({ ...item, openAtLogin: wanted });
+    loginItem = wanted;
+    logApp(wanted ? 'starts with the computer from now on' : 'no longer starts with the computer');
+  } catch (error) { logApp(`could not change starting with the computer: ${error.message}`); }
+}
+
 async function boot() {
   await app.whenReady();
   const { createApp } = await import(pathToFileURL(path.join(app.getAppPath(), 'server', 'app.mjs')).href);
   service = await createApp({ dataDir, distDir: path.join(app.getAppPath(), 'dist'), notify: desktopNotification,
-    allowedOrigins: [], startScheduler: !smoke, onSettings: settings => setLanguage(settings.language),
+    allowedOrigins: [], startScheduler: !smoke, onSettings: settings => { setLanguage(settings.language); applyLoginItem(settings); },
     // 求职信: a letter saved to the cover letter folder is laid out as a PDF here.
     letterPdf,
     // The Python with JobSpy that the installed app carries beside app.asar (scripts/build-jobspy.mjs).
@@ -1572,6 +1590,7 @@ async function boot() {
     browser: { run: (action, input, context) => (browser ? browser.agent(action, input, context) : Promise.reject(Object.assign(new Error('The Dayjob window is still opening.'), { status: 503 }))),
       // 同时申请: an application's reply is over, or its conversation is gone (see endRun in browser.cjs).
       endRun: (key, options) => browser?.endRun(key, options) } });
+  applyLoginItem(service.repo.getSettings());
   // What the window speaks when it opens: the language saved earlier, or the system's on a first launch.
   language = service.repo.languageChosen() ? service.repo.getSettings().language : null;
   smokeLanguage = language || systemLanguage();

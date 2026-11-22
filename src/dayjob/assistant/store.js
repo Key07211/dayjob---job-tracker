@@ -10,16 +10,19 @@ import { api, apiLines } from '../../api.js';
 // failure: what went wrong outside a reply, as text or as { code, message } when the pane has its own words for it.
 // runs: 同时申请, the applications that have a conversation of their own ({ id, postingId, job, state, outcome, … }).
 // They go on in the background whatever the pane shows; the pane looks in on one (follow) and leaves again.
+// check: 申请状态检查, as the server has it ({ settings, last, running, browser }); see server/assistant/check.mjs.
 const FORMS = ['closed', 'side', 'full'];
 const saved = read();
 const firstForm = saved === 'open' ? 'side' : FORMS.includes(saved) ? saved : 'closed';
-let state = { form: firstForm, open: firstForm !== 'closed', info: null, conversation: null, busy: false, phase: 'idle', failure: '', draft: '', runs: [] };
+let state = { form: firstForm, open: firstForm !== 'closed', info: null, conversation: null, busy: false, phase: 'idle', failure: '', draft: '', runs: [], check: null };
 const listeners = new Set();
 const effects = new Set();
 const hearers = new Set();
 let flight = null;
 let poll = 0;
+let checkPoll = 0;
 const RUNS_EVERY = 2500;
+const CHECK_EVERY = 3000;
 
 function read() { try { return sessionStorage.getItem('dayjob-assistant'); } catch { return null; } }
 function set(patch) {
@@ -34,6 +37,8 @@ const effect = detail => effects.forEach(listener => listener(detail));
 // Each piece of a reply as it arrives, for the gramophone, which sends out notes as fast as the words come.
 export function onAssistantWords(listener) { hearers.add(listener); return () => hearers.delete(listener); }
 
+// A conversation whose reply goes on in the background, whatever the pane shows: an application's, or the status check's.
+const background = conversation => Boolean(conversation?.run || conversation?.check);
 const keepMemory = result => { if (state.info) set({ info: { ...state.info, memory: result.memory } }); };
 const lastTurn = conversation => conversation.turns[conversation.turns.length - 1];
 // The reply being written is the last turn; every change makes a new conversation object for React.
@@ -60,6 +65,14 @@ function takeRuns(runs) {
   clearTimeout(poll);
   // Asked again only while something is waiting or at work; a quiet list is left alone.
   if (runs.some(run => run.state !== 'done')) poll = setTimeout(() => void assistant.refreshRuns(), RUNS_EVERY);
+}
+// 申请状态检查 as the server has it. While one runs it is asked about again; when it ends, the lists catch up.
+function takeCheck(check) {
+  const was = state.check;
+  set({ check });
+  if (was?.running && !check.running) effect({ changed: true });
+  clearTimeout(checkPoll);
+  if (check.running) checkPoll = setTimeout(() => void assistant.refreshCheck(), CHECK_EVERY);
 }
 // Leaves the reply the pane is following without stopping it (an application goes on in the background).
 function detach() {
@@ -136,6 +149,7 @@ export const assistant = {
       const info = await api('/api/assistant');
       set({ info });
       takeRuns(info.runs || []);
+      if (info.check) takeCheck(info.check);
     } catch (failure) { set({ failure: failure.message }); }
   },
   // 同时申请. The list of applications; asked for again by itself while one of them is waiting or at work.
@@ -158,11 +172,11 @@ export const assistant = {
     const run = state.runs.find(item => item.id === id);
     if (!run) return;
     if (state.conversation?.id === id) { if (!state.busy && !flight && run.state === 'working') void follow(id); return; }
-    if (state.busy && !state.conversation?.run) { set({ failure: { code: 'busy-here', message: 'The assistant is still answering here.' } }); return; }
+    if (state.busy && !background(state.conversation)) { set({ failure: { code: 'busy-here', message: 'The assistant is still answering here.' } }); return; }
     const leaving = state.conversation;
     if (flight) detach();
     set({ conversation: { id, title: run.job, kept: false, archivedAt: null, turns: [], run }, failure: '' });
-    if (leaving?.id && !leaving.run) api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
+    if (leaving?.id && !background(leaving)) api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
     await follow(id);
   },
   // Stops an application (one that is still waiting never starts); it stays in the list.
@@ -214,14 +228,14 @@ export const assistant = {
   async write(text) {
     if (state.form === 'closed') assistant.setOpen(true);
     if (state.busy) { set({ failure: { code: 'busy-ask', message: 'The assistant is still answering here.' } }); return false; }
-    if (state.conversation?.run) await assistant.reset();
+    if (background(state.conversation)) await assistant.reset();
     await assistant.send(text);
     return true;
   },
   // An application's reply goes on when nobody listens, so it is stopped by asking; any other by leaving it.
   stop() {
     const conversation = state.conversation;
-    if (conversation?.run && conversation.id) api(`/api/assistant/conversations/${conversation.id}/stop`, { method: 'POST' }).catch(() => {});
+    if (background(conversation) && conversation.id) api(`/api/assistant/conversations/${conversation.id}/stop`, { method: 'POST' }).catch(() => {});
     else flight?.abort();
   },
   // Compacts the open conversation: the assistant writes a summary and goes on from it. focus: what the summary
@@ -256,9 +270,9 @@ export const assistant = {
   // A new conversation: the one left behind is forgotten unless it was kept.
   async reset() {
     const leaving = state.conversation;
-    if (leaving?.run) detach(); else flight?.abort();
+    if (background(leaving)) detach(); else flight?.abort();
     set({ conversation: null, failure: '', phase: 'idle' });
-    if (leaving?.id && !leaving.run) await api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
+    if (leaving?.id && !background(leaving)) await api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
   },
   async keep(keep) {
     const id = state.conversation?.id;
@@ -278,18 +292,18 @@ export const assistant = {
     } catch (failure) { set({ failure: failure.message }); }
   },
   async openKept(id) {
-    if ((state.busy && !state.conversation?.run) || state.conversation?.id === id) return;
+    if ((state.busy && !background(state.conversation)) || state.conversation?.id === id) return;
     const leaving = state.conversation;
     try {
       const conversation = await api(`/api/assistant/conversations/${id}`);
       if (flight) detach();
       set({ conversation, failure: '' });
-      if (leaving?.id && !leaving.run) api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
+      if (leaving?.id && !background(leaving)) api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
     } catch (failure) { set({ failure: failure.message }); }
   },
   async remove(id) {
     try {
-      if (state.conversation?.id === id) { if (state.conversation.run) detach(); else flight?.abort(); }
+      if (state.conversation?.id === id) { if (background(state.conversation)) detach(); else flight?.abort(); }
       const result = await api(`/api/assistant/conversations/${id}`, { method: 'DELETE' });
       set({ info: state.info && { ...state.info, kept: result.kept }, ...(state.conversation?.id === id ? { conversation: null } : {}) });
       if (state.runs.some(run => run.id === id)) void assistant.refreshRuns();
@@ -318,4 +332,28 @@ export const assistant = {
     } catch (failure) { set({ failure: failure.message }); return false; }
   },
   clearFailure() { if (state.failure) set({ failure: '' }); },
+  // 申请状态检查. Each of these throws what the server refused, for the card to show.
+  async refreshCheck() {
+    try { takeCheck(await api('/api/assistant/check')); } catch { /* the next try will tell */ }
+  },
+  async saveCheck(patch) { takeCheck(await api('/api/assistant/check', { method: 'PATCH', body: patch })); },
+  async runCheck() { takeCheck(await api('/api/assistant/check/run', { method: 'POST' })); },
+  async stopCheck() { takeCheck(await api('/api/assistant/check/stop', { method: 'POST' })); },
+  // Takes back one change the last check made, while its conversation is still there.
+  async undoCheck(conversationId, actionId) {
+    await api(`/api/assistant/conversations/${conversationId}/undo`, { method: 'POST', body: { actionId } });
+    effect({ undone: true, changed: true });
+    await assistant.refreshCheck();
+  },
+  // Shows the check's conversation in the pane: what it searched, read and wrote down, as it goes or afterwards.
+  async openCheck(id) {
+    if (state.form === 'closed') assistant.setOpen(true);
+    if (state.conversation?.id === id) return;
+    if (state.busy && !background(state.conversation)) { set({ failure: { code: 'busy-here', message: 'The assistant is still answering here.' } }); return; }
+    const leaving = state.conversation;
+    if (flight) detach();
+    set({ conversation: { id, title: '', kept: false, archivedAt: null, turns: [], check: true }, failure: '' });
+    if (leaving?.id && !background(leaving)) api(`/api/assistant/conversations/${leaving.id}/close`, { method: 'POST' }).catch(() => {});
+    await follow(id);
+  },
 };

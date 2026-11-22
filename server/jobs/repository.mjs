@@ -32,7 +32,8 @@ export const DEFAULT_SETTINGS = {
   // runner 'builtin': the JobSpy inside the app when there is one; 'own': always the user's Python (pythonCommand).
   jobspy: { runner: 'builtin', pythonCommand: process.platform === 'win32' ? 'python' : 'python3' },
   updates: { autoCheck: true },
-  desktop: { closeToTray: true },
+  // openAtLogin: Dayjob starts with the computer, in the tray (the desktop app registers itself with the system).
+  desktop: { closeToTray: true, openAtLogin: false },
   applicant: DEFAULT_APPLICANT,
   // { id, service, name, key, active, allowance?, workspace? }: one key per service is the one in use.
   // workspace: the workspace ID a Claude key that works in every workspace sends with each request.
