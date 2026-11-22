@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, ChevronsRight, CircleCheck, ExternalLink, FileUp, Globe, KeyRound, LoaderCircle, Lock, LockOpen, Maximize2,
-  Minimize2, Plus, RotateCw, ShieldAlert, Square, WandSparkles, X } from 'lucide-react';
+  Minimize2, PanelRightClose, Plus, RotateCw, ShieldAlert, Square, WandSparkles, X } from 'lucide-react';
 import { api } from '../api.js';
 import { formatDay } from './format.js';
 import { useI18n } from '../i18n.jsx';
@@ -647,7 +647,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
 // Under this width of page and helper together, the open helper would leave the page less than about 300 px.
 const TIGHT_BODY = 540;
 
-export function BrowserView({ state, covered, boot, dataVersion, openItem, wide, canSide, onWide, onClose, closeAsked = 0 }) {
+export function BrowserView({ state, covered, folded = false, boot, dataVersion, openItem, wide, canSide, onWide, onFold = null, onClose, closeAsked = 0 }) {
   const { t } = useI18n();
   const frame = useRef(null);
   const address = useRef(null);
@@ -706,8 +706,11 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
     const node = frame.current;
     if (!node || !desktop) return;
     const rect = node.getBoundingClientRect();
-    const next = covered || arriving || closing || !active || rect.width < 40 || rect.height < 40 ? null
-      : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    // Folded into its bar the page is not shown, but the browser is still there: Dayjob is told so ("tucked"), and
+    // does not wait for the page to come up each time Claude does something in it.
+    const next = folded ? { tucked: true }
+      : covered || arriving || closing || !active || rect.width < 40 || rect.height < 40 ? null
+        : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
     const key = JSON.stringify(next);
     if (key === last.current) return;
     last.current = key;
@@ -790,6 +793,7 @@ export function BrowserView({ state, covered, boot, dataVersion, openItem, wide,
           {state.agentBusy ? <span className="agent-pill" title={t('Claude 正在操作', 'Claude is working')}><Bot size={14} /></span> : null}
           {canSide ? <button className="icon-button" data-fx="pop" title={wide ? t('和当前页面并排显示', 'Show beside the current page') : t('铺满窗口', 'Fill the window')} onClick={() => onWide(!wide)}>
             {wide ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button> : null}
+          {onFold ? <button className="icon-button" data-fx="pop" title={t('收成右边的细栏，把页面露出来', 'Fold into a bar at the right, and show the page')} onClick={onFold}><PanelRightClose size={16} /></button> : null}
           <button className="icon-button" title={t('关闭浏览器', 'Close the browser')} aria-expanded={asking} onClick={close}><X size={16} /></button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bell, Bookmark, BriefcaseBusiness, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
+import { Bell, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, currentLanguage, tr, useI18n } from './i18n.jsx';
 import { formatDay } from './dayjob/format.js';
@@ -102,6 +102,9 @@ function App() {
   });
   const [browserOpen, setBrowserOpen] = useState(() => hasBrowser && (read(sessionStorage, 'dayjob-browser') === 'open' || read(sessionStorage, 'dayjob-view') === 'browser'));
   const [browserWide, setBrowserWide] = useState(false);
+  // With no room for the browser beside what is open, it is a thin bar at the window's edge (true) or was opened
+  // from there and has the page's place (false). It only counts while there is no room (panes.js).
+  const [browserFolded, setBrowserFolded] = useState(false);
   const [paneWidth, setPaneWidth] = useState(() => Number(read(localStorage, 'dayjob-browser-width')) || null);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [resizing, setResizing] = useState(false);
@@ -111,15 +114,45 @@ function App() {
   const [focus, setFocus] = useState(null);
   // Going to a page while the assistant has the whole one: the page comes forward and the chat docks at the side.
   const dockAssistant = () => { if (assistant.get().form === 'full') assistant.setForm('side'); };
+  // The browser, asked for by the user: it opens, and comes out of its bar if it was folded there.
+  const showBrowser = useCallback(() => { setBrowserOpen(true); setBrowserFolded(false); }, []);
+  // Claude or the assistant started on a page: a closed browser opens so the work can be looked at. With no room
+  // beside the page it opens as its bar, and one already folded stays folded: the page the user is on is not
+  // taken away from them.
+  const browserIsOpen = useRef(browserOpen);
+  browserIsOpen.current = browserOpen;
+  const revealBrowser = useCallback(() => { if (!browserIsOpen.current) setBrowserFolded(true); setBrowserOpen(true); }, []);
+  // Going to a page brings it forward: a browser that had its place folds into its bar.
   const goTo = useCallback(target => {
-    if (target === 'browser') { setBrowserOpen(true); return; }
+    if (target === 'browser') { showBrowser(); return; }
     setFocus(null);
     setView(target);
     setBrowserWide(false);
+    setBrowserFolded(true);
     dockAssistant();
-  }, []);
-  const openItem = useCallback((target, id) => { setFocus({ view: target, id }); setView(target); setBrowserWide(false); dockAssistant(); }, []);
+  }, [showBrowser]);
+  const openItem = useCallback((target, id) => {
+    if (target === 'browser') { showBrowser(); return; }
+    setFocus({ view: target, id });
+    setView(target);
+    setBrowserWide(false);
+    setBrowserFolded(true);
+    dockAssistant();
+  }, [showBrowser]);
   const chat = useAssistant();
+  // Who stands where (panes.js): the page, then the assistant's side chat, then the browser at the window's edge.
+  // The assistant as a full page stands where the view does; when the browser takes the page instead (made wide,
+  // or opened from its bar in a window too narrow for both), the chat goes to the side so it stays in sight.
+  const { assistantFull, assistantOpen, beside, canSide, tight, folded, wide, width, minPane, maxPane } = panesFor({
+    windowWidth, browserOpen, browserWide, browserFolded, chatOpen: chat.open, chatForm: chat.form, paneWidth });
+  // The room beside the page went away under an open browser (the window was made smaller, or the chat opened;
+  // also a browser kept from last time, at the start): it folds into its bar by itself. One the user opens when
+  // there is no room is left open.
+  const before = useRef({ tight: false, open: browserOpen });
+  useLayoutEffect(() => {
+    if (tight && !before.current.tight && before.current.open) setBrowserFolded(true);
+    before.current = { tight, open: browserOpen };
+  }, [tight, browserOpen]);
   const [status, setStatus] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [runMessage, setRunMessage] = useState('');
@@ -135,7 +168,7 @@ function App() {
   // Scores that landed since the last poll play one per beat, so a batch sounds like a melody, not a chord.
   const feed = useRef({ seq: null, queue: [], timer: 0, batch: 0, busy: false });
   const [pending, setPending] = useState(0);
-  const browser = useBrowserState(goTo);
+  const browser = useBrowserState(revealBrowser);
   const update = useUpdateState();
   // The user guide. The first time Dayjob opens on this computer, once the opening has given way and the first
   // data is here, the assistant steps out and shows the user around; later it comes only when asked for.
@@ -367,18 +400,16 @@ function App() {
   const badges = { feed: stats.newPostings, saved: stats.savedPostings, applications: openApplications, browser: browser?.approval ? '!' : null };
   const shared = { boot, reload, setView: goTo, dataVersion, refreshStatus: async () => setStatus(await api('/api/status')), runStarted };
   const focusFor = target => (focus?.view === target ? focus.id : null);
-  // Who stands where (panes.js): the page, then the assistant's side chat, then the browser at the window's edge.
-  // The assistant as a full page stands where the view does; when the browser takes the page instead (made wide,
-  // or the window too narrow for both), the chat goes to the side so it stays in sight.
-  const { assistantFull, assistantOpen, beside, canSide, wide, width, minPane, maxPane } = panesFor({ windowWidth, browserOpen, browserWide, chatOpen: chat.open, chatForm: chat.form, paneWidth });
   const assistantForm = assistantFull ? 'full' : assistantOpen ? 'side' : 'closed';
+  const browserPages = (browser?.tabs || []).filter(tab => tab.url && tab.url !== 'about:blank').length;
   // A question from the assistant waits for the user (several can, one for each application it works on).
   const asking = (browser?.approvals || (browser?.approval ? [browser.approval] : [])).some(item => item.by === 'assistant');
   const pianoKeys = VIEWS.map(item => ({
     id: item.id, icon: item.icon, label: t(...item.label), note: item.note, alert: item.id === 'browser',
     active: item.id === 'browser' ? browserOpen : view === item.id && !wide && !assistantFull,
     badge: badges[item.id] ? (badges[item.id] > 999 ? '999+' : badges[item.id]) : null,
-    onSelect: () => (item.id === 'browser' ? (browserOpen ? setCloseAsked(count => count + 1) : setBrowserOpen(true)) : goTo(item.id)),
+    // The browser's key: it opens the browser (out of its bar too); pressed while the browser is in sight, it closes it.
+    onSelect: () => (item.id === 'browser' ? (browserOpen && !folded ? setCloseAsked(count => count + 1) : showBrowser()) : goTo(item.id)),
   }));
   // On: sound waves grow out of the button and it turns yellow. Off: the waves draw back.
   function toggleSound(event) {
@@ -453,7 +484,7 @@ function App() {
       </aside>
       <Metronome active={scoringNow} done={scoring.progress?.done || 0} total={scoring.progress?.total || 0} />
       {showNotifications ? <NotificationsPanel onClose={() => setShowNotifications(false)} onChanged={shared.refreshStatus} setView={goTo} openItem={openItem} /> : null}
-      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}${tourDocked ? ' with-guide' : ''}`}>
+      <main inert={tour.on} className={`main${browserOpen ? ` with-browser${wide ? ' wide' : ''}${folded ? ' folded' : ''}` : ''}${assistantOpen ? ' with-assistant' : ''}${assistantFull ? ' assistant-full' : ''}${tourDocked ? ' with-guide' : ''}`}>
         <div className="main-view">
           {assistantFull ? <AssistantPane form="full" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : (
             <>
@@ -471,11 +502,22 @@ function App() {
         {assistantOpen ? <AssistantPane form="side" onForm={assistant.setForm} onClose={() => assistant.setForm('closed')} openItem={openItem} browser={browser} /> : null}
         {browserOpen ? (
           <>
-            {!wide ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
+            {!wide && !folded ? <div className="pane-resizer" role="separator" aria-orientation="vertical" aria-label={t('拖动调整浏览器宽度', 'Drag to resize the browser')} tabIndex={0}
               onPointerDown={startResize} onKeyDown={nudge} onDoubleClick={() => { setPaneWidth(null); keep(localStorage, 'dayjob-browser-width', ''); }} /> : null}
-            <div className="browser-pane" style={wide ? undefined : { width }}>
-              <BrowserView state={browser} covered={showNotifications || resizing || tour.on} boot={boot} dataVersion={dataVersion} openItem={openItem}
-                wide={wide} canSide={canSide} onWide={setBrowserWide} onClose={() => setBrowserOpen(false)} closeAsked={closeAsked} />
+            {/* No room beside the page: the browser is a bar at the window's edge until it is opened from there. */}
+            {folded ? (
+              <button className="browser-fold" data-fx="pop" title={t('展开浏览器', 'Open the browser')} aria-label={t(`展开浏览器，${browserPages} 个网页`, `Open the browser, ${browserPages} page${browserPages === 1 ? '' : 's'}`)} onClick={showBrowser}>
+                <ChevronsLeft size={16} aria-hidden="true" />
+                <Globe size={16} aria-hidden="true" />
+                <span className="browser-fold-name">{t('浏览器', 'Browser')}</span>
+                {browserPages ? <span className="browser-fold-count" aria-hidden="true">{browserPages}</span> : null}
+                {browser?.agentBusy ? <Bot size={15} className="browser-fold-busy" aria-label={t('Claude 正在操作', 'Claude is working')} /> : null}
+                {browser?.approval ? <span className="browser-fold-alert" aria-label={t('有一步等你确认', 'A step is waiting for you')}>!</span> : null}
+              </button>
+            ) : null}
+            <div className={`browser-pane${folded ? ' folded' : ''}`} style={wide || folded ? undefined : { width }}>
+              <BrowserView state={browser} covered={showNotifications || resizing || tour.on} folded={folded} boot={boot} dataVersion={dataVersion} openItem={openItem}
+                wide={wide} canSide={canSide} onWide={setBrowserWide} onFold={tight ? () => setBrowserFolded(true) : null} onClose={() => setBrowserOpen(false)} closeAsked={closeAsked} />
             </div>
           </>
         ) : null}

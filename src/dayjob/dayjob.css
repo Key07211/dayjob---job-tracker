@@ -480,6 +480,18 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
 .pane-resizer:hover, .pane-resizer:focus-visible { background: var(--line-strong); outline: none; }
 .browser-pane { flex-shrink: 0; min-width: 0; display: flex; flex-direction: column; background: var(--card); container: pane / inline-size; }
 .main.with-browser.wide .browser-pane { flex: 1; }
+/* No room for the browser beside what is open (panes.js): it folds into this bar at the window's edge, and the
+   page and the side chat stay as they are. A click opens it, in the page's place. */
+.browser-pane.folded { display: none; }
+.browser-fold { flex: none; width: 44px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; background: var(--card);
+  border-left: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+.browser-fold:hover, .browser-fold:focus-visible { background: var(--soft); color: var(--text); outline: none; }
+.browser-fold:focus-visible { box-shadow: inset 0 0 0 2px var(--green); }
+.browser-fold-name { writing-mode: vertical-rl; font-size: 13px; font-weight: 600; letter-spacing: .14em; color: var(--text); }
+.browser-fold-count { min-width: 22px; padding: 1px 0; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); color: var(--text);
+  font-size: 11.5px; font-weight: 700; line-height: 1.5; text-align: center; font-variant-numeric: tabular-nums; }
+.browser-fold-busy { color: var(--green); }
+.browser-fold-alert { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--good); color: var(--on-good); font-size: 12.5px; font-weight: 800; }
 .nav-item em.alert, .pkey em.alert { background: var(--orange); border-color: var(--orange); color: var(--card); }
 .update-item small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .update-item > span:not(.update-circle) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
