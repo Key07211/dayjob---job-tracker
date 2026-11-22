@@ -84,6 +84,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   const tabs = [];
   let active = null;
   let bounds = null;
+  let tucked = false;
   let counter = 0;
   // The questions waiting for the user before something is sent, oldest first. There is one at most for each tab.
   const approvals = new Map();
@@ -252,7 +253,10 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (!tab.engaged) { tab.engaged = true; layout(); }
     return tab;
   }
+  // tucked: the window has the browser open, folded into its bar for want of room. No page is on show, and none is
+  // asked for (see reveal).
   function setBounds(rect) {
+    tucked = Boolean(rect?.tucked);
     const valid = rect && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(rect[key])) && rect.width > 0 && rect.height > 0;
     bounds = valid ? { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } : null;
     layout();
@@ -676,13 +680,14 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   }
 
   // Shows the browser (without taking focus) so the user sees what Claude does. An application in a tab of its own
-  // does not: the user started it and went on with something else, and looks in when they want to.
+  // does not: the user started it and went on with something else, and looks in when they want to. Nor does a
+  // browser folded into its bar in a small window: the bar says Claude is at work, and the user opens it to look.
   async function reveal(context) {
     if (window.isDestroyed() || context?.run?.own) return;
     if (!window.isVisible()) window.showInactive();
-    if (!bounds) {
+    if (!bounds && !tucked) {
       window.webContents.send('dayjob:browser-reveal');
-      for (let attempt = 0; attempt < 30 && !bounds; attempt += 1) await delay(50);
+      for (let attempt = 0; attempt < 30 && !bounds && !tucked; attempt += 1) await delay(50);
     }
   }
   // Who is asking, from what agent() was given: the assistant in the Dayjob window (by: 'assistant'), which the user

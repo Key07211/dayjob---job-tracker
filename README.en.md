@@ -215,7 +215,7 @@ The arrows show the previous month or let you set next month's goals early. A ne
 
 The assistant has a place of its own in the sidebar, above Notifications: beside the gramophone is its name, replaced while it is busy by what it is doing just now (thinking, working, which step of an application it is on, waiting for you), and the two buttons below are the two ways to open it.
 
-- **Side chat** opens at the right of the window, beside Home, Applications or the browser.
+- **Side chat** opens at the right of the page, beside Home or Applications. With the browser open too, the order from the left is the page, the side chat, the browser: the browser is always at the right of the assistant, at the edge of the window.
 - **Full page** gives it the whole page, with the kept conversations in a column at the left. While the browser is open the two stand side by side; when the browser fills the window, or the window is narrow, the assistant folds into the side chat by itself.
 
 Press the lit button again to close it. In a window that is not tall, its place in the sidebar gets more compact.
@@ -488,6 +488,7 @@ Changes made through MCP show as "Claude" on the timeline.
 ![The browser on the right: Home on the left, an application form and the assistant panel on the right](docs/media/browser-en.webp)
 
 - Drag the divider between the two to change the width (double-click resets it; the left and right arrow keys work too). The buttons at the top right switch between **Fill the window** and **Show beside the current page**, and × closes the browser. With pages open it asks first: **OK** closes every tab, **Cancel** keeps them (they are there when you open the browser again, also after Dayjob restarts, and load when first shown). Pressing the sidebar's browser key again closes it the same way. Quitting Dayjob does not ask: the open tabs are kept. In a narrow window it always fills the window.
+- When the window is too narrow for it (under 1000 px with the browser alone, under 1360 px with the assistant's side chat open too), the browser folds by itself into a thin bar at the right edge of the window, and the page and the assistant stay as they are; it comes back by itself when the window gets wider. A click on the bar (or the sidebar's browser key) opens it, in the page's place; the button at its top right folds it back, and so does going to any page in the sidebar. The assistant can still work in it while it is folded, and the bar shows a mark while it does.
 - Sign in to LinkedIn, Indeed, Handshake or company career sites there. Sign-ins and cookies stay in Dayjob's data on this computer (**Settings → Dayjob browser** clears them).
 - "Open on LinkedIn" and "Company apply page" in a job's details open there; **Open in your browser** at the bottom of the assistant panel opens the page in Chrome or Edge.
 

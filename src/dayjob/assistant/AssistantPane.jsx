@@ -291,7 +291,7 @@ function HistoryList({ kept, currentId, onPick }) {
   );
 }
 
-// The assistant: a gramophone you talk with. form "side" docks it at the right edge of the window, beside the page;
+// The assistant: a gramophone you talk with. form "side" docks it at the right of the page (left of the browser while that is open);
 // form "full" gives it the whole page, with the kept conversations in a column of their own. browser is the Dayjob
 // browser's state, for the question it asks before something is sent.
 export function AssistantPane({ form = 'side', onForm, onClose, openItem, browser = null }) {

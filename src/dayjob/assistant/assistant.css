@@ -1,6 +1,7 @@
 /* ---------- the assistant: a gramophone you talk with, at the side of the window or as a page of its own ---------- */
 
-/* Side chat: the view scrolls on its own beside the pane, the same way it does beside the browser. */
+/* Side chat: the view scrolls on its own beside the pane, the same way it does beside the browser. With both open
+   the order is the page, the chat, the browser: the browser is always the one at the window's edge (main.jsx). */
 .main.with-assistant, .main.assistant-full { padding: 0; height: 100vh; display: flex; overflow: hidden; }
 .main.with-assistant .main-view { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 28px 28px; }
 .main.with-assistant.with-browser.wide .main-view { display: none; }
