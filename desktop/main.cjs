@@ -1499,11 +1499,9 @@ async function smokeUpdate() {
   return steps;
 }
 
-// The first time Dayjob opens on a computer, the assistant steps out once the opening has gone, greets the user and
-// offers to show them around. Here it is sent away the way a user who presses "Not now" does: the window is given
-// back, and this computer has seen it. (A profile that had seen it before is not greeted again.)
 // 窗口边框: the page keeps its strip for the window's buttons, its panel begins under the strip and scrolls inside
-// itself (the window never does), and the window has taken the strip's colour from the page.
+// itself (the window never does), and the window has taken the strip's colour from the page. Looked at once the
+// guide has left: while its shade is over the window, the window is drawn in the shaded colour.
 async function smokeFrame() {
   const page = await window.webContents.executeJavaScript(`(() => {
     const view = document.querySelector('.main-view');
@@ -1518,6 +1516,9 @@ async function smokeFrame() {
       && paintTitleBar({ color: 'red', symbolColor: '#000000' }) === false };
 }
 
+// The first time Dayjob opens on a computer, the assistant steps out once the opening has gone, greets the user and
+// offers to show them around. Here it is sent away the way a user who presses "Not now" does: the window is given
+// back, and this computer has seen it. (A profile that had seen it before is not greeted again.)
 async function smokeGuide(seenBefore) {
   const run = code => window.webContents.executeJavaScript(code);
   const steps = { seenBefore };
@@ -1593,9 +1594,10 @@ async function runSmoke() {
     openingClosed = await window.webContents.executeJavaScript("!document.querySelector('.opening')");
     if (!openingClosed) await new Promise(resolve => setTimeout(resolve, 100));
   }
-  const frameCheck = await smokeFrame();
   const guideCheck = await smokeGuide(guideSeenBefore);
   timings.guide = Date.now() - started;
+  const frameCheck = await smokeFrame();
+  timings.frame = Date.now() - started;
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
