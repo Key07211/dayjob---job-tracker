@@ -263,7 +263,7 @@
 /* 07 · the listening wave at the top of every page, in the lid band above its lip, only while a music app plays and
    following is on. It takes the room between the title and the buttons on the right, over the band's full height,
    and fades a little at both ends so it never runs into either. */
-.view-header > .wave-slot { order: 1; position: relative; flex: 1 1 0; min-width: 0; align-self: stretch; margin: -26px 0 -13px; pointer-events: none; }
+.view-header > .wave-slot { order: 1; position: relative; flex: 1 1 0; min-width: 0; align-self: stretch; margin: calc(-1 * var(--page-top, 26px)) 0 -13px; pointer-events: none; }
 .view-header > .header-actions { order: 2; }
 .wave-slot > .listen-wave { position: absolute; inset: 0; opacity: 0; transition: opacity 625ms;
   mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent); }

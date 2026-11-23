@@ -206,6 +206,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // 读岗位: tabs Dayjob itself opened to read a job's page. They are kept drawn the same way: many job pages put
   // their content up only once the page is on show.
   const readers = new Set();
+  const PAGE_RADIUS = 14;
   function layout() {
     // The tab on show loads now, if it was kept from the last run.
     if (bounds) wake(active);
@@ -215,6 +216,9 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       const shown = tab === active && Boolean(bounds);
       const unseen = !shown && (atWork(tab) || readers.has(tab) || Boolean(tab.engaged));
       tab.view.setBounds(unseen ? { ...place, x: width - 1, y: height - 1 } : place);
+      // The page on show sits in the browser pane like a card (frame.css, .browser-frame). A page kept drawn in the
+      // window's corner keeps square corners, so the one pixel of it that shows is not cut away.
+      tab.view.setBorderRadius?.(shown ? PAGE_RADIUS : 0);
       tab.view.setVisible(shown || unseen);
     }
   }

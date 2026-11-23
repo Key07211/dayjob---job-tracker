@@ -1,0 +1,58 @@
+/* ---------- 窗口边框: the window is one body, and what it shows are rounded screens set into it ----------
+   The whole window has the sidebar's colour. The page, the assistant's side chat and the browser are panels with
+   round corners set into that body, a thin rim of it between them and around them, the way a screen sits in its
+   case. Each panel scrolls inside itself, so its corners stay where they are.
+
+   In the desktop app the window has no title bar of its own (desktop/main.cjs): the body simply reaches the top
+   edge. A strip there, --titlebar tall, drags the window and carries the three window buttons, which the system
+   draws at its right end in the strip's colours (titlebar.js). In a web browser --titlebar is 0 and there is no
+   strip. */
+:root {
+  --titlebar: 0px;
+  --bezel: 8px;
+  --screen: 20px;
+  /* How tall a panel is. */
+  --page-h: calc(100vh - var(--titlebar) - var(--bezel));
+  /* The room over a page's header. Under the strip it needs less: the strip is room already. */
+  --page-top: 26px;
+}
+:root.framed { --page-top: 12px; }
+
+/* The strip. It lies over the window's top from edge to edge to be dragged by; only right of the sidebar is it
+   painted, so nothing that passes under it shows through beside the window buttons. The guide's shade lies over it
+   like over everything else (titlebar.js draws the buttons to match). The sidebar's own first row (logo, sound,
+   language) is taken out of what drags, so those still take their clicks. */
+#titlebar { position: fixed; inset: 0 0 auto 0; height: var(--titlebar); z-index: 45; pointer-events: none; -webkit-app-region: drag; }
+#titlebar::after { content: ""; position: absolute; inset: 0 0 0 216px; background: var(--side); }
+.brand, .guide-card, .picker-panel, .notifications, .undo-bar { -webkit-app-region: no-drag; }
+
+/* The panels. */
+.main { height: 100vh; display: flex; gap: var(--bezel); padding: var(--titlebar) var(--bezel) var(--bezel) 0; overflow: hidden; }
+.main-view { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: var(--page-top) 28px 28px; border-radius: var(--screen); background: var(--glow), var(--surface); }
+.assistant-pane { border-left: 0; border-radius: var(--screen); overflow: hidden; }
+.assistant-pane.full { border-radius: 0; }
+.browser-pane { border-radius: var(--screen); overflow: hidden; }
+.browser-fold { border-left: 0; border-radius: var(--screen); }
+/* The page in the browser is a card of its own inside the pane (the native view is given the same corners,
+   desktop/browser.cjs). */
+.browser-frame { margin: 0 6px 6px; border-radius: 14px; }
+/* The bar the browser is dragged wider or narrower by is the rim between it and its neighbour. */
+.pane-resizer { position: relative; z-index: 1; width: var(--bezel); margin-inline: calc(-1 * var(--bezel)); background: transparent; border: 0; }
+.pane-resizer::after { content: ""; position: absolute; left: 2px; right: 2px; top: calc(50% - 20px); height: 40px; border-radius: 999px; background: var(--side-muted); opacity: .32; transition: opacity 156ms; }
+.pane-resizer:hover, .pane-resizer:focus-visible { background: transparent; }
+.pane-resizer:hover::after, .pane-resizer:focus-visible::after { opacity: .9; }
+
+/* Before the first data: the loader stands on the page's ground, under the strip. */
+.boot-screen { min-height: 0; height: var(--page-h); margin: var(--titlebar) var(--bezel) var(--bezel); border-radius: var(--screen); background: var(--glow), var(--surface); }
+
+/* Scroll bars are thin and round, and have no track of their own. */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 42%, transparent) transparent; }
+
+/* ---------- Rounder all through ----------
+   What stands inside a card is rounder too, a step under the card it stands in (cards are 20 to 24 px). */
+.run-card, .apply-form, .status-check, .status-check-changes li, .browser-save, .source-list, .memory-list, .goal-card, .profile-entry,
+.vault-list, .vault-form, .key-list, .spend-stats > div, .spend-keys, .vault-search, .vault-import,
+.asst-history-open, .asst-note.error, .asst-compact-summary, .asst-letter, .feedback-text,
+.assistant-pane.full .asst-main > .asst-keep, .assistant-pane.full .asst-main > .asst-steps, .assistant-pane.full .asst-main > .asst-runs { border-radius: 14px; }
+.score-card, .resume-match, .dropzone, .guide-where { border-radius: 16px; }
+.assist-result, .assist-confirm, .resume-preview pre, pre.code, .vault-import-warn, .asst-history-fold, .asst-runs li, .asst-run-open, .asst-usage-steps { border-radius: 12px; }

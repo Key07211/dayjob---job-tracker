@@ -428,17 +428,19 @@ export function spotBox(rects, view, pad = 6) {
 // Where the assistant's card stands: in the middle of the window when nothing is lit, otherwise to the right of
 // the lit box, level with it, never over the window's edge. `tail` is how far down the card its pointer sits (it
 // points at the middle of the lit box), or null when the card stands free.
-export function placeCard({ spot, card, view, gap = 18, margin = 12 }) {
+// `head` is how much of the window's top is not the card's to stand on (the title strip of the desktop window).
+export function placeCard({ spot, card, view, gap = 18, margin = 12, head = 0 }) {
+  const minTop = Math.max(margin, head);
   const maxLeft = Math.max(margin, view.width - margin - card.width);
-  const maxTop = Math.max(margin, view.height - margin - card.height);
+  const maxTop = Math.max(minTop, view.height - margin - card.height);
   if (!spot) {
     return { left: round(Math.min(maxLeft, Math.max(margin, (view.width - card.width) / 2))),
-      top: round(Math.min(maxTop, Math.max(margin, (view.height - card.height) / 2))), tail: null };
+      top: round(Math.min(maxTop, Math.max(minTop, (view.height - card.height) / 2))), tail: null };
   }
   const middle = spot.top + spot.height / 2;
   const left = Math.min(maxLeft, spot.left + spot.width + gap);
   // The pointer sits near the card's top, so a card beside a key reads from the key down.
-  const top = Math.min(maxTop, Math.max(margin, middle - Math.min(56, card.height / 2)));
+  const top = Math.min(maxTop, Math.max(minTop, middle - Math.min(56, card.height / 2)));
   const beside = left >= spot.left + spot.width;
   return { left: round(left), top: round(top), tail: beside ? round(Math.min(card.height - 24, Math.max(24, middle - top))) : null };
 }
@@ -446,11 +448,12 @@ export function placeCard({ spot, card, view, gap = 18, margin = 12 }) {
 // The Settings guide's card stands in the column kept free for it at the window's right (App makes the page
 // narrower meanwhile), its top level with the top of the lit group, so the two read side by side. `tail` points at
 // the group's title. With nothing lit (the group has been scrolled away) it keeps to the top of that column.
-export function dockCard({ spot, card, view, margin = 12 }) {
+export function dockCard({ spot, card, view, margin = 12, head = 0 }) {
+  const minTop = Math.max(margin, head);
   const left = Math.max(margin, view.width - margin - card.width);
-  const maxTop = Math.max(margin, view.height - margin - card.height);
-  if (!spot) return { left: round(left), top: margin, tail: null };
-  const top = Math.min(maxTop, Math.max(margin, spot.top));
+  const maxTop = Math.max(minTop, view.height - margin - card.height);
+  if (!spot) return { left: round(left), top: minTop, tail: null };
+  const top = Math.min(maxTop, Math.max(minTop, spot.top));
   const title = spot.top + Math.min(28, spot.height / 2);
   const beside = left >= spot.left + spot.width;
   return { left: round(left), top: round(top), tail: beside ? round(Math.min(card.height - 24, Math.max(24, title - top))) : null };

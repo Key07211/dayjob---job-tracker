@@ -8,6 +8,7 @@ import { EASE, flyTo } from '../groove/fx.js';
 import { BEAT, playKey, reducedMotion } from '../groove/sound.js';
 import { useMedia } from '../useMedia.js';
 import { guide, guideVoice, say, useGuide } from './store.js';
+import { TITLE_BAR, paintTitleBar } from '../titlebar.js';
 import { dockCard, guideSteps, placeCard, sayTime, settingsSteps, spoken, spotBox } from './steps.js';
 
 // The user guide. The first time Dayjob opens, once the opening has played, the assistant's gramophone steps out
@@ -30,6 +31,8 @@ import { dockCard, guideSteps, placeCard, sayTime, settingsSteps, spoken, spotBo
 const CAN_ICONS = { search: Search, track: BriefcaseBusiness, board: Building2, apply: Send, memory: NotebookPen, undo: Undo2 };
 // In a short window the greeting's gramophone is drawn one size smaller, so the card keeps inside the window.
 const SHORT_WINDOW = '(max-height: 760px)';
+// The card stands clear of the window's title strip.
+const HEAD = TITLE_BAR ? TITLE_BAR + 4 : 0;
 // How far under the top of the page a group of settings comes to rest, and how long the page takes to bring it.
 const LEAD = 14;
 const GLIDE = BEAT / 2;
@@ -111,6 +114,8 @@ export function Guide({ views, startView, goTo, openItem, theme, hasBrowser }) {
   const [gliding, setGliding] = useState(false);
   const [, setResized] = useState(0);
   const card = useRef(null);
+  // The window's buttons are drawn under the guide's shade while it is up, and as they were once it goes.
+  useLayoutEffect(() => { paintTitleBar(); return () => { setTimeout(paintTitleBar, 0); }; }, [leaving]);
   const forward = useRef(null);
   const back = useRef(startView);
   const entered = useRef(false);
@@ -135,7 +140,7 @@ export function Guide({ views, startView, goTo, openItem, theme, hasBrowser }) {
     const view = windowSize();
     const size = { width: node.offsetWidth, height: node.offsetHeight };
     const spot = spotBox((step.target || []).flatMap(boxesOf), view);
-    const next = { spot, ...(paged ? dockCard({ spot: rest.current || spot, card: size, view }) : placeCard({ spot, card: size, view })) };
+    const next = { spot, ...(paged ? dockCard({ spot: rest.current || spot, card: size, view, head: HEAD }) : placeCard({ spot, card: size, view, head: HEAD })) };
     setBox(current => (sameBox(current, next) ? current : next));
   }, [step, paged]);
 
