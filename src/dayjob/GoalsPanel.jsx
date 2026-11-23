@@ -7,6 +7,7 @@ import { BEAT, cue } from './groove/sound.js';
 import { floatNote, leave, sweep } from './groove/fx.js';
 import { Roll } from './groove/Fx.jsx';
 import { Select } from './groove/Picker.jsx';
+import { Tip } from './Tip.jsx';
 
 const COLLAPSED_KEY = 'dayjob-goals-collapsed';
 const MAX_GOALS = 8;
@@ -111,23 +112,23 @@ function GoalEditor({ report, onSaved, onCancel }) {
 
   return (
     <form className="goal-editor" ref={own} onSubmit={save}>
-      <p className="hint">{t('填每月目标，Dayjob 按每周在本月的天数分成每周任务（周一到周日）。留空就是不设。',
-        'Set monthly targets; Dayjob splits them into weekly tasks by how many of the month\'s days each week has (Monday to Sunday). Leave blank for none.')}</p>
+      <Tip>{t('填每月目标，Dayjob 按每周在本月的天数分成每周任务（周一到周日）。留空就是不设。',
+        'Set monthly targets; Dayjob splits them into weekly tasks by how many of the month\'s days each week has (Monday to Sunday). Leave blank for none.')}</Tip>
       <div className="goal-rows">
         <label className="goal-row">
-          <span><strong>{t('投递', 'Applications')}</strong><small>{t('点“我已投递”时自动计数', 'Counted when you mark a job applied')}</small></span>
+          <span><strong>{t('投递', 'Applications')}</strong><Tip>{t('点“我已投递”时自动计数', 'Counted when you mark a job applied')}</Tip></span>
           <input type="number" min={0} max={1000} inputMode="numeric" value={builtins.applications} onChange={event => setBuiltins(value => ({ ...value, applications: event.target.value }))} placeholder="—" />
           <em>{preview(builtins.applications)}</em>
         </label>
         <label className="goal-row">
-          <span><strong>{t('面试 / OA', 'Interviews / OAs')}</strong><small>{t('投递追踪里改成在线测评或面试时自动计数', 'Counted when an application moves to assessment or interview')}</small></span>
+          <span><strong>{t('面试 / OA', 'Interviews / OAs')}</strong><Tip>{t('投递追踪里改成在线测评或面试时自动计数', 'Counted when an application moves to assessment or interview')}</Tip></span>
           <input type="number" min={0} max={1000} inputMode="numeric" value={builtins.interviews} onChange={event => setBuiltins(value => ({ ...value, interviews: event.target.value }))} placeholder="—" />
           <em>{preview(builtins.interviews)}</em>
         </label>
         {custom.map((row, index) => (
           <div className={`goal-row custom${row.id ? '' : ' added'}`} key={row.key}>
             <span><input value={row.name} maxLength={60} autoFocus={!row.id} onChange={event => setRow(index, { name: event.target.value })} placeholder={t('比如：刷题、联系校友', 'e.g. practice problems, coffee chats')} aria-label={t('目标名称', 'Goal name')} />
-              <small>{t('在本周任务里点 +1 打卡', 'Log it with +1 in This week')}</small></span>
+              <Tip>{t('在本周任务里点 +1 打卡', 'Log it with +1 in This week')}</Tip></span>
             <input type="number" min={1} max={1000} inputMode="numeric" value={row.target} onChange={event => setRow(index, { target: event.target.value })} placeholder="—" aria-label={t('每月目标', 'Monthly target')} />
             <em>{preview(row.target)}</em>
             <button type="button" className="icon-button" title={t('删除', 'Remove')}

@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n.jsx';
 import { Select } from '../groove/Picker.jsx';
 import { assistant, useAssistant } from './store.js';
 import { Gramophone } from './Gramophone.jsx';
+import { Tip } from '../Tip.jsx';
 
 // 同时申请: the applications that have a conversation of their own, as the window shows them. A button at the top of
 // a job's details starts one; the pane lists them and looks in on any of them; a reply shows what each of its steps
@@ -183,19 +184,17 @@ export function ApplyingSettings() {
         <Select value={String(info.settings.parallel)} onChange={event => assistant.saveSettings({ parallel: Number(event.target.value) })} aria-label={t('助手同时进行几个申请', 'How many applications the assistant works on at once')}>
           {choices.map(count => <option key={count} value={count}>{t(`${count} 个`, String(count))}</option>)}
         </Select>
-        <small>{t('岗位详情右上角的“让助手申请”各开一个自己的对话和浏览器标签页。同时进行的不超过这个数，多出来的排队。每个申请都在单独花 token，数越大花得越快。',
-          '“Apply for me” at the top of a job’s details gives it a conversation and a browser tab of its own. No more than this many run at once; the rest wait in line. Each application spends tokens of its own, so a higher number spends them faster.')}</small>
+        <Tip>{t('岗位详情右上角的“让助手申请”各开一个自己的对话和浏览器标签页。同时进行的不超过这个数，多出来的排队。每个申请都在单独花 token，数越大花得越快。',
+          '“Apply for me” at the top of a job’s details gives it a conversation and a browser tab of its own. No more than this many run at once; the rest wait in line. Each application spends tokens of its own, so a higher number spends them faster.')}</Tip>
       </div>
       <div className="option-row feedback-row" data-guide="assistant">
         <span>{t('问题反馈文件', 'Feedback file')}</span>
         <div className="form-actions">
-          <button type="button" className="button" aria-expanded={reading} onClick={() => { if (!reading) void load(); setReading(value => !value); }}><FileText size={15} />{reading ? t('收起', 'Hide') : t('查看', 'Read')}</button>
+          <button type="button" className="button" aria-expanded={reading} onClick={() => { if (!reading) void load(); setReading(value => !value); }}><FileText size={15} />{reading ? t('收起', 'Hide') : feedback ? t(`查看（${feedback.entries} 条）`, `Read (${feedback.entries})`) : t('查看', 'Read')}</button>
           {desktop?.openDataFolder && feedback?.folder ? <button type="button" className="button" data-fx="folder" onClick={() => desktop.openDataFolder('feedback').catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开文件夹', 'Open folder')}</button> : null}
         </div>
-        <small>{t('助手每做完一次申请，Dayjob 自动在这个文件里记一条：结果、停在哪一步、为什么没投成、过程中遇到的问题、用了多少 token。不记密码，也不记表单里填的内容。',
-          'After each application the assistant works on, Dayjob adds an entry to this file: how it ended, where it stopped, why it was not sent, the problems on the way, and the tokens it used. No passwords, and nothing that was typed into a form.')}
-          {feedback ? ` ${t(`现在有 ${feedback.entries} 条。`, `${feedback.entries} ${feedback.entries === 1 ? 'entry' : 'entries'} so far.`)}` : ''}
-          {feedback?.file ? <code className="feedback-path">{feedback.file}</code> : null}</small>
+        <Tip>{t('助手每做完一次申请，Dayjob 自动在这个文件里记一条：结果、停在哪一步、为什么没投成、过程中遇到的问题、用了多少 token。不记密码，也不记表单里填的内容。',
+          'After each application the assistant works on, Dayjob adds an entry to this file: how it ended, where it stopped, why it was not sent, the problems on the way, and the tokens it used. No passwords, and nothing that was typed into a form.')}</Tip>
         {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}
         {reading && feedback ? (feedback.text
           ? <pre className="feedback-text" tabIndex={0} aria-label={t('问题反馈文件的内容', 'What the feedback file says')}>{feedback.cut ? t('（文件很长，这里是最后一部分）\n\n', '(The file is long; this is its last part.)\n\n') : ''}{feedback.text}</pre>

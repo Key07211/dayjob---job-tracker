@@ -413,6 +413,63 @@ test('the MCP bridge exposes Dayjob to Claude', async () => {
   }
 });
 
+test('the MCP scoring tool takes a provider, model and effort for one score, and Settings stay as they are', async () => {
+  const asked = [];
+  const standIn = id => ({ id, status: async () => ({ available: id !== 'codex-cli', detail: id === 'codex-cli' ? 'Codex was not found.' : 'test' }),
+    score: async ({ use }) => {
+      asked.push([id, use]);
+      return { score: 70, verdict: 'good', summary: 'ok', strengths: [], gaps: [], missingKeywords: [], provider: id, model: use?.model || null, effort: use?.effort || null };
+    } });
+  const { app, url, call: api } = await start({ providers: { 'claude-cli': standIn('claude-cli'), 'anthropic-api': standIn('anthropic-api'), 'codex-cli': standIn('codex-cli') } });
+  const server = createDayjobServer({ baseUrl: `${url}/` });
+  const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide);
+  const client = new Client({ name: 'test', version: '1.0.0' });
+  await client.connect(clientSide);
+  const call = async (name, args = {}) => {
+    const result = await client.callTool({ name, arguments: args });
+    return result.isError ? { error: result.content[0].text } : JSON.parse(result.content[0].text);
+  };
+  try {
+    const tool = (await client.listTools()).tools.find(item => item.name === 'dayjob_score_posting');
+    assert.deepEqual(Object.keys(tool.inputSchema.properties), ['id', 'force', 'provider', 'model', 'effort']);
+    assert.deepEqual(tool.inputSchema.required, ['id'], 'only the posting has to be named');
+    assert.deepEqual(tool.inputSchema.properties.provider.enum, ['claude-cli', 'anthropic-api', 'codex-cli', 'openai-api']);
+    assert.deepEqual(tool.inputSchema.properties.effort.enum, ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.match(tool.inputSchema.properties.model.description, /claude-opus-5-5, claude-fable-5-2.*gpt-6\.1-sol/s, 'the models Dayjob lists are named');
+    assert.match(tool.inputSchema.properties.effort.description, /claude-haiku-4-5 takes none/);
+    assert.match(tool.description, /settings stay as they are/i);
+
+    app.repo.addResume({ name: 'cv', mime: 'text/plain', size: 1, text: RESUME });
+    const added = await call('dayjob_add_posting', { title: 'ML Engineer', company: 'Nimbus', jobUrl: 'https://nimbus.example/jobs/9', description: 'PyTorch, Python, SQL and forecasting models.' });
+    const usual = await call('dayjob_score_posting', { id: added.id });
+    assert.deepEqual(asked.pop(), ['claude-cli', undefined], 'with only an id, Settings decide');
+    assert.deepEqual([usual.score.provider, usual.score.model, usual.score.effort], ['claude-cli', null, null]);
+
+    const chosen = await call('dayjob_score_posting', { id: added.id, force: true, model: 'claude-fable-5-2', effort: 'xhigh' });
+    assert.deepEqual(asked.pop(), ['claude-cli', { model: 'claude-fable-5-2', effort: 'xhigh' }]);
+    assert.deepEqual([chosen.score.provider, chosen.score.model, chosen.score.effort], ['claude-cli', 'claude-fable-5-2', 'xhigh'], 'the score says what made it');
+    const viaApi = await call('dayjob_score_posting', { id: added.id, force: true, provider: 'anthropic-api', effort: 'low' });
+    assert.deepEqual(asked.pop(), ['anthropic-api', { model: '', effort: 'low' }]);
+    assert.equal(viaApi.score.provider, 'anthropic-api');
+
+    assert.match((await call('dayjob_score_posting', { id: added.id, force: true, provider: 'codex-cli' })).error, /Codex was not found/);
+    assert.match((await call('dayjob_score_posting', { id: added.id, force: true, model: 'claude-opus-4-6', effort: 'xhigh' })).error, /takes these efforts: low, medium, high, max/);
+    assert.match((await call('dayjob_score_posting', { id: added.id, force: true, model: 'gpt-6-sol' })).error, /not a model of claude-cli/);
+    assert.ok((await call('dayjob_score_posting', { id: added.id, effort: 'extreme' })).error, 'an effort that does not exist never leaves the bridge');
+    // The app's own door refuses the same things.
+    const refused = await api(`/api/postings/${added.id}/score`, { method: 'POST', body: { force: true, effort: 'extreme' } });
+    assert.deepEqual([refused.status, /effort must be one of/.test(refused.body.error)], [400, true]);
+    assert.equal(asked.length, 0, 'nothing refused reached a model');
+
+    const { ai } = app.repo.getSettings();
+    assert.deepEqual([ai.provider, ai.model, ai.effort], ['claude-cli', '', ''], 'Settings are as they were');
+  } finally {
+    await client.close();
+    await app.close();
+  }
+});
+
 test('removing low matches moves only new jobs under the line, and can be undone; scoring pauses and resumes', async () => {
   const { app, call } = await start();
   try {

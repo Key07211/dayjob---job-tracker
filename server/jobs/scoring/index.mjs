@@ -2,6 +2,7 @@ import { createApiProvider } from './anthropic-api.mjs';
 import { createClaudeCliProvider } from './claude-cli.mjs';
 import { createCodexCliProvider } from './codex-cli.mjs';
 import { createOpenAiProvider } from './openai-api.mjs';
+import { scoringChoice } from './models.mjs';
 
 // Picks the provider from settings and scores postings one at a time, so a
 // daily run never floods the AI. Failures are counted, not thrown, in batches.
@@ -53,9 +54,12 @@ export function createScorer({ repo, providers, log = console.warn }) {
       paused, held: held.length, progress: batches.size ? { done: progress.done.size, total: progress.ids.size } : null, landed };
   }
 
-  // Each posting is scored against the resume it was matched to by keywords.
-  async function scoreNow(postingId, { force = false } = {}) {
+  // Each posting is scored against the resume it was matched to by keywords. choice: this one score's own
+  // provider, model or effort ({ provider, model, effort }, any of them), which leaves Settings as they are.
+  async function scoreNow(postingId, { force = false, choice } = {}) {
     if (paused) throw pausedError();
+    const use = scoringChoice(getSettings().ai, choice || {});
+    const chosen = use ? available[use.provider] : provider();
     const posting = repo.postingForScoring(postingId);
     if (!posting) throw new Error('Posting not found.');
     const resume = posting.resumeId ? repo.getResume(posting.resumeId, true) : null;
@@ -64,11 +68,16 @@ export function createScorer({ repo, providers, log = console.warn }) {
       const existing = repo.getScore(postingId, resume.id);
       if (existing) return existing;
     }
+    if (use) {
+      // Another provider than the one in Settings may not be set up on this computer.
+      const state = await chosen.status();
+      if (!state.available) throw Object.assign(new Error(state.detail), { status: 409 });
+    }
     const controller = new AbortController();
     inFlight = controller;
     const startedAt = Date.now();
     let result;
-    try { result = await provider().score({ resume: resume.text, posting, signal: controller.signal }); }
+    try { result = await chosen.score({ resume: resume.text, posting, signal: controller.signal, ...(use ? { use: { model: use.model, effort: use.effort } } : {}) }); }
     catch (error) { throw controller.signal.aborted ? pausedError() : error; }
     finally { if (inFlight === controller) inFlight = null; }
     record('score', result, startedAt, postingId);

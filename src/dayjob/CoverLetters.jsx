@@ -7,6 +7,7 @@ import { serverText } from './server-text.js';
 import { cue } from './groove/sound.js';
 import { leaveThen } from './groove/fx.js';
 import { assistant, onAssistantEffect } from './assistant/store.js';
+import { Tip } from './Tip.jsx';
 
 // 求职信: the samples the assistant writes from, and the letters it has written, one for each job. A letter's
 // file is in Dayjob's cover letter folder on this computer; the desktop app opens it, a browser downloads it.
@@ -113,8 +114,8 @@ export function CoverLetters() {
   return (
     <section className="card-section cover-letters">
       <h2>{t(`求职信（${letters.length}）`, `Cover letters (${letters.length})`)}</h2>
-      <p className="hint">{t('上传几封你自己写过的求职信做样本，可以一次选多个文件。之后在岗位详情里点“写求职信”，或者直接跟助手说“给这个岗位写求职信”：助手读你的简历和全部样本，从里面挑出和岗位最对得上的经历和例子，合在一起，按样本的结构和语气写好，存成 PDF 放进求职信文件夹。每个岗位一封，重写会替换旧的。样本和求职信都只保存在本机。',
-        'Upload a few cover letters you have written as samples; several files can be chosen at once. Then press “Write cover letter” in a job\'s details, or just ask the assistant: it reads your resume and all the samples, picks the experiences and examples that fit the job best, puts them together, writes the letter in the samples\' structure and tone, and keeps it as a PDF in the cover letter folder. One letter a job; writing it again replaces it. The samples and the letters stay on this computer.')}</p>
+      <Tip>{t('上传几封你自己写过的求职信做样本，可以一次选多个文件。之后在岗位详情里点“写求职信”，或者直接跟助手说“给这个岗位写求职信”：助手读你的简历和全部样本，从里面挑出和岗位最对得上的经历和例子，合在一起，按样本的结构和语气写好，存成 PDF 放进求职信文件夹。每个岗位一封，重写会替换旧的。样本和求职信都只保存在本机。',
+        'Upload a few cover letters you have written as samples; several files can be chosen at once. Then press “Write cover letter” in a job\'s details, or just ask the assistant: it reads your resume and all the samples, picks the experiences and examples that fit the job best, puts them together, writes the letter in the samples\' structure and tone, and keeps it as a PDF in the cover letter folder. One letter a job; writing it again replaces it. The samples and the letters stay on this computer.')}</Tip>
       <input ref={input} type="file" hidden multiple accept={TYPES} onChange={event => upload(event.target.files)} />
       <ul className="resume-list">
         <li>

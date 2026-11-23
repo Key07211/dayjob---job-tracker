@@ -20,6 +20,7 @@ import { updateProblem } from './UpdateButton.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { Select, TimeField } from './groove/Picker.jsx';
 import { COUNT_MAX, SEARCH_LIMIT, SHARE_MAX, TOTAL_MAX, countOf, shareOf, sourcePlan, totalOf } from '../../server/jobs/source-quota.mjs';
+import { Tip } from './Tip.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : undefined;
 const CLAUDE_STATES = { ready: ['已连接', 'Connected'], missing: ['未连接', 'Not connected'], conflict: ['已有同名连接（未改动）', 'Another Dayjob connection exists (left as is)'],
@@ -54,8 +55,8 @@ function ClaudeConnection() {
   return (
     <section className="card-section" data-guide="mcp">
       <h2><Link2 size={18} />{t('连接 Claude（MCP）', 'Connect Claude (MCP)')}<GuideHelp id="mcp" /></h2>
-      <p className="hint">{t('连接后，在 Claude Code 或 Claude Desktop 里可以说“看看今天高匹配的岗位”“对照我的简历分析这个岗位”“根据 Gmail 更新我的投递状态”。Claude 需要 Dayjob 保持运行。',
-        'Once connected, ask Claude Code or Claude Desktop things like “show today\'s strong matches”, “analyse this job against my resume” or “update my applications from Gmail”. Dayjob needs to be running.')}</p>
+      <Tip>{t('连接后，在 Claude Code 或 Claude Desktop 里可以说“看看今天高匹配的岗位”“对照我的简历分析这个岗位”“根据 Gmail 更新我的投递状态”。Claude 需要 Dayjob 保持运行。',
+        'Once connected, ask Claude Code or Claude Desktop things like “show today\'s strong matches”, “analyse this job against my resume” or “update my applications from Gmail”. Dayjob needs to be running.')}</Tip>
       <p className={`status-line ${status?.state === 'ready' ? 'ok' : 'off'}`}>
         {status?.state === 'ready' ? <CheckCircle2 size={15} ref={icon} /> : null}
         {status ? t(...(CLAUDE_STATES[status.state] || [status.state, status.state])) : t('检查中…', 'Checking…')}
@@ -68,8 +69,8 @@ function ClaudeConnection() {
         {status?.state !== 'ready' ? <button className="button primary" onClick={event => run(() => desktop.connectClaude(), event.currentTarget)} disabled={busy}>
           {busy ? <span className="dots" aria-hidden="true"><i /><i /><i /></span> : <Link2 size={15} />}{t('连接到 Claude', 'Connect to Claude')}</button> : null}
       </div>
-      <p className="hint">{t('会写入 Claude Code 的 ~/.claude.json 和 Claude Desktop 的配置文件（改之前自动备份）。Claude Desktop 需要重启后才会看到新工具。',
-        'Writes Claude Code\'s ~/.claude.json and Claude Desktop\'s config file, backing each up first. Restart Claude Desktop to see the new tools.')}</p>
+      <Tip>{t('会写入 Claude Code 的 ~/.claude.json 和 Claude Desktop 的配置文件（改之前自动备份）。Claude Desktop 需要重启后才会看到新工具。',
+        'Writes Claude Code\'s ~/.claude.json and Claude Desktop\'s config file, backing each up first. Restart Claude Desktop to see the new tools.')}</Tip>
     </section>
   );
 }
@@ -188,7 +189,7 @@ function ApiKeyRow({ entry, check, onCheck, onDone, onCancel }) {
             ) : null}
             <input value={workspace} onChange={event => setWorkspace(event.target.value)} placeholder="wrkspc_…" maxLength={90} spellCheck={false} aria-label={t('工作区 ID', 'Workspace ID')} />
           </label>
-          <span className="hint">{t('工作区 ID 在 Claude Console 的 Workspaces 页，ID 那一栏。只限一个工作区的 key 不用填。', 'The workspace ID is in the ID column of the Workspaces page in the Claude Console. A key made for one workspace needs none.')}
+          <span className="hint"><Tip>{t('工作区 ID 在 Claude Console 的 Workspaces 页，ID 那一栏。只限一个工作区的 key 不用填。', 'The workspace ID is in the ID column of the Workspaces page in the Claude Console. A key made for one workspace needs none.')}</Tip>
             <a className="link" href={WORKSPACES_PAGE} target="_blank" rel="noreferrer">{t('打开 Workspaces 页', 'Open the Workspaces page')}</a></span>
         </div>
       ) : null}
@@ -226,8 +227,8 @@ function ApiKeys({ boot, reload }) {
   return (
     <section className="card-section" id="api-keys" data-guide="keys">
       <h2><KeySquare size={18} />API key<GuideHelp id="keys" /></h2>
-      <p className="hint">{t('给 Claude API 和 OpenAI API 用的 key，可以存多个，点加号添加；每种服务用标着“使用中”的那一个。key 平时不显示，点眼睛才显示。只保存在这台电脑的 Dayjob 数据库里。',
-        'Keys for the Claude API and the OpenAI API. Keep several and add one with the plus button; each service uses the one marked "In use". A key stays hidden until you click the eye. They are stored only in the Dayjob database on this computer.')}</p>
+      <Tip>{t('给 Claude API 和 OpenAI API 用的 key，可以存多个，点加号添加；每种服务用标着“使用中”的那一个。key 平时不显示，点眼睛才显示。只保存在这台电脑的 Dayjob 数据库里。',
+        'Keys for the Claude API and the OpenAI API. Keep several and add one with the plus button; each service uses the one marked "In use". A key stays hidden until you click the eye. They are stored only in the Dayjob database on this computer.')}</Tip>
       {keys.length || drafts.length ? (
         <div className="key-list">
           {keys.map(entry => <ApiKeyRow key={entry.id} entry={entry} check={checks[entry.id]} onCheck={check} onDone={done} />)}
@@ -255,8 +256,8 @@ function BrowserData() {
   return (
     <section className="card-section" data-guide="browser">
       <h2><Globe size={18} />{t('Dayjob 浏览器', 'Dayjob browser')}<GuideHelp id="browser" /></h2>
-      <p className="hint">{t('浏览器里的登录状态和 Cookie 只保存在这台电脑的 Dayjob 数据里，和 Chrome、Edge 分开。连接 Claude 后，Claude 能在里面打开和阅读网页、填写表单；提交或发送之前会先请你在 Dayjob 里确认，密码和文件上传不会交给 Claude。浏览器工具栏里可以随时关掉“允许 Claude 使用”。',
-        'Sign-ins and cookies in the browser stay in Dayjob\'s data on this computer, separate from Chrome and Edge. With Claude connected, Claude can open and read pages there and fill in forms; before anything is submitted or sent it asks you in Dayjob, and it never gets passwords or file uploads. Turn off “Let Claude use it” in the browser toolbar at any time.')}</p>
+      <Tip>{t('浏览器里的登录状态和 Cookie 只保存在这台电脑的 Dayjob 数据里，和 Chrome、Edge 分开。连接 Claude 后，Claude 能在里面打开和阅读网页、填写表单；提交或发送之前会先请你在 Dayjob 里确认，密码和文件上传不会交给 Claude。浏览器工具栏里可以随时关掉“允许 Claude 使用”。',
+        'Sign-ins and cookies in the browser stay in Dayjob\'s data on this computer, separate from Chrome and Edge. With Claude connected, Claude can open and read pages there and fill in forms; before anything is submitted or sent it asks you in Dayjob, and it never gets passwords or file uploads. Turn off “Let Claude use it” in the browser toolbar at any time.')}</Tip>
       <div className="form-actions">
         <button className="button" data-fx="sweep" onClick={clear} disabled={state === 'busy'}><Trash2 size={15} />{t('清除登录状态和缓存', 'Clear sign-ins and cache')}</button>
       </div>
@@ -546,8 +547,8 @@ function PasswordVault() {
   return (
     <section className="card-section" id="vault" data-guide="vault">
       <h2><KeyRound size={18} />{t('密码保管', 'Passwords')}<GuideHelp id="vault" /></h2>
-      <p className="hint">{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。助手替你注册新账户时，密码由 Dayjob 生成并存进这里，助手同样看不到。可以从 Edge、Chrome 导出的 CSV 一次导入。',
-        'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. When the assistant creates an account for you, Dayjob makes the password up and keeps it here; the assistant does not see it either. A CSV exported from Edge or Chrome imports them all at once.')}</p>
+      <Tip>{t('密码只保存在这台电脑上，由系统加密。Dayjob 浏览器打开对应网站的登录页时会自动填进去并登录，密码箱上锁时也照样填写；只有你在这里点“显示密码”时才会显示出来，也不会交给 Claude。助手替你注册新账户时，密码由 Dayjob 生成并存进这里，助手同样看不到。可以从 Edge、Chrome 导出的 CSV 一次导入。',
+        'Passwords stay on this computer, encrypted by the system. They are filled into their own site\'s login page in the Dayjob browser to sign in, also while the vault is locked. They show only when you click “Show passwords” here, and are never given to Claude. When the assistant creates an account for you, Dayjob makes the password up and keeps it here; the assistant does not see it either. A CSV exported from Edge or Chrome imports them all at once.')}</Tip>
       {data && !data.available ? <p className="notice error">{t('这台电脑不能加密保存密码，所以暂时不能使用。', 'This computer cannot encrypt saved passwords, so the vault is not available.')}</p> : null}
       {note ? <p className="vault-note"><CheckCircle2 size={14} />{note}</p> : null}
       {data?.locked ? <VaultUnlock count={data.count} onChanged={changed} /> : null}
@@ -606,7 +607,7 @@ function PasswordVault() {
             <li>{t('在“已保存的密码”旁边点 ⋯（更多操作），选“导出密码”，按提示验证 Windows 密码或 PIN，存成 CSV 文件。', 'Next to “Saved passwords”, click ⋯ (More actions), choose “Export passwords”, confirm with your Windows password or PIN, and save the CSV file.')}</li>
             <li>{t('回到这里点“从浏览器导入”，选那个文件。Chrome 和 Firefox 导出的 CSV 也可以。', 'Come back here, click “Import from a browser” and choose that file. CSV exports from Chrome and Firefox work too.')}</li>
           </ol>
-          <small>{t('文件只在这台电脑上读取；密码导入后由系统加密保存，不会显示出来，也不会交给 Claude。', 'The file is read on this computer only; the passwords are kept encrypted by the system, never shown, and never given to Claude.')}</small>
+          <Tip>{t('文件只在这台电脑上读取；密码导入后由系统加密保存，不会显示出来，也不会交给 Claude。', 'The file is read on this computer only; the passwords are kept encrypted by the system, never shown, and never given to Claude.')}</Tip>
         </details>
       )}
       {data?.available && !data?.locked ? <AutoLogin /> : null}
@@ -627,13 +628,13 @@ function Background({ boot, reload }) {
   return (
     <section className="card-section" data-guide="close">
       <h2><Power size={18} />{t('关闭窗口时', 'Closing the window')}<GuideHelp id="close" /></h2>
-      <p className="hint">{t('开着这一项，关掉窗口后 Dayjob 留在任务栏右下角的托盘里，按时做每日抓取、发提醒，Claude 也能随时通过 MCP 使用它；要完全退出，在托盘图标的菜单里点“退出 Dayjob”。关掉这一项，关窗口就完全退出，不在后台运行；错过的每日抓取会在当天下次打开 Dayjob 时补上。',
-        'With this on, closing the window leaves Dayjob in the tray at the bottom right of the taskbar, so the daily search and reminders still run and Claude can use it through MCP at any time; to quit completely, choose “Quit Dayjob” from the tray icon\'s menu. With it off, closing the window quits Dayjob and nothing keeps running; a daily search it missed runs when you next open Dayjob that day.')}</p>
+      <Tip>{t('开着这一项，关掉窗口后 Dayjob 留在任务栏右下角的托盘里，按时做每日抓取、发提醒，Claude 也能随时通过 MCP 使用它；要完全退出，在托盘图标的菜单里点“退出 Dayjob”。关掉这一项，关窗口就完全退出，不在后台运行；错过的每日抓取会在当天下次打开 Dayjob 时补上。',
+        'With this on, closing the window leaves Dayjob in the tray at the bottom right of the taskbar, so the daily search and reminders still run and Claude can use it through MCP at any time; to quit completely, choose “Quit Dayjob” from the tray icon\'s menu. With it off, closing the window quits Dayjob and nothing keeps running; a daily search it missed runs when you next open Dayjob that day.')}</Tip>
       <div className="form-grid">
         <label className="check-line"><input type="checkbox" checked={boot.settings.desktop.closeToTray} onChange={save('closeToTray')} />{t('关闭窗口后继续在后台运行', 'Keep running in the tray')}</label>
         <label className="check-line"><input type="checkbox" checked={Boolean(boot.settings.desktop.openAtLogin)} onChange={save('openAtLogin')} />{t('开机时启动 Dayjob（留在托盘里）', 'Start Dayjob with the computer (in the tray)')}</label>
       </div>
-      <p className="hint">{t('开机启动后，Dayjob 不弹出窗口，只在托盘里：每日抓取照常进行，“投递追踪”里的申请状态检查也会在开机后自己查一次（如果打开了）。', 'Started with the computer, Dayjob opens no window and sits in the tray: the daily search runs as usual, and the status check under Applications runs once after the computer starts, if it is switched on.')}</p>
+      <Tip>{t('开机启动后，Dayjob 不弹出窗口，只在托盘里：每日抓取照常进行，“投递追踪”里的申请状态检查也会在开机后自己查一次（如果打开了）。', 'Started with the computer, Dayjob opens no window and sits in the tray: the daily search runs as usual, and the status check under Applications runs once after the computer starts, if it is switched on.')}</Tip>
       {error ? <p className="notice error">{error}</p> : null}
     </section>
   );
@@ -657,8 +658,8 @@ function Updates({ boot, reload, update }) {
   return (
     <section className="card-section" data-guide="updates">
       <h2><Download size={18} />{t('更新', 'Updates')}<GuideHelp id="updates" /></h2>
-      <p className="hint">{t('从 GitHub Releases 检查新版本。有新版本时，左侧栏的“检查更新”会变成圆形下载按钮；下载完点“重启并更新”，数据会保留。',
-        'Dayjob looks for new versions on GitHub Releases. When one is out, “Check for updates” in the sidebar turns into a round download button; once downloaded, click “Restart to update”. Your data stays.')}</p>
+      <Tip>{t('从 GitHub Releases 检查新版本。有新版本时，左侧栏的“检查更新”会变成圆形下载按钮；下载完点“重启并更新”，数据会保留。',
+        'Dayjob looks for new versions on GitHub Releases. When one is out, “Check for updates” in the sidebar turns into a round download button; once downloaded, click “Restart to update”. Your data stays.')}</Tip>
       <p className={`status-line ${update.status === 'error' || update.problem ? 'off' : 'ok'}`}>
         {update.status === 'latest' ? <CheckCircle2 size={15} /> : null}{t(`当前 v${update.version} · `, `Current v${update.version} · `)}{text}
         {update.checkedAt ? <span className="muted">{t(` · 上次检查 ${new Date(update.checkedAt).toLocaleString('zh-CN')}`, ` · last checked ${new Date(update.checkedAt).toLocaleString('en-US')}`)}</span> : null}
@@ -728,9 +729,9 @@ function SourceQuota({ value, onChange, sites, searches }) {
         <div className="segmented">
           {SOURCE_MODES.map(([mode, zh, en]) => <button key={mode} type="button" className={value.mode === mode ? 'active' : ''} onClick={() => set({ mode })}>{t(zh, en)}</button>)}
         </div>
-        <small>{value.mode === 'search' ? t('每个搜索用它自己的“每个网站最多”，在“搜索与公司”里改。', 'Each search uses its own “Results per site”, set under Searches.')
+        <Tip>{value.mode === 'search' ? t('每个搜索用它自己的“每个网站最多”，在“搜索与公司”里改。', 'Each search uses its own “Results per site”, set under Searches.')
           : value.mode === 'count' ? t('整次抓取从每个来源最多带回多少个岗位，由勾了它的搜索平分。0 就是不抓这个来源。', 'The most one whole run brings back from each source, shared by the searches that tick it. 0 leaves the source out.')
-            : t('定一个总数，再按比例分给各个来源。数字越大分得越多，比如 3 和 1 就是 75% 和 25%；0 就是不抓。', 'Set one total, shared between the sources. A larger number gets more: 3 and 1 make 75% and 25%; 0 leaves the source out.')}</small>
+            : t('定一个总数，再按比例分给各个来源。数字越大分得越多，比如 3 和 1 就是 75% 和 25%；0 就是不抓。', 'Set one total, shared between the sources. A larger number gets more: 3 and 1 make 75% and 25%; 0 leaves the source out.')}</Tip>
       </div>
       {value.mode === 'share' ? (
         <label className="source-total">{t('每次一共', 'In all, per run')}
@@ -751,11 +752,12 @@ function SourceQuota({ value, onChange, sites, searches }) {
         </ul>
       ) : null}
       <p className="hint">{enabled.length
-        ? t(`这样每次抓取最多带回 ${plan.total} 个岗位。在 LinkedIn 和 Indeed 上，已经有的岗位和被筛选条件挡掉的不占这个数，Dayjob 会接着往后翻一段去找新的；其他来源按条数要，重复的和被挡掉的不进列表，所以会少一些。`,
-          `A run then brings back ${plan.total} jobs at most. On LinkedIn and Indeed, jobs Dayjob already has and jobs your filters turn away do not count toward that: Dayjob reads on for a while to find new ones. The other sources are asked for that many results, and duplicates and filtered jobs are left out, so fewer arrive.`)
+        ? t(`每次抓取最多带回 ${plan.total} 个岗位。`, `A run brings back ${plan.total} jobs at most.`)
         : t('还没有启用的搜索。', 'There is no enabled search yet.')}
+        <Tip>{t('在 LinkedIn 和 Indeed 上，已经有的岗位和被筛选条件挡掉的不占这个数，Dayjob 会接着往后翻一段去找新的；其他来源按条数要，重复的和被挡掉的不进列表，所以会少一些。',
+          'On LinkedIn and Indeed, jobs Dayjob already has and jobs your filters turn away do not count toward the number: Dayjob reads on for a while to find new ones. The other sources are asked for that many results, and duplicates and filtered jobs are left out, so fewer arrive.')}
         {value.mode !== 'search' ? t('几个搜索勾了同一个来源时，这个来源的数平均分给它们。', ' When several searches tick the same source, they share its number evenly.') : ''}
-        {t('关注的公司招聘页不算在内，每次都把在招的岗位全部看一遍。', ' Followed company boards are not counted: every open job on them is read each time.')}</p>
+        {t('关注的公司招聘页不算在内，每次都把在招的岗位全部看一遍。', ' Followed company boards are not counted: every open job on them is read each time.')}</Tip></p>
     </div>
   );
 }
@@ -816,26 +818,26 @@ export function SettingsView({ boot, reload, update, focus }) {
         <h2 data-guide="daily">{t('每日抓取', 'Daily search')}<GuideHelp id="daily" /></h2>
         <div className="form-grid" data-guide="daily">
           <label className="check-line"><input type="checkbox" checked={form.scheduleEnabled} onChange={event => set('scheduleEnabled', event.target.checked)} />{t('每天自动抓取', 'Search every day')}</label>
-          <label>{t('时间', 'Time')}<TimeField value={form.time} onChange={event => set('time', event.target.value)} /><small>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</small></label>
-          <label>{t('岗位保留天数', 'Keep jobs (days)')}<input type="number" min={7} max={365} value={form.retentionDays} onChange={event => set('retentionDays', event.target.value)} /><small>{t('未收藏、未投递的旧岗位到期清理。', 'Old jobs you did not save or apply to are cleared after this.')}</small></label>
+          <label>{t('时间', 'Time')}<TimeField value={form.time} onChange={event => set('time', event.target.value)} /><Tip>{t('电脑关机错过时，下次打开 Dayjob 会补上当天的抓取。', 'If the computer was off, Dayjob catches up when it next opens that day.')}</Tip></label>
+          <label>{t('岗位保留天数', 'Keep jobs (days)')}<input type="number" min={7} max={365} value={form.retentionDays} onChange={event => set('retentionDays', event.target.value)} /><Tip>{t('未收藏、未投递的旧岗位到期清理。', 'Old jobs you did not save or apply to are cleared after this.')}</Tip></label>
         </div>
         <SourceQuota value={form.sources} onChange={value => set('sources', value)} sites={sites} searches={boot.searches} />
         <h2 data-guide="tracking">{t('投递追踪', 'Application tracking')}<GuideHelp id="tracking" /></h2>
         <div className="form-grid" data-guide="tracking">
-          <label>{t('跟进提醒（天）', 'Follow-up reminder (days)')}<input type="number" min={0} max={90} value={form.followUpDays} onChange={event => set('followUpDays', event.target.value)} /><small>{t('投递或状态变化后多少天提醒你跟进；0 为关闭。', 'Days after applying or a status change before Dayjob reminds you; 0 turns it off.')}</small></label>
-          <label>{t('无回音提示（天）', 'No-reply flag (days)')}<input type="number" min={0} max={180} value={form.ghostDays} onChange={event => set('ghostDays', event.target.value)} /><small>{t('“已投递”状态超过这么多天没有变化时提示。', 'Flag an application still at “Applied” after this many days.')}</small></label>
+          <label>{t('跟进提醒（天）', 'Follow-up reminder (days)')}<input type="number" min={0} max={90} value={form.followUpDays} onChange={event => set('followUpDays', event.target.value)} /><Tip>{t('投递或状态变化后多少天提醒你跟进；0 为关闭。', 'Days after applying or a status change before Dayjob reminds you; 0 turns it off.')}</Tip></label>
+          <label>{t('无回音提示（天）', 'No-reply flag (days)')}<input type="number" min={0} max={180} value={form.ghostDays} onChange={event => set('ghostDays', event.target.value)} /><Tip>{t('“已投递”状态超过这么多天没有变化时提示。', 'Flag an application still at “Applied” after this many days.')}</Tip></label>
           <label className="check-line"><input type="checkbox" checked={form.checkClosed} onChange={event => set('checkClosed', event.target.checked)} />{t('每天检查已投递和已收藏的岗位是否关闭', 'Check daily whether applied and saved jobs have closed')}</label>
         </div>
         <h2 data-guide="notify">{t('通知', 'Notifications')}<GuideHelp id="notify" /></h2>
         <div className="form-grid" data-guide="notify">
           <label className="check-line"><input type="checkbox" checked={form.desktop} onChange={event => set('desktop', event.target.checked)} />{t('Windows 桌面通知', 'Windows desktop notifications')}</label>
-          <label>{t('高匹配分数线', 'Strong-match score')}<input type="number" min={0} max={100} value={form.minScore} onChange={event => set('minScore', event.target.value)} /><small>{t('每日汇总里单独列出高于这个分数的新岗位。', 'The daily summary lists new jobs scoring at least this.')}</small></label>
+          <label>{t('高匹配分数线', 'Strong-match score')}<input type="number" min={0} max={100} value={form.minScore} onChange={event => set('minScore', event.target.value)} /><Tip>{t('每日汇总里单独列出高于这个分数的新岗位。', 'The daily summary lists new jobs scoring at least this.')}</Tip></label>
         </div>
         <h2 data-guide="jobspy">{jobspy?.builtIn ? 'JobSpy' : t('JobSpy（可选）', 'JobSpy (optional)')}<GuideHelp id="jobspy" /></h2>
         {jobspy?.builtIn ? (
           <>
-            <p className="hint" data-guide="jobspy">{t('Glassdoor、ZipRecruiter、Google Jobs 通过 JobSpy 抓取。Dayjob 自带 JobSpy，装好就能用，不需要另外安装 Python。LinkedIn、Indeed 和公司招聘页不经过它。',
-              'Glassdoor, ZipRecruiter and Google Jobs are fetched through JobSpy. Dayjob carries its own, ready to use: no Python to install. LinkedIn, Indeed and company boards do not go through it.')}</p>
+            <Tip>{t('Glassdoor、ZipRecruiter、Google Jobs 通过 JobSpy 抓取。Dayjob 自带 JobSpy，装好就能用，不需要另外安装 Python。LinkedIn、Indeed 和公司招聘页不经过它。',
+              'Glassdoor, ZipRecruiter and Google Jobs are fetched through JobSpy. Dayjob carries its own, ready to use: no Python to install. LinkedIn, Indeed and company boards do not go through it.')}</Tip>
             <div className="option-row" data-guide="jobspy">
               <span>{t('用哪一个', 'Which one')}</span>
               <div className="segmented">
@@ -880,7 +882,7 @@ export function SettingsView({ boot, reload, update, focus }) {
         <div className="option-row">
           <span>{t('界面语言', 'Language')}</span>
           <LanguageSwitch />
-          <small>{t('通知和托盘菜单也会跟着切换。AI 分析的语言在“简历与 AI”里设置。', 'Notifications and the tray menu follow it. Set the AI analysis language under Resume & AI.')}</small>
+          <Tip>{t('通知和托盘菜单也会跟着切换。AI 分析的语言在“简历与 AI”里设置。', 'Notifications and the tray menu follow it. Set the AI analysis language under Resume & AI.')}</Tip>
         </div>
         <div className="option-row">
           <span>{t('外观', 'Appearance')}</span>
@@ -900,10 +902,10 @@ export function SettingsView({ boot, reload, update, focus }) {
         <div className="option-row">
           <span>{t('打开动画', 'Opening')}</span>
           <label className="check-line opening-line"><input type="checkbox" checked={groove.opening} onChange={event => prefs.set({ opening: event.target.checked })} />{t('打开 Dayjob 时放一小段', 'Play a short opening when Dayjob opens')}</label>
-          <small>{t('三款像素开场：大喇叭播放、文件汇成音浪、文件装进公文包，每次随机放一款。点一下或按任意键跳过；系统开了“减少动画”时不放。',
-            'Three pixel openings (the gramophone plays, sheets become a wave, sheets go into the briefcase), one at random each time. Click or press any key to skip it; it does not play when Windows asks for less motion.')}</small>
+          <Tip>{t('三款像素开场：大喇叭播放、文件汇成音浪、文件装进公文包，每次随机放一款。点一下或按任意键跳过；系统开了“减少动画”时不放。',
+            'Three pixel openings (the gramophone plays, sheets become a wave, sheets go into the briefcase), one at random each time. Click or press any key to skip it; it does not play when Windows asks for less motion.')}</Tip>
         </div>
-        <p className="hint">{t('数据库：', 'Database: ')}{boot.dataFile} · Dayjob {boot.version}</p>
+        <p className="hint" title={`${t('数据库：', 'Database: ')}${boot.dataFile}`}>Dayjob {boot.version}</p>
         {desktop ? <button className="button" data-fx="folder" onClick={() => desktop.openDataFolder().catch(failure => setError(failure.message))}><FolderOpen size={15} />{t('打开数据文件夹', 'Open data folder')}</button> : null}
         {info?.portable ? <p className="hint">{t('便携版不会写入 Claude 配置；安装版才能稳定连接 MCP。', 'The portable version does not write Claude\'s config; install Dayjob for a lasting MCP connection.')}</p> : null}
       </section>

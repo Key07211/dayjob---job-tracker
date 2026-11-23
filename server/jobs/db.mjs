@@ -286,6 +286,11 @@ const migrations = [
     added_at TEXT NOT NULL
   );
   `,
+  // The reasoning effort a score was made at ('high', ...); NULL is the model's own default, and every score from
+  // before this.
+  `
+  ALTER TABLE scores ADD COLUMN effort TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

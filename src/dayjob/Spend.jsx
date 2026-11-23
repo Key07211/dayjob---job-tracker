@@ -6,6 +6,7 @@ import { formatDay, usd } from './format.js';
 import { Select } from './groove/Picker.jsx';
 import { GuideHelp } from './guide/GuideHelp.jsx';
 import { shake } from './groove/fx.js';
+import { Tip } from './Tip.jsx';
 
 // What the API keys have cost and how much each has left, by Dayjob's own count: every call's tokens at the list
 // prices of the day it was made. The services show no balance to an ordinary key, so the allowance is the amount
@@ -137,8 +138,8 @@ export function Spend({ boot, reload, focused }) {
   const head = (
     <>
       <h2><CircleDollarSign size={18} />{t('API 消费', 'API spending')}<GuideHelp id="spend" /></h2>
-      <p className="hint">{t('Dayjob 把每次打分和助手回答用掉的 token，按服务商的公开标价折成美元记下来。在每把 key 上填一个额度，就能看到还剩百分之几；剩得不多时会发通知。',
-        'Dayjob turns the tokens of every score and every assistant reply into US dollars at the services\' list prices. Give a key an allowance to see what share of it is left; a notification says when it runs low.')}</p>
+      <Tip>{t('Dayjob 把每次打分和助手回答用掉的 token，按服务商的公开标价折成美元记下来。在每把 key 上填一个额度，就能看到还剩百分之几；剩得不多时会发通知。',
+        'Dayjob turns the tokens of every score and every assistant reply into US dollars at the services\' list prices. Give a key an allowance to see what share of it is left; a notification says when it runs low.')}</Tip>
     </>
   );
   // The card is on the page from the start, so a link to it has somewhere to land before the sums arrive.
@@ -170,8 +171,8 @@ export function Spend({ boot, reload, focused }) {
         {spend.plan.usd > 0 ? t(`；同样的用量按 API 价大约是 ${usd(spend.plan.usd)}。`, `. The same usage at API prices would be about ${usd(spend.plan.usd)}.`) : t('。', '.')}</p> : null}
       {spend.last30.unpriced ? <p className="hint">{t(`近 30 天有 ${spend.last30.unpriced} 次调用的模型不在价格表里，没有算进去。`,
         `${spend.last30.unpriced} ${spend.last30.unpriced === 1 ? 'call' : 'calls'} in the last 30 days used a model that is not in the price list and ${spend.last30.unpriced === 1 ? 'is' : 'are'} not counted.`)}</p> : null}
-      <p className="hint">{t(`价格是 ${spend.pricesAsOf} 读到的 Anthropic 和 OpenAI 标准价。服务商不让普通 key 查余额，所以这是 Dayjob 自己记的数：只算 Dayjob 里的调用，同一把 key 在别处的用量、批量折扣和税不在内，实际以服务商的账单为准。`,
-        `Prices are Anthropic's and OpenAI's standard list prices as read on ${spend.pricesAsOf}. The services show no balance to an ordinary key, so this is Dayjob's own count: only calls made in Dayjob, without the same key's use elsewhere, volume discounts or tax. The service's bill is what counts.`)}</p>
+      <Tip>{t(`价格是 ${spend.pricesAsOf} 读到的 Anthropic 和 OpenAI 标准价。服务商不让普通 key 查余额，所以这是 Dayjob 自己记的数：只算 Dayjob 里的调用，同一把 key 在别处的用量、批量折扣和税不在内，实际以服务商的账单为准。`,
+        `Prices are Anthropic's and OpenAI's standard list prices as read on ${spend.pricesAsOf}. The services show no balance to an ordinary key, so this is Dayjob's own count: only calls made in Dayjob, without the same key's use elsewhere, volume discounts or tax. The service's bill is what counts.`)}</Tip>
     </section>
   );
 }

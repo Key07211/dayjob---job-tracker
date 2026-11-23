@@ -565,12 +565,11 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
           setLookupKey(key => key + 1);
           if (application) setFill(current => current && { ...current, marked: application });
         }} /> : null}
-        <label className="check assist-switch" title={t('你或助手在这里投出一份申请、网页显示已收到后，Dayjob 自己把它记进投递追踪', 'Once you or the assistant send an application here and the page says it was received, Dayjob adds it to Applications by itself')}>
+        <label className="check assist-switch" title={t('你或助手在这里投出一份申请、网页显示已收到后，Dayjob 自己把它记进投递追踪并开始追踪，可以一键撤销。关闭后，投出后要自己点“标记已投递”。',
+          'Once you or the assistant send an application here and the page says it was received, Dayjob adds it to Applications by itself and starts tracking; one click takes it back. While off, mark an application as applied yourself after sending it.')}>
           <input type="checkbox" checked={state.autoTrack !== false} onChange={event => desktop.setAutoTrack(event.target.checked).catch(() => {})} />
           {t('投出后自动收录', 'Record applications by itself')}
         </label>
-        <small>{state.autoTrack !== false ? t('网页显示申请已收到时，Dayjob 自动记为已投递并开始追踪，可以一键撤销。', 'When the page says an application was received, Dayjob records it and starts tracking. One click takes it back.')
-          : t('已关闭：投出后要自己点“标记已投递”。', 'Off: mark an application as applied yourself after sending it.')}</small>
       </section>
 
       <section className="assist-section">
@@ -661,8 +660,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
               <button className="button small primary" onClick={() => setAutoSubmit(true)}>{t('开启', 'Turn on')}</button>
             </div>
           </div>
-        ) : <small>{state.autoSubmit ? t('已开启：填好就提交，Claude 提交时也不再询问。', 'On: forms are submitted once filled, and Claude no longer asks first.')
-          : t('关闭时，提交前总会先让你确认。', 'While off, you always confirm before anything is submitted.')}</small>}
+        ) : state.autoSubmit ? <small>{t('已开启：填好就提交，Claude 提交时也不再询问。', 'On: forms are submitted once filled, and Claude no longer asks first.')}</small> : null}
         <button className="link" onClick={() => openItem('resume', 'applicant')}>{t('编辑申请资料', 'Edit the application profile')}</button>
       </section>
 
@@ -671,11 +669,11 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
       <section className="assist-section">
         <h3>Claude</h3>
         {state.agentBusy ? <span className="agent-pill"><Bot size={14} />{t('Claude 正在操作', 'Claude is working')}</span> : null}
-        <label className="check assist-switch" title={t('关闭后 Claude 不能打开或操作这个浏览器', 'When off, Claude cannot open or use this browser')}>
+        <label className="check assist-switch" title={t('Claude 可以打开网页、读取内容、帮你填写；密码始终由你来。简历由 Dayjob 附到申请表里，Claude 只知道文件名，拿不到文件。关闭后 Claude 不能打开或操作这个浏览器。',
+          'Claude can open and read pages and help fill them in; passwords are always yours. The resume is attached by Dayjob: Claude learns its file name, never the file. When off, Claude cannot open or use this browser.')}>
           <input type="checkbox" checked={state.agentControl} onChange={event => desktop.setAgentControl(event.target.checked)} />
           {t('允许 Claude 使用', 'Let Claude use it')}
         </label>
-        <small>{t('Claude 可以打开网页、读取内容、帮你填写；密码始终由你来。简历由 Dayjob 附到申请表里，Claude 只知道文件名，拿不到文件。', 'Claude can open and read pages and help fill them in; passwords are always yours. The resume is attached by Dayjob: Claude learns its file name, never the file.')}</small>
       </section>
 
       {error ? <p className="notice error" onClick={() => setError('')}>{error}</p> : null}

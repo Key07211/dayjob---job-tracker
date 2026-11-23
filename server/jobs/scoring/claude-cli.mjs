@@ -85,15 +85,15 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
       const { model } = getSettings().ai;
       return { available: found.available, detail: found.available ? `Claude Code ${found.version}${model ? ` · ${model}` : ''}` : 'Claude Code was not found. Install it and sign in, or set its path in Settings.' };
     },
-    // One prompt in, one JSON object (matching schema) out.
-    async ask({ system, prompt, schema, signal }) {
+    // One prompt in, one JSON object (matching schema) out. use: this call's own model and effort.
+    async ask({ system, prompt, schema, signal, use }) {
       const found = await info();
       if (!found.available) throw new Error('Claude Code was not found. Install it and sign in, or set its path in Settings.');
-      const { ai } = getSettings();
+      const ai = { ...getSettings().ai, ...use };
       const shell = needsShell(found.command);
       // Where no flag carries the system prompt and the schema, both go in the text.
       const allInText = `${system}\n\n${withSchema(prompt, schema)}`;
-      const effort = effortFor('claude-cli', ai.model, ai.effort);
+      let effort = effortFor('claude-cli', ai.model, ai.effort);
       let input = shell ? allInText : prompt;
       let result = await execute(found.command, cliArgs({ model: ai.model, effort, shell, system, schema }), input, signal);
       // A computer whose MCP servers are set by an organization refuses --strict-mcp-config; score without it.
@@ -103,6 +103,7 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
       // Older Claude Code releases lack --json-schema, --tools or --effort; retry with the basics.
       if (result.code !== 0 && /unknown option|unexpected argument/i.test(result.stderr)) {
         input = allInText;
+        effort = '';
         result = await execute(found.command, cliArgs({ model: ai.model, shell, basic: true }), input, signal);
       }
       if (result.code !== 0 && !result.stdout.trim()) {
@@ -115,13 +116,13 @@ export function createClaudeCliProvider({ getSettings, spawn = nodeSpawn, detect
         throw error;
       }
       signedOut = 0;
-      return { value: parsed.value, provider: 'claude-cli', model: parsed.model || ai.model || null, usage: parsed.usage, turns: parsed.turns,
+      return { value: parsed.value, provider: 'claude-cli', model: parsed.model || ai.model || null, effort: effort || null, usage: parsed.usage, turns: parsed.turns,
         chars: input === prompt ? system.length + prompt.length : input.length };
     },
-    async score({ resume, posting, signal }) {
+    async score({ resume, posting, signal, use }) {
       const { ai } = getSettings();
-      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal, use });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, effort: reply.effort, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }
