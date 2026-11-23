@@ -274,6 +274,18 @@ const migrations = [
     FROM settings WHERE key = 'meta:coverLetterTemplate' AND json_valid(value) AND length(coalesce(json_extract(value, '$.text'), '')) > 0;
   DELETE FROM settings WHERE key = 'meta:coverLetterTemplate';
   `,
+  // 成绩单: the transcripts in the transcript folder (PDF files). `file` is a file's name there; the row adds a
+  // note on what it is and which one a form gets when it does not say which it wants.
+  `
+  CREATE TABLE transcripts (
+    id TEXT PRIMARY KEY,
+    file TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    size INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;

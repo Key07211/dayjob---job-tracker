@@ -10,6 +10,7 @@ import { SavedLabel, useSaved } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { CoverLetters } from './CoverLetters.jsx';
+import { Transcripts } from './Transcripts.jsx';
 import { Select } from './groove/Picker.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 import { EMPTY_EDUCATION, EMPTY_EXPERIENCE, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from '../../server/jobs/applicant.mjs';
@@ -564,6 +565,7 @@ export function ResumeView({ boot, reload, status, focus, openItem }) {
         <div className="page-column">
           <Resumes resumes={boot.resumes} reload={reload} />
           <CoverLetters />
+          <Transcripts reload={reload} />
           <ApplicantProfile boot={boot} reload={reload} focused={focus === 'applicant'} />
         </div>
         <div className="page-column">

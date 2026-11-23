@@ -338,7 +338,7 @@ export function goalLogInput(input) {
 }
 
 // What Claude asks the Dayjob browser to do (desktop/browser.cjs carries it out).
-export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'hover', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'upload', 'tabs'];
+export const BROWSER_ACTIONS = ['open', 'read', 'screenshot', 'click', 'hover', 'type', 'select', 'key', 'scroll', 'navigate', 'autofill', 'upload', 'transcript', 'tabs'];
 export const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
 
 export function browserInput(action, input) {
@@ -373,6 +373,12 @@ export function browserInput(action, input) {
     // resumeId: a resume to attach in place of the one that fits the job; resume: false leaves the resume field alone.
     case 'autofill': return { resumeId: input.resumeId == null ? null : text(input.resumeId, 'resumeId', { min: 1, max: 80 }), resume: has(input, 'resume') && input.resume !== null ? boolean(input.resume, 'resume') : true };
     case 'upload': return { resumeId: input.resumeId == null ? null : text(input.resumeId, 'resumeId', { min: 1, max: 80 }) };
+    // transcriptIds: the transcripts to attach in place of the one Dayjob would pick (several only into a field that takes several).
+    case 'transcript': {
+      if (input.transcriptIds == null) return { transcriptIds: null };
+      if (!Array.isArray(input.transcriptIds) || !input.transcriptIds.length || input.transcriptIds.length > 4) fail('transcriptIds must be a list of one to four transcript ids.');
+      return { transcriptIds: input.transcriptIds.map(id => text(id, 'transcriptIds', { min: 1, max: 80 })) };
+    }
     case 'tabs': {
       const chosen = input.action == null ? 'list' : oneOf(input.action, ['list', 'switch', 'close'], 'action');
       if (chosen !== 'list' && (typeof input.tabId !== 'string' || !/^tab-\d{1,6}$/.test(input.tabId))) fail('tabId is required; list the tabs to get it.');

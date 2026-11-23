@@ -403,6 +403,11 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px
 .resume-list .resume-file { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .resume-list .resume-file > svg { color: var(--green); flex-shrink: 0; }
 .resume-list .resume-file.missing { color: var(--orange); }
+/* 成绩单: the note on a transcript is a quiet box under its name; the star is lit on the default one. */
+.transcripts .transcript-note { margin-top: 6px; width: min(100%, 420px); font-size: 13px; }
+.transcripts .resume-list li strong { overflow-wrap: anywhere; }
+.transcript-star.on { color: var(--yellow, var(--orange)); }
+.transcript-star.on svg { fill: currentColor; }
 /* 求职信: the folder button keeps its own width under the list, and a long file name wraps. */
 .cover-letters > .button { align-self: flex-start; margin-top: 12px; }
 .cover-letters .resume-file { overflow-wrap: anywhere; }

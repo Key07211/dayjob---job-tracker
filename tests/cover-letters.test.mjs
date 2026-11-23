@@ -108,18 +108,19 @@ test('the template an earlier Dayjob kept becomes the first sample', async t => 
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-letters-old-'));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const first = openDatabase(dataDir);
-  first.db.exec('DROP TABLE cover_letter_samples');
+  // As that Dayjob left it: no samples, and nothing that came after them.
+  first.db.exec('DROP TABLE cover_letter_samples; DROP TABLE transcripts');
   first.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('meta:coverLetterTemplate', JSON.stringify({ name: 'old.docx', text: TEMPLATE, updatedAt: '2026-11-20T05:00:00.000Z' }));
-  first.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+  first.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 2}`);
   first.db.close();
   const again = openDatabase(dataDir);
   assert.deepEqual(again.db.prepare('SELECT name, text, created_at FROM cover_letter_samples').all().map(row => ({ ...row })),
     [{ name: 'old.docx', text: TEMPLATE, created_at: '2026-11-20T05:00:00.000Z' }]);
   assert.equal(again.db.prepare("SELECT count(*) AS n FROM settings WHERE key = 'meta:coverLetterTemplate'").get().n, 0);
   // A template that was taken away again (kept as null) leaves no sample.
-  again.db.exec('DELETE FROM cover_letter_samples; DROP TABLE cover_letter_samples');
+  again.db.exec('DELETE FROM cover_letter_samples; DROP TABLE cover_letter_samples; DROP TABLE transcripts');
   again.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('meta:coverLetterTemplate', 'null');
-  again.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`);
+  again.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 2}`);
   again.db.close();
   const third = openDatabase(dataDir);
   assert.equal(third.db.prepare('SELECT count(*) AS n FROM cover_letter_samples').get().n, 0);

@@ -439,7 +439,7 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
       const result = await desktop.autofill({ submit: state.autoSubmit, resume: choice });
       setAttached(null);
       setFill({ ...result, from, urls: [url, result.page?.url] });
-      if (result.filled.length || result.resume?.attached) cue('type');
+      if (result.filled.length || result.resume?.attached || result.transcript?.attached) cue('type');
     }
     catch (failure) {
       const message = bridgeMessage(failure);
@@ -459,6 +459,35 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
     } catch { setError(t('没能在这个页面附上简历，等它加载完再试一次。', 'Could not attach the resume on this page. Try again once it has loaded.')); }
     finally { setAttaching(false); }
   }
+  // 附上成绩单 on its own: the one that fits the form's transcript field (see Resume & AI, 成绩单).
+  async function attachTranscript() {
+    setError('');
+    setAttaching(true);
+    try {
+      const result = await desktop.uploadTranscript();
+      setAttached({ transcript: result });
+      if (result.attached) cue('done');
+    } catch { setError(t('没能在这个页面附上成绩单，等它加载完再试一次。', 'Could not attach the transcript on this page. Try again once it has loaded.')); }
+    finally { setAttaching(false); }
+  }
+  // How attaching a transcript went, in a line.
+  const transcriptLine = outcome => {
+    if (!outcome) return null;
+    const field = outcome.field ? `“${outcome.field}”` : '';
+    if (outcome.attached) {
+      const names = outcome.transcripts.map(item => item.name).join(', ');
+      return { ok: true, text: t(`已附上成绩单 ${names}（${field}）`, `Attached the transcript ${names} to ${field}`) };
+    }
+    const text = {
+      'no-field': t('这个页面上没有可以上传文件的地方。先打开申请表。', 'There is nowhere to attach a file on this page. Open the application form first.'),
+      'other-field': t('页面上没有给成绩单用的上传栏，没有附上。', 'None of the upload fields on this page is for a transcript, so nothing was attached.'),
+      already: t(`${field} 里已经有文件了，没有再附。`, `${field} already has a file, so nothing was attached.`),
+      'no-transcript': t(`${field} 要成绩单，但 Dayjob 里还没有存。`, `${field} asks for a transcript, and Dayjob keeps none yet.`),
+      type: t(`${field} 只收 ${outcome.accept}，不收 PDF，没有附上。`, `${field} takes ${outcome.accept} only, not a PDF, so nothing was attached.`),
+      failed: t(`页面没有收下文件。请在 ${field} 里自己选一次。`, `The page did not take the file. Choose it yourself in ${field}.`),
+    }[outcome.reason];
+    return text ? { ok: false, text, fix: outcome.reason === 'no-transcript' } : null;
+  };
   // How attaching the resume went, in a line (null when there was nothing to say).
   const resumeLine = outcome => {
     if (!outcome) return null;
@@ -574,8 +603,14 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
               {attaching ? <LoaderCircle size={14} className="spin" /> : <FileUp size={14} />}{t('只附上简历', 'Attach the resume only')}
             </button>
           ) : null}
+          {(boot.transcripts || []).length ? (
+            <button className="button small" onClick={attachTranscript} disabled={!url || attaching || filling}
+              title={t('把成绩单附到申请表里写着 Transcript / 成绩单的上传栏', 'Attach a transcript to the form\'s upload for one')}>
+              {attaching ? <LoaderCircle size={14} className="spin" /> : <FileUp size={14} />}{t('只附上成绩单', 'Attach the transcript only')}
+            </button>
+          ) : null}
           {(() => {
-            const line = resumeLine(attached);
+            const line = attached?.transcript ? transcriptLine(attached.transcript) : resumeLine(attached);
             return line ? <p className={line.ok ? 'ok' : 'warn'}>{line.ok ? <CircleCheck size={14} /> : null}<span>{line.text}
               {line.fix ? <button className="link" onClick={() => openItem('resume')}>{t('去“简历与 AI”', 'Open Resume & AI')}</button> : null}</span></p> : null;
           })()}
@@ -586,6 +621,11 @@ function Assistant({ state, active, boot, dataVersion, openItem, collapsed, onCo
             {fill.filled.length ? <details><summary>{t('看看填了哪些', 'Show which')}</summary><ul>{fill.filled.map((item, index) => <li key={index} style={{ '--i': Math.min(index, 12) }}>{item.label}</li>)}</ul></details> : null}
             {(() => {
               const line = fill.resume?.reason === 'other-field' ? null : resumeLine(fill.resume);
+              return line ? <p className={`resume-line${line.ok ? '' : ' warn'}`}>{line.ok ? <FileUp size={14} /> : null}<span>{line.text}
+                {line.fix ? <button className="link" onClick={() => openItem('resume')}>{t('去“简历与 AI”', 'Open Resume & AI')}</button> : null}</span></p> : null;
+            })()}
+            {(() => {
+              const line = transcriptLine(fill.transcript);
               return line ? <p className={`resume-line${line.ok ? '' : ' warn'}`}>{line.ok ? <FileUp size={14} /> : null}<span>{line.text}
                 {line.fix ? <button className="link" onClick={() => openItem('resume')}>{t('去“简历与 AI”', 'Open Resume & AI')}</button> : null}</span></p> : null;
             })()}

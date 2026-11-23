@@ -99,7 +99,7 @@ test('Claude drives the Dayjob browser through MCP, screenshots included', async
     const { tools } = await client.listTools();
     const names = tools.map(tool => tool.name).filter(name => name.startsWith('dayjob_browser_'));
     assert.deepEqual(names, ['dayjob_browser_open', 'dayjob_browser_read', 'dayjob_browser_screenshot', 'dayjob_browser_click', 'dayjob_browser_hover', 'dayjob_browser_type',
-      'dayjob_browser_select', 'dayjob_browser_press_key', 'dayjob_browser_scroll', 'dayjob_browser_navigate', 'dayjob_browser_autofill', 'dayjob_browser_upload_resume', 'dayjob_browser_tabs']);
+      'dayjob_browser_select', 'dayjob_browser_press_key', 'dayjob_browser_scroll', 'dayjob_browser_navigate', 'dayjob_browser_autofill', 'dayjob_browser_upload_resume', 'dayjob_browser_upload_transcript', 'dayjob_browser_tabs']);
     assert.ok(tools.find(tool => tool.name === 'dayjob_browser_read').annotations.readOnlyHint);
     const read = await client.callTool({ name: 'dayjob_browser_read', arguments: { query: 'submit' } });
     assert.equal(JSON.parse(read.content[0].text).elements[0].ref, 'e1');
