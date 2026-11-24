@@ -112,8 +112,19 @@ export function AssistantSettings({ hasKey, focus }) {
           <span>{t('替你投递', 'Applying for you')}</span>
           <ApplySwitch mode={info.settings.apply} bare />
           <Tip>{info.settings.apply === 'takeover'
-            ? t('全权接管：助手自己点“提交”。验证码、付款和只有你知道答案的问题，它仍然会停下来问你。这个开关也在对话框旁边。', 'Full takeover: the assistant clicks “Submit” itself. It still stops and asks at a captcha, a payment, or a question only you can answer. The same switch sits beside the chat box.')
+            ? t('全权接管：助手自己点“提交”。真人验证、付款和只有你知道答案的问题，它仍然会停下来问你。这个开关也在对话框旁边。', 'Full takeover: the assistant clicks “Submit” itself. It still stops and asks at a captcha, a payment, or a question only you can answer. The same switch sits beside the chat box.')
             : t('手动确认：提交之前，对话里会出现一张卡片，按住“投递”才会发出去。这个开关也在对话框旁边。', 'Ask me first: before anything is sent, a card appears in the chat and it goes out only when you hold “Send”. The same switch sits beside the chat box.')}</Tip>
+        </div>
+      ) : null}
+      {info.browser ? (
+        <div className="option-row">
+          <span>{t('邮箱验证码', 'Codes by mail')}</span>
+          <label className="check-line mail-codes">
+            <input type="checkbox" checked={Boolean(info.settings.mailCodes)} onChange={event => assistant.saveSettings({ mailCodes: event.target.checked })} />
+            {t('替我读取并填进网页', 'Fetch them and type them in')}
+          </label>
+          <Tip>{t('网站把验证码发到邮箱、网页上又有填验证码的框时，Dayjob 用这台电脑上 Claude Code 里的 Gmail 连接器，找最近 15 分钟内的那封邮件，把验证码填进网页。只读，不发信、不删信、不改标签；和你对话的助手看不到验证码，也看不到邮件。手动确认时每次都会先问你。读的是 Gmail 连接器登录的那个邮箱；短信和验证器 App 的验证码仍然由你来填。',
+            'When a site sends a verification code by email and the page shows a box for it, Dayjob uses the Gmail connector of Claude Code on this computer to find that mail among the last 15 minutes and types the code into the page. It only reads: nothing is sent, deleted or labelled, and the assistant you talk to sees neither the code nor the mail. In Ask me first mode you are asked each time. The mailbox is the one the Gmail connector is signed in to; codes from a text message or an authenticator app stay with you.')}</Tip>
         </div>
       ) : null}
       <ApplyingSettings />

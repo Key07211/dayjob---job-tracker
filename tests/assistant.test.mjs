@@ -91,7 +91,7 @@ test('the assistant reports its engines, its models and tools that stay away fro
   t.after(() => app.close());
   const { status, body } = await call('/api/assistant');
   assert.equal(status, 200);
-  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3 });
+  assert.deepEqual(body.settings, { engine: 'claude-cli', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3, mailCodes: false });
   assert.equal(body.browser, false, 'no Dayjob browser outside the desktop app');
   assert.equal(body.engines['claude-cli'].available, true);
   assert.equal(body.engines['anthropic-api'].available, true);
@@ -420,7 +420,7 @@ test('switching the engine or its model hands the conversation to the new one', 
   assert.equal(engines['claude-cli'].seen.length, 1);
 
   assert.deepEqual((await call('/api/assistant/settings', { method: 'PATCH', body: { engine: 'anthropic-api' } })).body,
-    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3 });
+    { engine: 'anthropic-api', models: { 'claude-cli': '', 'anthropic-api': '' }, apply: 'confirm', parallel: 3, mailCodes: false });
   const second = await chat('two', first.id);
   assert.equal(second.events[0].engine, 'anthropic-api');
   assert.equal(second.reply.engine, 'anthropic-api');

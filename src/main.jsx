@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Bell, Bookmark, Bot, BriefcaseBusiness, ChevronsLeft, FileUser, Globe, Inbox, LayoutDashboard, Pause, Play, Search, Settings, Volume2, VolumeX } from 'lucide-react';
 import { api, setToken } from './api.js';
 import { I18nProvider, LanguageSwitch, currentLanguage, tr, useI18n } from './i18n.jsx';
+import { inOrder } from './dayjob/in-order.js';
 import { formatDay } from './dayjob/format.js';
 import { HomeView } from './dayjob/HomeView.jsx';
 import { FeedView } from './dayjob/FeedView.jsx';
@@ -88,7 +89,9 @@ function nextRunText(value) {
 }
 
 // The language is also a server setting, so notifications and the tray follow it.
-const saveLanguage = language => { api('/api/settings', { method: 'PATCH', body: { language } }).catch(() => {}); };
+// One save after another: two quick switches must not overtake each other on the way, or the language clicked
+// first would be the one the next launch opens in.
+const saveLanguage = inOrder(language => api('/api/settings', { method: 'PATCH', body: { language } }));
 
 function App() {
   const { t, setLang } = useI18n();

@@ -1086,3 +1086,5 @@ button.run-head[aria-expanded="true"] .run-chev { transform: rotate(180deg); }
   .posting-item.enter, .main-view > section > *, .main-view > section > .view-header *, .score-badge.landed, .score-badge.landed::after, .browser-login { animation: none; }
   .button { transition: none; }
 }
+/* Settings → Assistant: the switch for codes from the mail, in a row of its own like the ones around it. */
+.option-row .check-line.mail-codes { display: flex; margin-top: 0; }

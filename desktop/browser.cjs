@@ -1772,6 +1772,49 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         return done('set', { username, boxes: put.boxes, length: size, symbols: /[^A-Za-z0-9]/.test(password), allowed: auto ? 'auto' : 'user' });
       });
     },
+    // 邮箱验证码: a site sent the user a code by mail and shows a box for it. The assistant in the Dayjob window
+    // asks Dayjob to fetch it; Dayjob has the user's own Claude Code read the mail (server/assistant/mail-code.mjs)
+    // and types the code in here. It goes in two steps, with the reading of the mail between them.
+    //
+    // codebox: is there such a box, and may the mail be read for it?
+    //   field        yes (where the user is asked first, they have allowed it)
+    //   no-field     this page has no box for a code
+    //   not-mail     the page says the code comes by text message or from an app, not by mail
+    //   typed        the box already holds something: the user is at it, or a code is in already
+    //   unavailable  not an https page
+    async codebox(_input, context = {}) {
+      if (context.by !== 'assistant') fail(404, 'No such browser action.');
+      const tab = mine(context);
+      await reveal(context);
+      await settle(tab, 0);
+      const url = tab.view.webContents.getURL();
+      const site = loginSite(url);
+      const done = (status, more = {}) => ({ status, site: site || host(url), ...more, page: info(tab) });
+      if (!site) return done('unavailable');
+      const seen = await inLogin(tab, 'code');
+      if (!seen?.box) return done('no-field');
+      if (seen.other && !seen.mail) return done('not-mail');
+      if (seen.filled) return done('typed');
+      // Reading the user's mail is theirs to allow, like a click that sends, unless they handed applications over.
+      const auto = await approve(tab, 'mailcode', site, context);
+      if (!tabs.includes(tab) || tab.view.webContents.getURL() !== url) fail(409, 'The page changed while Dayjob was waiting for the user. Call dayjob_browser_read again.');
+      return done('field', { boxes: seen.count, length: seen.length, title: String(tab.view.webContents.getTitle() || '').slice(0, 120), allowed: auto ? 'auto' : 'user' });
+    },
+    // codefill: the code Dayjob read from the mail goes into the box. Whoever asked learns how it went, never the code.
+    //   filled    the code is in the box (boxes: how many it was spread over); nothing is sent
+    //   no-field  the box is gone (the page moved on while the mail was read)
+    //   typed     the box holds something by now
+    //   length    the code does not fit the box, so this was not the code the page asked for
+    async codefill({ code } = {}, context = {}) {
+      if (context.by !== 'assistant') fail(404, 'No such browser action.');
+      if (typeof code !== 'string' || !/^[A-Za-z0-9]{4,10}$/.test(code)) fail(400, 'That is not a code.');
+      const tab = mine(context);
+      await reveal(context);
+      const url = tab.view.webContents.getURL();
+      const put = await inLogin(tab, 'setCode', { code });
+      const status = put?.set ? 'filled' : ['typed', 'length'].includes(put?.why) ? put.why : 'no-field';
+      return { status, site: loginSite(url) || host(url), ...(put?.set ? { boxes: put.boxes } : {}), page: info(tab) };
+    },
     // A cover letter the assistant wrote goes into the form: as a PDF (or a text file) into the form's cover letter
     // upload, else as text into its cover letter box. attached: true, or false with why (no-field, already, type, failed).
     async letter({ text }, context) {

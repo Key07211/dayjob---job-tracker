@@ -800,6 +800,16 @@ const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
 const SIGNUP_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Create account · Smoke Co</title></head>
 <body><h1>Create account</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email"></label>
 <label>Password <input name="password" type="password"></label> <label>Confirm password <input name="confirm" type="password"></label> <button>Create account</button></form></body></html>`;
+// 邮箱验证码: a page that waits for a code it sent by mail (one box, or a row of boxes that take a character each),
+// one whose code comes by text message, and one whose only "codes" are a promo code and a postal code.
+const VERIFY_PAGE = kind => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${kind === 'sms' ? 'Verify your phone' : 'Verify your email'} · Smoke Co</title></head>
+<body><h1>${kind === 'sms' ? 'Verify your phone' : 'Verify your email'}</h1><form action="/verified" method="get">
+<p>${kind === 'sms' ? 'We sent a text message with a 6-digit code to your phone.' : 'We sent a 6-digit code to your email. Enter it below.'}</p>
+${kind === 'row' ? '<div class="row">' + [1, 2, 3, 4, 5, 6].map(index => `<input name="d${index}" maxlength="1" inputmode="numeric" aria-label="Digit ${index}">`).join('') + '</div>'
+    : '<label>Verification code <input name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}
+<button>Verify</button></form></body></html>`;
+const CHECKOUT_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Your details · Smoke Co</title></head>
+<body><h1>Your details</h1><form><label>Promo code <input name="promo"></label> <label>ZIP code <input name="zip" maxlength="5"></label> <button>Save</button></form></body></html>`;
 // A two-step sign-in: the user name on one page, the password on the next.
 const STEP_ONE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
 <body><h1>Sign in</h1><form action="/login-step2" method="get"><label>Email <input name="email" type="email" autocomplete="username"></label> <button>Next</button></form></body></html>`;
@@ -837,6 +847,8 @@ async function smokeBrowser(token) {
     }
     if (url.pathname === '/login') return response.end(LOGIN_PAGE);
     if (url.pathname === '/signup') return response.end(SIGNUP_PAGE);
+    if (url.pathname === '/verify') return response.end(VERIFY_PAGE(url.searchParams.get('kind') || 'one'));
+    if (url.pathname === '/checkout') return response.end(CHECKOUT_PAGE);
     if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
@@ -1098,7 +1110,8 @@ async function smokeBrowser(token) {
     steps.letterSaved = Boolean(letterFile) && path.dirname(letterFile) === path.join(dataDir, 'cover-letters') && letterFile.endsWith('.pdf')
       && fs.readFileSync(letterFile).subarray(0, 5).toString() === '%PDF-' && fs.statSync(letterFile).size > 1000
       && service.letters.remove(keptLetter.id) && !fs.existsSync(letterFile);
-    steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404;
+    steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404
+      && (await post('codebox')).status === 404 && (await post('codefill', { code: '123456' })).status === 404;
     // Two uploads that both say only "Drop or select": the line over each box says which one is the resume's.
     await call('open', { url: `${base}/upload-drop` });
     const underHeading = await call('upload');
@@ -1260,6 +1273,36 @@ async function smokeBrowser(token) {
     await browser.agent('open', { url: `${elsewhere}/login` }, byAssistant);
     steps.signupOnlyNew = again.status === 'has-account' && leftEmpty && (await browser.agent('signup', {}, handedOver)).status === 'login'
       && (await newBoxes(`${elsewhere}/login`)).join('') === '' && !vault.has('other.localhost', 'asst@example.com');
+    // 邮箱验证码: asked by the assistant, Dayjob says whether the page waits for a code sent by mail (in manual
+    // confirm the user is asked before any mail is read, and a "no" stops it), and types the code it is given into
+    // the one box or across the row of boxes. A code that does not fit is not typed, a box that holds something is
+    // left alone, a code by text message and a promo code are not this, and none of it is on the API for MCP.
+    const codes = `http://code.localhost:${site.address().port}`;
+    const codeBoxes = start => pageAt(start).executeJavaScript("[...document.querySelectorAll('form input')].map(box => box.value).join('')");
+    await browser.agent('open', { url: `${codes}/verify` }, byAssistant);
+    const askedCode = browser.agent('codebox', {}, byAssistant).then(value => value.status, error => error.status);
+    const codeAsked = await until(() => browser.state().approval?.action === 'mailcode' && browser.state().approval.name === 'code.localhost' && browser.state().approval.by === 'assistant', 5000);
+    browser.answer(browser.state().approval?.id, false);
+    steps.codeAsks = codeAsked && (await askedCode) === 409;
+    const oneBox = await browser.agent('codebox', {}, handedOver);
+    const wrongSize = await browser.agent('codefill', { code: '48291377' }, handedOver);
+    const oneFilled = await browser.agent('codefill', { code: '482913' }, handedOver);
+    steps.codeTyped = oneBox.status === 'field' && oneBox.boxes === 1 && oneBox.length === 6 && wrongSize.status === 'length' && oneFilled.status === 'filled'
+      && await codeBoxes(`${codes}/verify`) === '482913' && !/482913/.test(JSON.stringify([oneFilled, browser.state()]))
+      && (await browser.agent('codebox', {}, handedOver)).status === 'typed' && (await browser.agent('codefill', { code: '111111' }, handedOver)).status === 'typed';
+    await browser.agent('open', { url: `${codes}/verify?kind=row` }, byAssistant);
+    const rowBox = await browser.agent('codebox', {}, handedOver);
+    const rowShort = await browser.agent('codefill', { code: '4829' }, handedOver);
+    const rowFilled = await browser.agent('codefill', { code: '771204' }, handedOver);
+    steps.codeRow = rowBox.status === 'field' && rowBox.boxes === 6 && rowBox.length === 6 && rowShort.status === 'length' && rowFilled.status === 'filled' && rowFilled.boxes === 6
+      && await codeBoxes(`${codes}/verify?kind=row`) === '771204';
+    await browser.agent('open', { url: `${codes}/verify?kind=sms` }, byAssistant);
+    const bySms = await browser.agent('codebox', {}, handedOver);
+    await browser.agent('open', { url: `${codes}/checkout` }, byAssistant);
+    const noCode = await browser.agent('codebox', {}, handedOver);
+    const notOffered = await Promise.all(['codebox', 'codefill'].map(action => browser.agent(action, { code: '123456' }, {}).then(() => 0, error => error.status)));
+    steps.codeOnlyMail = bySms.status === 'not-mail' && noCode.status === 'no-field' && (await browser.agent('codefill', { code: '123456' }, handedOver)).status === 'no-field'
+      && await codeBoxes(`${codes}/checkout`) === '' && notOffered.every(status => status === 404);
     // A two-step sign-in: the user name, Next, then the password and Sign in.
     vault.save({ site: 'localhost', username: 'two@example.com', password: 'Tw0-step!' });
     const local = `http://localhost:${site.address().port}`;
@@ -1434,7 +1477,7 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'assistantAsked',
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'codeAsks', 'codeTyped', 'codeRow', 'codeOnlyMail', 'assistantAsked',
     'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
@@ -1584,6 +1627,8 @@ async function runSmoke() {
     languageSaved = service.repo.getSettings().language === 'en' && language === 'en';
     if (!languageSaved) await new Promise(resolve => setTimeout(resolve, 100));
   }
+  // What was saved instead, for the build log when it is not English.
+  const languageSavedAs = { service: service.repo.getSettings().language, tray: language };
   // Let the first frame paint; a hidden window can otherwise capture the boot spinner. Its arrival motions
   // barely move while it is hidden, so they are run to their end for the screenshot.
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
@@ -1628,7 +1673,7 @@ async function runSmoke() {
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && languageAtStart.ok && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && openingClosed && frameCheck.ok && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, openingClosed, frame: frameCheck, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, languageSavedAs, openingClosed, frame: frameCheck, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
