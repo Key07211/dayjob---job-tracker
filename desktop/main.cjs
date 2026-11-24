@@ -1627,6 +1627,8 @@ async function runSmoke() {
     languageSaved = service.repo.getSettings().language === 'en' && language === 'en';
     if (!languageSaved) await new Promise(resolve => setTimeout(resolve, 100));
   }
+  // What was saved instead, for the build log when it is not English.
+  const languageSavedAs = { service: service.repo.getSettings().language, tray: language };
   // Let the first frame paint; a hidden window can otherwise capture the boot spinner. Its arrival motions
   // barely move while it is hidden, so they are run to their end for the screenshot.
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 300))))');
@@ -1671,7 +1673,7 @@ async function runSmoke() {
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && languageAtStart.ok && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
     && openingClosed && frameCheck.ok && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, openingClosed, frame: frameCheck, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, languageSavedAs, openingClosed, frame: frameCheck, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the

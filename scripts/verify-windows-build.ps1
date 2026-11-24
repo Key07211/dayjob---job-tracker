@@ -40,6 +40,7 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
     $text = $report.content -replace '\s+', ' '
     Write-Output "${Name} window text: $($text.Substring(0, [Math]::Min(400, $text.Length)))"
   }
+  if (-not $report.languageSaved) { Write-Output "${Name} language saved as: $($report.languageSavedAs | ConvertTo-Json -Compress)" }
   if (-not $report.ok -and $report.frame) { Write-Output "${Name} frame steps: $($report.frame | ConvertTo-Json -Compress)" }
   if (-not $report.ok -and $report.music) { Write-Output "${Name} music steps: $($report.music | ConvertTo-Json -Compress)" }
   if (-not $report.ok -and $report.guide) { Write-Output "${Name} guide steps: $($report.guide | ConvertTo-Json -Compress)" }
