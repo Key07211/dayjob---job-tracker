@@ -11,6 +11,7 @@ import { createMemory, MEMORY_EMPTY } from './memory.mjs';
 import { createFeedback, scrub, sumSteps } from './feedback.mjs';
 import { APPLY_STEPS, createTools } from './tools.mjs';
 import { CHECK_STATUSES, CHECK_TOOLS, PAGE_TOOLS, checkNote, createCheckStore, mailRules, mailSince, pagesFor } from './check.mjs';
+import { createMailCodes } from './mail-code.mjs';
 import { localDay, scheduledAt } from '../jobs/scheduler.mjs';
 import { message } from '../messages.mjs';
 
@@ -69,7 +70,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   const english = () => repo.getSettings().language === 'en';
   const feedback = createFeedback({ dir: feedbackDir, english, now, log });
   const tools = createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved, scoreAdded, now, browser, companies, letters, transcripts, onSettings, memory, applyMode: () => settings().apply,
-    applications: { start: (ids, context) => startMany(ids, context), list: () => runList().map(runView) } });
+    applications: { start: (ids, context) => startMany(ids, context), list: () => runList().map(runView) },
+    mailCodes: { enabled: () => settings().mailCodes, fetch: input => mailCodes.fetch(input) } });
   const store = createConversationStore(db);
   const getSettings = () => repo.getSettings();
   const available = engines || {
@@ -78,6 +80,10 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
   };
   const conversations = new Map();
   const iso = () => now().toISOString();
+  // 邮箱验证码 (mail-code.mjs): the small conversations that read a code from the user's mail, while they run.
+  // They are known to the tool endpoint and are offered none of Dayjob's tools.
+  const helpers = new Set();
+  const mailCodes = createMailCodes({ engine: available['claude-cli'], hold: id => helpers.add(id), release: id => helpers.delete(id), logUsage: entry => repo.logUsage?.(entry), now, log });
   const need = (value, label = 'Conversation') => {
     if (!value) throw new HttpError(404, `${label} not found.`);
     return value;
@@ -88,7 +94,9 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const model = id => (typeof saved.models?.[id] === 'string' ? saved.models[id] : '');
     return { engine: ENGINES.includes(saved.engine) ? saved.engine : 'claude-cli', models: Object.fromEntries(ENGINES.map(id => [id, model(id)])),
       apply: APPLY_MODES.includes(saved.apply) ? saved.apply : 'confirm',
-      parallel: Number.isInteger(saved.parallel) && saved.parallel >= PARALLEL.min && saved.parallel <= PARALLEL.max ? saved.parallel : PARALLEL.default };
+      parallel: Number.isInteger(saved.parallel) && saved.parallel >= PARALLEL.min && saved.parallel <= PARALLEL.max ? saved.parallel : PARALLEL.default,
+      // 邮箱验证码: whether Dayjob may read a verification code from the user's mail. Off until the user says so.
+      mailCodes: saved.mailCodes === true };
   }
   function saveSettings(input) {
     const current = settings();
@@ -106,7 +114,9 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     if (input.parallel !== undefined && !(Number.isInteger(input.parallel) && input.parallel >= PARALLEL.min && input.parallel <= PARALLEL.max)) {
       throw new HttpError(400, `parallel must be a whole number from ${PARALLEL.min} to ${PARALLEL.max}.`);
     }
-    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models, apply: input.apply ?? current.apply, parallel: input.parallel ?? current.parallel });
+    if (input.mailCodes !== undefined && typeof input.mailCodes !== 'boolean') throw new HttpError(400, 'mailCodes must be true or false.');
+    repo.setMeta('assistant', { engine: input.engine ?? current.engine, models, apply: input.apply ?? current.apply, parallel: input.parallel ?? current.parallel,
+      mailCodes: input.mailCodes ?? current.mailCodes });
     // More room at once: the applications that were waiting for it start.
     if (input.parallel !== undefined) pump();
     return settings();
@@ -797,8 +807,10 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     const rpcError = (code, message) => respond(response, code, { jsonrpc: '2.0', error: { code: -32000, message }, id: null });
     if (request.method !== 'POST') return rpcError(405, 'Method not allowed.');
     const token = /^Bearer (.+)$/.exec(request.headers.authorization || '')?.[1] || '';
-    const conversation = conversations.get(available['claude-cli'].conversationFor?.(token) || '');
-    if (!token || !conversation) return rpcError(401, 'Unknown assistant session.');
+    const session = token ? available['claude-cli'].conversationFor?.(token) || '' : '';
+    const helper = helpers.has(session);
+    const conversation = conversations.get(session);
+    if (!token || (!conversation && !helper)) return rpcError(401, 'Unknown assistant session.');
     let size = 0;
     const chunks = [];
     for await (const chunk of request) {
@@ -808,6 +820,8 @@ export function createAssistant({ db, repo, scheduler, goals, dashboard, status,
     }
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return rpcError(400, 'Request body must contain valid JSON.'); }
+    // The helper that reads a code from the mail has the mail connector's reading tools and none of Dayjob's.
+    if (helper) return handleMcp({ request, response, body, tools: { list: [] }, callTool: async () => ({ ok: false, content: JSON.stringify({ error: 'No tools here.' }) }) });
     const offered = conversation.check ? { list: tools.list.filter(tool => checkTools(conversation).has(tool.name)) } : tools;
     return handleMcp({ request, response, body, tools: offered, callTool: (name, input) => runTool(conversation, name, input) });
   }

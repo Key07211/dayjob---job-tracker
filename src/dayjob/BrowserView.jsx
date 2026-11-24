@@ -82,6 +82,9 @@ function Approval({ approval, elsewhere = false }) {
         {approval.action === 'account'
           ? t(`在 ${site} 用 ${approval.name} 注册一个新账户。密码由 Dayjob 在这台电脑上生成、填进网页并存进密码保管，助手看不到它。`,
             `Create a new account on ${site} for ${approval.name}. Dayjob makes the password up on this computer, puts it into the page and keeps it in the vault; the assistant never sees it.`)
+          : approval.action === 'mailcode'
+            ? t(`${site} 把验证码发到了你的邮箱。Dayjob 用 Claude Code 里的 Gmail 连接器读最近 15 分钟内的那封邮件，把验证码填进网页；只读，助手看不到验证码。`,
+              `${site} sent a verification code to your email. Dayjob reads that mail among the last 15 minutes through the Gmail connector in Claude Code and types the code into the page. It only reads, and the assistant never sees the code.`)
           : approval.action === 'enter'
             ? t(`在 ${site} 的“${approval.name}”里按回车，这可能会提交表单。`, `Press Enter in “${approval.name}” on ${site}. This may submit the form.`)
             : t(`在 ${site} 上点击“${approval.name}”，这可能会提交或发送内容。`, `Click “${approval.name}” on ${site}. This may submit or send something.`)}

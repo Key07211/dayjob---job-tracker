@@ -120,8 +120,10 @@ function ConfirmCard({ approval, run, onShow = null }) {
   // An application is being sent when its form was filled in before this click; anything else is just a step.
   // 注册新账户 is its own question, whatever the application has reached.
   const account = approval.action === 'account';
-  const sending = !account && Boolean(run && run.reached >= APPLY_STEPS.indexOf('fill'));
-  const heading = account ? t('注册新账户？', 'Create this account?') : sending ? t('确认投递', 'Send this application?') : t('确认这一步', 'Allow this step?');
+  // 邮箱验证码 too: reading the mail for a code is asked about by itself.
+  const mail = approval.action === 'mailcode';
+  const sending = !account && !mail && Boolean(run && run.reached >= APPLY_STEPS.indexOf('fill'));
+  const heading = account ? t('注册新账户？', 'Create this account?') : mail ? t('读取邮箱验证码？', 'Fetch the code from your mail?') : sending ? t('确认投递', 'Send this application?') : t('确认这一步', 'Allow this step?');
   const site = approval.site || t('这个网站', 'this site');
   const facts = !sending ? [] : [
     run.resume ? t(`简历：${run.resume}`, `Resume: ${run.resume}`) : t('没有附简历', 'No resume attached'),
@@ -136,6 +138,8 @@ function ConfirmCard({ approval, run, onShow = null }) {
       <p>{approval.action === 'account'
         ? t(`在 ${site} 用 ${approval.name} 注册一个新账户。密码由 Dayjob 在这台电脑上生成、填进网页并存进密码保管，助手看不到它。`,
           `Create a new account on ${site} for ${approval.name}. Dayjob makes the password up on this computer, puts it into the page and keeps it in the vault; the assistant never sees it.`)
+        : mail ? t(`${site} 把验证码发到了你的邮箱。Dayjob 用 Claude Code 里的 Gmail 连接器读最近 15 分钟内的那封邮件，把验证码填进网页；只读，助手看不到验证码。`,
+          `${site} sent a verification code to your email. Dayjob reads that mail among the last 15 minutes through the Gmail connector in Claude Code and types the code into the page. It only reads, and the assistant never sees the code.`)
         : approval.action === 'enter' ? t(`在 ${site} 的“${approval.name}”里按回车。`, `Press Enter in “${approval.name}” on ${site}.`) : t(`在 ${site} 上点击“${approval.name}”。`, `Click “${approval.name}” on ${site}.`)}</p>
       {facts.length ? <p className="asst-confirm-facts">{facts.join(' · ')}</p> : null}
       <div className="asst-confirm-actions">
@@ -169,7 +173,7 @@ export function ApplySwitch({ mode, bare = false }) {
       </div>
       {asking ? (
         <div className="asst-mode-ask" role="alertdialog" aria-label={t('交给助手全权接管？', 'Hand applications over to the assistant?')}>
-          <p>{t('全权接管后，助手会自己点“提交”把申请投出去，不再等你确认。碰到验证码、付款，或只有你知道答案的问题，它还是会停下来问你。随时可以在这里改回手动确认。',
+          <p>{t('全权接管后，助手会自己点“提交”把申请投出去，不再等你确认。碰到真人验证、付款，或只有你知道答案的问题，它还是会停下来问你。随时可以在这里改回手动确认。',
             'With full takeover the assistant clicks “Submit” itself and the application goes out without waiting for you. It still stops and asks at a captcha, a payment, or a question only you can answer. You can switch back here at any time.')}</p>
           <div>
             <button type="button" className="button small primary" autoFocus onClick={() => { setAsking(false); void assistant.saveSettings({ apply: 'takeover' }); }}>{t('交给助手', 'Hand it over')}</button>

@@ -84,7 +84,7 @@ test('the browser tools exist only where there is a Dayjob browser, and none of 
   assert.equal(there.settings.apply, 'confirm', 'sending waits for the user unless they say otherwise');
   const tiers = Object.fromEntries(there.tools.map(tool => [tool.name, tool.tier]));
   for (const name of ['open_application', 'browser_open', 'browser_read', 'browser_click', 'browser_hover', 'browser_type', 'browser_select', 'browser_options', 'browser_press_key', 'browser_scroll', 'browser_navigate',
-    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_upload_transcript', 'browser_sign_in', 'browser_sign_up', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
+    'browser_tabs', 'browser_autofill', 'browser_upload_resume', 'browser_upload_transcript', 'browser_sign_in', 'browser_sign_up', 'browser_mail_code', 'browser_cover_letter']) assert.equal(tiers[name], 'browser', name);
   assert.equal(tiers.get_profile, 'read');
   assert.equal(tiers.update_profile, 'undoable');
   assert.ok(there.tools.every(tool => !/vault|password|secret|delete|key\b|upload_file|evaluate|(?<!tran)script/i.test(tool.name) || tool.name === 'browser_press_key'), there.tools.map(tool => tool.name).join(' '));

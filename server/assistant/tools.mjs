@@ -68,7 +68,7 @@ const applicationCard = item => ({ id: item.id, company: item.company, title: it
   statusChangedAt: item.statusChangedAt, nextFollowUpAt: item.nextFollowUpAt, flags: item.flags, postingId: item.postingId, score: item.score ?? null,
   postingClosedAt: item.postingClosedAt ?? null });
 
-export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, letters = null, transcripts = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null }) {
+export function createTools({ db, repo, scheduler, goals, dashboard, status, scoreIfSaved = () => {}, scoreAdded = () => false, now = () => new Date(), browser = null, companies = null, letters = null, transcripts = null, applyMode = () => 'confirm', onSettings = () => {}, memory = null, applications = null, mailCodes = null }) {
   const q = sql => db.prepare(sql);
   const followUpDays = () => repo.getSettings().tracking.followUpDays;
 
@@ -475,6 +475,31 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
       (site => [`密码保管里已经有 ${site} 的这个账户`, `The vault already has this account for ${site}`])],
     unavailable: ['Dayjob cannot keep a password for this page (the vault only works on https pages, and on a computer that can encrypt it). Ask the user to create the account themselves in the Dayjob window.', (() => ['这一页没法代为设密码', 'Cannot set a password on this page'])],
   };
+  // 邮箱验证码: how fetching a code from the user's mail went, for the model and for the chat. The code itself is
+  // in none of it.
+  const MAIL_CODE = {
+    filled: ['Dayjob read the code from the user\'s mail and typed it into the box. Nothing is sent yet: click the button that confirms the code, then read the page.',
+      (site => [`读到 ${site} 发到邮箱的验证码，已填好`, `Read the code ${site} sent by mail and typed it in`])],
+    off: ['The user has not switched on reading verification codes from their mail. Stop and hand over: ask them to type the code in the Dayjob window, and say once that Settings → Assistant has a switch that lets Dayjob fetch such codes from their mail.',
+      (() => ['没有开“邮箱验证码”，交给你来填', 'Reading codes from mail is switched off'])],
+    'no-field': ['This page shows no box for a verification code. Read the page again. If the site wants a link in the mail to be clicked instead, that is for the user.', (site => [`${site} 这一页没有填验证码的地方`, `No box for a code on this page of ${site}`])],
+    'not-mail': ['The page says the code comes by text message or from an authenticator app, not by mail. Dayjob cannot fetch that one: hand over to the user.', (() => ['这个验证码不是发到邮箱的', 'This code does not come by mail'])],
+    typed: ['The box already holds something. If a code is in it, click the button that confirms it; otherwise hand over to the user.', (() => ['验证码框里已经有内容', 'The box for the code already holds something'])],
+    'not-found': ['The user\'s mailbox has no such mail from the last 15 minutes; Dayjob looked three times. Hand over to the user, unless the page has a "send again" button you have not used yet: then click it once and call this once more.',
+      (site => [`邮箱里没有找到 ${site} 刚发的验证码`, `No fresh code from ${site} in the mailbox`])],
+    'no-fit': ['The code in the mail does not fit this box, so it is not the one this page asks for. Hand over to the user.', (() => ['邮件里的验证码和这个框对不上', 'The code in the mail does not fit this box'])],
+    'no-mail': ['Dayjob could not read the user\'s mail (see why). Hand over to the user: they type the code in the Dayjob window. Tell them what has to be put right.', (() => ['读不到邮箱', 'The mailbox could not be read'])],
+    'too-many': ['Dayjob has fetched codes for this conversation three times already. Hand over to the user.', (() => ['这段对话里已经取过三次验证码', 'Three codes were fetched in this conversation already'])],
+    unavailable: ['Dayjob fetches a code only on an https page. Hand over to the user.', (() => ['这一页没法代取验证码', 'Cannot fetch a code for this page'])],
+  };
+  // Why the mail could not be read, in words the model can pass on.
+  const MAIL_WHY = {
+    'mail-missing': 'Claude Code on this computer has no Gmail connector. The user connects Gmail on claude.ai (Settings → Connectors), with the mailbox the sites write to.',
+    'mail-needs-auth': 'The Gmail connector in Claude Code is signed out. The user signs in to it again on claude.ai (Settings → Connectors).',
+    'mail-failed': 'The Gmail connector in Claude Code did not connect.',
+    'no-mail': 'Claude Code did not let the mail be searched.',
+  };
+  const MAIL_TRIES = 3;
   const browserTools = !browser ? [] : [
     {
       name: 'open_application', tier: 'browser', view: 'browser',
@@ -700,6 +725,31 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
         const known = SIGN_UP[outcome.status] ? outcome.status : 'unavailable';
         return { result: { status: known, site: outcome.site, what: SIGN_UP[known][0], ...(known === 'set' ? { username: outcome.username, passwordBoxes: outcome.boxes, length: outcome.length } : {}), page: outcome.page },
           ...(known === 'set' ? { step: 'login' } : {}) };
+      },
+    },
+    {
+      name: 'browser_mail_code', tier: 'browser', view: 'browser',
+      description: 'When a site has sent the user a verification code by email and the page in the Dayjob browser shows a box for it (a new account, a sign-in from a new device): ask Dayjob to '
+        + 'fetch it. Dayjob reads the newest such mail in the user\'s Gmail on this computer and types the code into the box. You learn only how it went (status), never the code or the mail, '
+        + 'and you never type a code yourself. It works only when the user has switched it on, and in manual confirm mode they are asked each time. It sends nothing: click the button '
+        + 'that confirms the code afterwards. Only for a code sent by mail: not for a text message, an authenticator app, or a link to click.',
+      shape: {},
+      label: (input, result) => MAIL_CODE[result.status][1](result.site || '…'),
+      async run(input, context) {
+        const say = (status, site, more = {}) => ({ result: { status, site: site || '', what: MAIL_CODE[status][0], ...more } });
+        if (!mailCodes?.enabled()) return say('off');
+        const box = await inBrowser('codebox', {}, context);
+        if (box.status !== 'field') return say(MAIL_CODE[box.status] ? box.status : 'unavailable', box.site, { page: box.page });
+        const memo = context?.memo || {};
+        if ((memo.mailCodes || 0) >= MAIL_TRIES) return say('too-many', box.site, { page: box.page });
+        memo.mailCodes = (memo.mailCodes || 0) + 1;
+        const exact = box.boxes > 1;
+        const got = await mailCodes.fetch({ site: box.site, title: box.title, length: box.length, exact, signal: context?.signal });
+        if (got.status === 'not-found') return say('not-found', box.site, { page: box.page });
+        if (got.status !== 'found') return say('no-mail', box.site, { why: MAIL_WHY[got.status] || got.detail || 'Claude Code could not be used.', page: box.page });
+        const put = await inBrowser('codefill', { code: got.code }, context);
+        if (put.status === 'filled') return { result: { status: 'filled', site: box.site, what: MAIL_CODE.filled[0], from: got.from || null, boxes: put.boxes, page: put.page } };
+        return say(put.status === 'length' ? 'no-fit' : MAIL_CODE[put.status] ? put.status : 'no-field', box.site, { page: put.page });
       },
     },
     {
@@ -988,7 +1038,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
   // out of the prompt until the model asks for the group (engine-api.mjs); everything else is always at hand.
   const GROUPS = {
     apply: { about: 'working in the Dayjob browser and applying to a job there (open_application and every browser_ tool: open, read, click, type, select, autofill, sign in, create '
-      + 'an account, attach the resume, a transcript, cover letter), start_applications for several jobs at once, report_application for how one went, add_postings, which puts jobs read on a '
+      + 'an account, fetch a code sent by mail, attach the resume, a transcript, cover letter), start_applications for several jobs at once, report_application for how one went, add_postings, which puts jobs read on a '
       + 'web page (Handshake, a careers site) into Today, and update_profile, which saves an answer the user gave into the application profile',
       has: tool => tool.tier === 'browser' || ['update_profile', 'report_application', 'list_application_runs', 'add_postings', 'list_transcripts'].includes(tool.name) },
     searches: { about: 'what Dayjob fetches every day (list_searches, save_search and run_search for saved searches; find_company_board and follow_company for a company\'s own job board)',

@@ -6,6 +6,8 @@
 // the user typed so that Dayjob can offer to keep it. For an account the
 // assistant creates (注册新账户) it puts a password Dayjob made up into the
 // sign-up form's password boxes.
+// For 邮箱验证码 it finds the box a site shows for a code it sent by mail, and
+// puts in the code Dayjob read from the user's mail.
 const { HIDDEN_SOURCE } = require('./page-hidden.cjs');
 
 // makeHidden: page-hidden.cjs, which says what a page keeps away from the person looking at it.
@@ -196,7 +198,69 @@ function installLogin(makeHidden) {
     const box = userStep();
     return box?.value ? send(box) : { sent: false };
   }
-  return (globalThis.dayjobLogin = { probe, fill, submit, fillUser, sendUser, signup, setNew });
+  // ---------- 邮箱验证码 ----------
+  // The box for a code a site sent (a "verification code", a "one-time code"): one box, or a row of boxes that
+  // take one character each. A box that only says "code" counts when what stands around it is about verifying;
+  // a postal, country or promo code never does.
+  const CODE_SURE = /\botp\b|one[- ]?time|verif|\b2fa\b|\bmfa\b|pass ?code|(security|auth\w*|confirmation|access|login|sign[- ]?in|e-?mail) code|验证码|校验码|动态码|确认码/i;
+  const CODE_PLAIN = /\bcode\b|\bpin\b/i;
+  const CODE_OTHER = /zip|postal|post ?code|country|area|dial|promo|coupon|voucher|discount|referr|invit|邮编|邮政|区号|优惠|邀请|推荐/i;
+  const CODE_ABOUT = /verif|one[- ]?time|confirm your|we('ve| have)? (just )?(sent|e-?mailed)|sent (you )?(a|an|the)|check your (e-?mail|inbox)|enter the code|验证|已发送|发送到|查收/i;
+  const BY_MAIL = /e-?mail|inbox|邮箱|邮件/i;
+  const BY_OTHER = /\bsms\b|text message|texted|\bphone\b|\bmobile\b|authenticator|auth\w* app|短信|手机|验证器/i;
+  const around = box => {
+    const scope = box.form || box.closest('[role="dialog"], [role="form"], section, main') || document.body;
+    return clean(`${scope?.innerText || ''} ${document.querySelector('h1')?.innerText || ''} ${document.title}`, 1500);
+  };
+  function codeBoxes() {
+    const inputs = roots().flatMap(root => [...root.querySelectorAll('input')])
+      .filter(input => usable(input) && (['text', 'tel', 'number', ''].includes(input.type) || (input.type === 'password' && /one-time-code/.test(input.autocomplete || ''))));
+    // A row of one-character boxes: four to eight of them side by side in one form.
+    const ones = inputs.filter(input => input.maxLength === 1);
+    for (const first of ones) {
+      const scope = first.form || first.parentElement?.parentElement || first.parentElement;
+      const row = ones.filter(input => scope?.contains(input));
+      if (row.length >= 4 && row.length <= 8 && (CODE_SURE.test(around(first)) || CODE_ABOUT.test(around(first)))) return { kind: 'row', boxes: row };
+    }
+    const one = inputs.find(input => {
+      if (input.maxLength === 1 || input.type === 'email') return false;
+      const says = describe(input);
+      if (/one-time-code/.test(input.autocomplete || '')) return true;
+      if (CODE_OTHER.test(says)) return false;
+      return CODE_SURE.test(says) || (CODE_PLAIN.test(says) && CODE_ABOUT.test(around(input)));
+    });
+    return one ? { kind: 'one', boxes: [one] } : null;
+  }
+  // What Dayjob needs to know before it reads the user's mail: is there such a box, how long a code it takes, is
+  // it empty, and does the page say the code came by mail (mail) or some other way (other: a phone, an app).
+  function code() {
+    const found = codeBoxes();
+    if (!found) return { box: false };
+    const about = around(found.boxes[0]);
+    const max = found.kind === 'row' ? found.boxes.length : found.boxes[0].maxLength > 0 ? found.boxes[0].maxLength : null;
+    return { box: true, kind: found.kind, count: found.boxes.length, length: max, filled: found.boxes.some(box => box.value), mail: BY_MAIL.test(about), other: BY_OTHER.test(about) };
+  }
+  // Puts the code in: whole into the one box, or a character into each box of the row. A code that does not fit
+  // the box is not put in at all.
+  function setCode({ code: value }) {
+    const found = codeBoxes();
+    const text = String(value || '');
+    if (!found || !text) return { set: false, why: 'no-field' };
+    if (found.boxes.some(box => box.value)) return { set: false, why: 'typed' };
+    if (found.kind === 'row') {
+      if (text.length !== found.boxes.length) return { set: false, why: 'length' };
+      found.boxes.forEach((box, index) => set(box, text[index]));
+      found.boxes[found.boxes.length - 1].blur();
+      return { set: found.boxes.every((box, index) => box.value === text[index]), boxes: found.boxes.length };
+    }
+    const [box] = found.boxes;
+    if (box.maxLength > 0 && text.length > box.maxLength) return { set: false, why: 'length' };
+    if (box.type === 'number' && !/^\d+$/.test(text)) return { set: false, why: 'length' };
+    set(box, text);
+    box.blur();
+    return { set: box.value === text, boxes: 1 };
+  }
+  return (globalThis.dayjobLogin = { probe, fill, submit, fillUser, sendUser, signup, setNew, code, setCode });
 }
 
 const LOGIN_SOURCE = `(${installLogin.toString()})(${HIDDEN_SOURCE})`;
