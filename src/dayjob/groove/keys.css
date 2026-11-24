@@ -21,7 +21,7 @@
 /* The lid: the band reaches from the sidebar to the window's right edge (or to the browser beside the page), whatever width the page itself is capped at. */
 .main { overflow-x: clip; }
 .view-header { isolation: isolate; padding-bottom: 16px; margin-bottom: 20px; }
-.view-header::before { content: ""; position: absolute; z-index: -1; top: -26px; bottom: 0; left: -28px; right: -100vw;
+.view-header::before { content: ""; position: absolute; z-index: -1; top: calc(-1 * var(--page-top, 26px)); bottom: 0; left: -28px; right: -100vw;
   background: var(--side); box-shadow: inset 0 -3px 0 var(--key-lip); }
 .settings-page > .view-header { margin-bottom: 4px; }
 /* A short window: the date goes on the title's line, after it, and the title is smaller. */

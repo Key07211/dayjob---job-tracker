@@ -8,6 +8,10 @@ const listen = (channel, callback) => {
 
 contextBridge.exposeInMainWorld('dayjobDesktop', Object.freeze({
   getInfo: () => ipcRenderer.invoke('dayjob:get-info'),
+  // 窗口边框: how tall a strip the page keeps at its top for the window's three buttons (0 where the system's own
+  // title bar stays, on macOS), and the colours those buttons are drawn in. The same number is in desktop/main.cjs.
+  titleBar: process.platform === 'darwin' ? 0 : 32,
+  setTitleBar: colors => ipcRenderer.invoke('dayjob:title-bar', { color: String(colors?.color || ''), symbolColor: String(colors?.symbolColor || '') }),
   openDataFolder: what => ipcRenderer.invoke('dayjob:open-data-folder', ['feedback', 'cover-letters', 'transcripts'].includes(what) ? what : undefined),
   openCoverLetter: id => ipcRenderer.invoke('dayjob:open-cover-letter', String(id)),
   getClaudeStatus: () => ipcRenderer.invoke('dayjob:claude-status'),

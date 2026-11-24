@@ -41,6 +41,7 @@ import './dayjob/groove/picker.css';
 import './dayjob/groove/opening.css';
 import './dayjob/assistant/assistant.css';
 import './dayjob/guide/guide.css';
+import './dayjob/frame.css';
 
 // note: the page's key, 0–7 from the top, so its phrase stays the same with or without the browser.
 const VIEWS = [
