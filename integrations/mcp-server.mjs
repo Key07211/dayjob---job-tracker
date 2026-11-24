@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CLAUDE_MODELS, CODEX_MODELS, EFFORTS, OPENAI_MODELS, PROVIDER_IDS } from '../server/jobs/scoring/models.mjs';
 
 const id = z.string().min(1).max(200);
 const dateTime = z.string().datetime({ offset: true });
@@ -11,11 +12,18 @@ const APPLICATION_STATUSES = ['applied', 'oa', 'interview', 'offer', 'accepted',
 const JOB_TYPES = ['fulltime', 'parttime', 'internship', 'contract', 'temporary'];
 const BROWSER_KEYS = ['Enter', 'Escape', 'Tab', 'Backspace', 'Delete', 'Space', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'PageDown', 'PageUp', 'Home', 'End'];
 
+// What dayjob_score_posting may be given: the models Dayjob lists for each provider, and the ones that do not take
+// every effort.
+const ids = models => models.map(item => item.id).join(', ');
+const FEWER_EFFORTS = [...CLAUDE_MODELS, ...OPENAI_MODELS].filter(item => item.efforts.length < EFFORTS.length)
+  .map(item => `${item.id} ${item.efforts.length ? `takes ${item.efforts.join(', ')}` : 'takes none'}`).join('; ');
+
 // Shown to the model by Claude Code and Claude Desktop.
 export const INSTRUCTIONS = [
   'Dayjob is the user\'s local job-search tracker: it fetches postings every day from LinkedIn, Indeed and company career boards, scores them against the user\'s resume, and tracks applications.',
   'The user can keep up to three resumes. Each posting is matched to the resume that shares the most keywords with it and is scored against that one.',
   'Scoring uses the user\'s Claude allowance, so the user picks when it happens (scoring.mode in dayjob_status): auto scores new postings after each search, saved scores the jobs they save, manual scores only the jobs they ask for. Outside auto, do not score postings in bulk unless the user asks.',
+  'dayjob_score_posting scores with the provider, model and effort set in Dayjob. It can be given its own provider, model and effort for one score; name them only when the user asks for a particular model or effort, since a larger model or a higher effort uses more of their allowance.',
   'To analyse fit yourself, read the posting (dayjob_get_posting) and its matched resume (dayjob_get_resume with postingId), then store your verdict with dayjob_save_analysis so it shows in the app.',
   'Only call dayjob_mark_applied when the user says they have actually applied. Never invent application dates.',
   'When the user asks you to update applications from email (for example Gmail), match each message to an application by company and title, then call dayjob_update_application with a short note naming the email (sender, date, subject). Ask the user when the match is unclear.',
@@ -160,9 +168,12 @@ export function createDayjobServer({ baseUrl = localBaseUrl() } = {}) {
   }, ({ id: postingId, ...result }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/score`, 'POST', { result: { missingKeywords: [], ...result } }),
   { idempotentHint: true });
 
-  tool('dayjob_score_posting', 'Ask Dayjob to score a posting with its configured AI scorer (local Claude Code or the Claude API). Uses the user\'s Claude allowance; prefer dayjob_save_analysis when you have already analysed it.', {
-    id, force: z.boolean().optional().describe('Re-score even if a score exists.'),
-  }, ({ id: postingId, force }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/score`, 'POST', { force: force === true }), { openWorldHint: true });
+  tool('dayjob_score_posting', 'Ask Dayjob to score a posting against its matched resume with an AI scorer on the user\'s computer. With only an id it uses the provider, model and effort set in Dayjob (Resume & AI). provider, model and effort choose them for this one score; Dayjob\'s settings stay as they are. The score that comes back says which provider, model and effort made it. Uses the user\'s Claude or ChatGPT allowance, or their API credit; prefer dayjob_save_analysis when you have already analysed it.', {
+    id, force: z.boolean().optional().describe('Score again even if a score exists. Without it an existing score comes back as it is, whatever model is named here.'),
+    provider: z.enum(PROVIDER_IDS).optional().describe('claude-cli: Claude Code on this computer. anthropic-api: the Claude API with the user\'s key. codex-cli: Codex with the user\'s ChatGPT sign-in. openai-api: the OpenAI API with the user\'s key. Left out: the one in Dayjob\'s settings (scoring.provider in dayjob_status). One that is not set up on this computer is refused.'),
+    model: z.string().max(100).regex(/^[\w.:[\]-]+$/).optional().describe(`A model id of that provider. claude-cli and anthropic-api: ${ids(CLAUDE_MODELS)}. codex-cli: ${ids(CODEX_MODELS)}. openai-api: ${ids(OPENAI_MODELS)}. Left out: the model in Dayjob's settings, or with a provider other than the settings' one, that provider's default.`),
+    effort: z.enum(EFFORTS).optional().describe(`Reasoning effort. Left out: the one in Dayjob's settings. One the model does not take is refused: ${FEWER_EFFORTS}.`),
+  }, ({ id: postingId, force, provider, model, effort }) => mutate(`/api/postings/${encodeURIComponent(postingId)}/score`, 'POST', { force: force === true, provider, model, effort }), { openWorldHint: true });
 
   tool('dayjob_set_posting_status', 'Save a posting for later, dismiss it, or move it back to new.', {
     id, status: z.enum(['new', 'saved', 'dismissed']),

@@ -30,9 +30,10 @@ export function createApiProvider({ getSettings, createClient = options => new A
       const key = keyInUse(ai).apiKey;
       return { available: Boolean(key), detail: key ? `Claude API · ${modelFor('anthropic-api', ai.model)}` : 'Add an Anthropic API key in Settings.' };
     },
-    // One prompt in, one JSON object (matching schema) out.
-    async ask({ system, prompt, schema, signal }) {
-      const { ai } = getSettings();
+    // One prompt in, one JSON object (matching schema) out. use: this call's own model and effort (models.mjs,
+    // scoringChoice) in place of the ones in Settings.
+    async ask({ system, prompt, schema, signal, use }) {
+      const ai = { ...getSettings().ai, ...use };
       const key = keyInUse(ai);
       if (!key.apiKey) throw new Error('No Anthropic API key is set.');
       const request = apiRequest({ ai, system, prompt, schema });
@@ -51,13 +52,13 @@ export function createApiProvider({ getSettings, createClient = options => new A
       if (response.stop_reason === 'refusal') throw new Error('Claude declined this request.');
       if (response.stop_reason === 'max_tokens') throw new Error('The Claude reply was cut off.');
       const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('');
-      return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || request.model, usage: anthropicUsage(response.usage), turns: 1,
-        chars: system.length + prompt.length };
+      return { value: JSON.parse(text), provider: 'anthropic-api', model: response.model || request.model, effort: request.output_config.effort || null,
+        usage: anthropicUsage(response.usage), turns: 1, chars: system.length + prompt.length };
     },
-    async score({ resume, posting, signal }) {
+    async score({ resume, posting, signal, use }) {
       const { ai } = getSettings();
-      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal, use });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, effort: reply.effort, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

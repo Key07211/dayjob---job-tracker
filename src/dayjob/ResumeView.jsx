@@ -14,6 +14,7 @@ import { Transcripts } from './Transcripts.jsx';
 import { Select } from './groove/Picker.jsx';
 import { EFFORTS, PROVIDERS, effortFor, modelInfo } from '../../server/jobs/scoring/models.mjs';
 import { EMPTY_EDUCATION, EMPTY_EXPERIENCE, MAX_EDUCATION, MAX_EXPERIENCE, monthOf } from '../../server/jobs/applicant.mjs';
+import { Tip } from './Tip.jsx';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -91,8 +92,8 @@ function Resumes({ resumes, reload }) {
   return (
     <section className="card-section">
       <h2>{t(`简历（${resumes.length}/${MAX_RESUMES}）`, `Resumes (${resumes.length}/${MAX_RESUMES})`)}</h2>
-      <p className="hint">{t('最多 3 份，比如分别针对数据分析和软件工程。Dayjob 会给每个岗位自动选关键词重合度最高的那份简历：打分用它的文字，投递时把它的原件附到申请表里。支持 PDF、Word（.docx）和纯文本；文字和原件都只保存在本机。',
-        'Up to 3, for example one for data roles and one for software roles. Each job gets the resume that shares the most keywords with it: its text is what the job is scored against, and its file is what goes into the application form. PDF, Word (.docx) or plain text; the text and the file are kept on this computer only.')}</p>
+      <Tip>{t('最多 3 份，比如分别针对数据分析和软件工程。Dayjob 会给每个岗位自动选关键词重合度最高的那份简历：打分用它的文字，投递时把它的原件附到申请表里。支持 PDF、Word（.docx）和纯文本；文字和原件都只保存在本机。',
+        'Up to 3, for example one for data roles and one for software roles. Each job gets the resume that shares the most keywords with it: its text is what the job is scored against, and its file is what goes into the application form. PDF, Word (.docx) or plain text; the text and the file are kept on this computer only.')}</Tip>
       {full ? <p className="notice">{t('已经有 3 份简历。删除一份后才能再上传。', 'You have 3 resumes. Delete one to upload another.')}</p> : (
         <div className={`dropzone${dragging ? ' dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files[0]); }}>
@@ -196,11 +197,11 @@ function Usage({ landed, provider, openItem }) {
         {month.assistant?.calls ? <><dt>{t('助手', 'Assistant')}</dt><dd>{t(`近 30 天回答 ${n(month.assistant.calls)} 次`, `${n(month.assistant.calls)} ${month.assistant.calls === 1 ? 'reply' : 'replies'} in 30 days`)}{month.assistant.measured ? ` · ${tokens(month.assistant)}${cost(month.assistant)}` : ''}</dd></> : null}
         {month.other.calls ? <><dt>{t('其他', 'Other')}</dt><dd>{t(`近 30 天搜索建议和读取申请资料 ${n(month.other.calls)} 次`, `Search suggestions and profile reads in 30 days: ${n(month.other.calls)} ${month.other.calls === 1 ? 'call' : 'calls'}`)}{month.other.measured ? ` · ${tokens(month.other)}${cost(month.other)}` : ''}</dd></> : null}
       </dl>
-      <p className="hint">{t('数字是 AI 自己报告的 token 数，加入这项记录之前的打分不在内。输入包括简历、岗位描述，以及 AI 工具自己附带的内容。',
+      <Tip>{t('数字是 AI 自己报告的 token 数，加入这项记录之前的打分不在内。输入包括简历、岗位描述，以及 AI 工具自己附带的内容。',
         'These are token counts as the AI reports them; scores made before this was added are not counted. Input covers the resume, the posting, and whatever the AI tool adds itself.')}
         {provider === 'codex-cli' ? t(' Codex 不报告 token 数，所以只记次数。', ' Codex does not report tokens, so only the calls are counted.') : ''}
         {t(' 美元是按公开标价折算的；本机 Claude Code 和 Codex 走订阅，不另外扣钱。', ' Dollars are worked out from list prices; Claude Code and Codex on this computer run on a subscription and cost nothing extra.')}
-        <button type="button" className="link" onClick={() => openItem('settings', 'api-spend')}>{t('看 API 消费和剩余额度', 'See API spending and what is left')}</button></p>
+        <button type="button" className="link" onClick={() => openItem('settings', 'api-spend')}>{t('看 API 消费和剩余额度', 'See API spending and what is left')}</button></Tip>
     </>
   );
 }
@@ -291,7 +292,7 @@ function AiSettings({ boot, reload, status, openItem }) {
             {group.items.map(item => (
               <label key={item.id} className={form.provider === item.id ? 'selected' : ''}>
                 <input type="radio" name="provider" checked={form.provider === item.id} onChange={() => chooseProvider(item.id)} />
-                <strong>{t(...item.name)}</strong><span>{t(...item.detail)}</span>
+                <strong>{t(...item.name)}</strong><Tip>{t(...item.detail)}</Tip>
               </label>
             ))}
           </div>
@@ -305,7 +306,7 @@ function AiSettings({ boot, reload, status, openItem }) {
           </div>
         ) : (
           <label>{cliPath.label}<input value={form[cliPath.key]} onChange={event => set(cliPath.key, event.target.value)} placeholder={t(`自动查找 ${cliPath.find}`, `Finds ${cliPath.find} automatically`)} maxLength={1024} />
-            <small>{t(`找不到时填写，例如 ${cliPath.example.replace('{you}', '你')}`, `Fill in if it is not found, e.g. ${cliPath.example.replace('{you}', 'you')}`)}</small></label>
+            <Tip>{t(`找不到时填写，例如 ${cliPath.example.replace('{you}', '你')}`, `Fill in if it is not found, e.g. ${cliPath.example.replace('{you}', 'you')}`)}</Tip></label>
         )}
         <label>{t('模型', 'Model')}
           <Select value={modelValue} onChange={event => chooseModel(event.target.value)}>
@@ -321,33 +322,33 @@ function AiSettings({ boot, reload, status, openItem }) {
             <option value="">{efforts.length ? t('模型默认', 'Model default') : t('这个模型不支持', 'Not supported by this model')}</option>
             {efforts.map(level => <option key={level} value={level}>{t(...EFFORT_LABELS[level])}</option>)}
           </Select>
-          <small>{t('越高分析越细，但更慢、用量更多。', 'Higher looks closer, but is slower and uses more.')}</small>
+          <Tip>{t('越高分析越细，但更慢、用量更多。', 'Higher looks closer, but is slower and uses more.')}</Tip>
         </label>
         <label>{t('分析语言', 'Analysis language')}
           <Select value={form.language} onChange={event => set('language', event.target.value)}>
             <option value="zh">中文</option><option value="en">English</option>
           </Select>
         </label>
-        <label>{t('每次最多打分', 'Scores per run')}<input type="number" min={1} max={200} value={form.maxPerRun} onChange={event => set('maxPerRun', event.target.value)} /><small>{t('一次抓取或一次批量打分最多打这么多个。', 'The most jobs scored by one search or one batch.')}</small></label>
+        <label>{t('每次最多打分', 'Scores per run')}<input type="number" min={1} max={200} value={form.maxPerRun} onChange={event => set('maxPerRun', event.target.value)} /><Tip>{t('一次抓取或一次批量打分最多打这么多个。', 'The most jobs scored by one search or one batch.')}</Tip></label>
       </div>
       <h3 className="choice-title">{t('什么时候打分', 'When to score')}</h3>
       <div className="choice-row three">
         {SCORE_MODES.map(mode => (
           <label key={mode.id} className={form.scoreMode === mode.id ? 'selected' : ''}>
             <input type="radio" name="scoreMode" checked={form.scoreMode === mode.id} onChange={() => set('scoreMode', mode.id)} />
-            <strong>{t(...mode.label)}</strong><span>{t(...mode.detail)}</span>
+            <strong>{t(...mode.label)}</strong><Tip>{t(...mode.detail)}</Tip>
           </label>
         ))}
       </div>
-      <p className="hint">{t('每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
-        'Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</p>
+      <Tip>{t('每打一个岗位调用一次 AI，会用掉 Claude Code 或 Codex 的额度（或 API 费用）。选哪份简历是在本机比较关键词，不用额度。',
+        'Each scored job is one AI call and uses your Claude Code or Codex allowance (or API credit). Choosing the resume is a keyword comparison on this computer and uses none.')}</Tip>
       <Usage landed={scoring.landed?.at(-1)?.seq ?? 0} provider={ai.provider} openItem={openItem} />
-      {form.provider === 'codex-cli' ? <p className="hint">{t('ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna；Plus、Pro、Business、Enterprise、Edu 可以用列表里的全部模型。没登录时，在终端运行 codex 并选择用 ChatGPT 登录。',
-        'On ChatGPT Free and Go, Codex offers GPT-6 Luna only; Plus, Pro, Business, Enterprise and Edu get every model listed. To sign in, run codex in a terminal and choose Sign in with ChatGPT.')}</p> : null}
-      {form.provider === 'anthropic-api' && model?.fallback ? <p className="hint">{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',
-        'Server-side fallback is on for the Claude API: if the chosen model declines a request, Anthropic retries it once with a fallback model.')}</p> : null}
-      <p className="hint">{t('也可以在 Claude Code / Claude Desktop 里通过 Dayjob MCP 让 Claude 读取岗位和简历、直接写回分析（设置 → 连接 Claude）。',
-        'You can also ask Claude in Claude Code or Claude Desktop to read jobs and your resume through the Dayjob MCP and write its analysis back (Settings → Connect Claude).')}</p>
+      {form.provider === 'codex-cli' ? <Tip>{t('ChatGPT Free 和 Go 方案在 Codex 里只能用 GPT-6 Luna；Plus、Pro、Business、Enterprise、Edu 可以用列表里的全部模型。没登录时，在终端运行 codex 并选择用 ChatGPT 登录。',
+        'On ChatGPT Free and Go, Codex offers GPT-6 Luna only; Plus, Pro, Business, Enterprise and Edu get every model listed. To sign in, run codex in a terminal and choose Sign in with ChatGPT.')}</Tip> : null}
+      {form.provider === 'anthropic-api' && model?.fallback ? <Tip>{t('使用 Claude API 时开启了服务器端回退：如果所选模型拒绝了某次请求，Anthropic 会自动换用备用模型重试一次。',
+        'Server-side fallback is on for the Claude API: if the chosen model declines a request, Anthropic retries it once with a fallback model.')}</Tip> : null}
+      <Tip>{t('也可以在 Claude Code / Claude Desktop 里通过 Dayjob MCP 让 Claude 读取岗位和简历、直接写回分析（设置 → 连接 Claude）。',
+        'You can also ask Claude in Claude Code or Claude Desktop to read jobs and your resume through the Dayjob MCP and write its analysis back (Settings → Connect Claude).')}</Tip>
       {error ? <p className="notice error">{error}</p> : null}
       {message ? <p className="notice">{message}</p> : null}
       <div className="form-actions">
@@ -530,8 +531,8 @@ function ApplicantProfile({ boot, reload, focused }) {
   return (
     <form className="card-section" id="applicant" ref={card} onSubmit={save}>
       <h2><UserRound size={18} />{t('申请资料', 'Application profile')}</h2>
-      <p className="hint">{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。申请表有简历栏时，会一并附上和岗位最匹配的那份简历的原件。只保存在这台电脑上；提交前的检查始终由你来。',
-        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. When the form has a resume field, the file of the resume that fits the job goes in with them. They stay on this computer; the final check is always yours.')}</p>
+      <Tip>{t('在 Dayjob 浏览器里点“自动填写”时，Dayjob 按申请表上的问题把这些内容填进空着的格子。申请表有简历栏时，会一并附上和岗位最匹配的那份简历的原件。只保存在这台电脑上；提交前的检查始终由你来。',
+        'When you click “Autofill” in the Dayjob browser, Dayjob puts these into the empty boxes of an application form by their questions. When the form has a resume field, the file of the resume that fits the job goes in with them. They stay on this computer; the final check is always yours.')}</Tip>
       {PROFILE_GROUPS.map(group)}
       <ProfileEntries kind="education" items={form.education} setItems={setList('education')} inputs={EDUCATION_INPUTS} blank={EMPTY_EDUCATION} max={MAX_EDUCATION}
         legend={t('教育经历', 'Education')} addText={t('添加教育经历', 'Add a school')} />

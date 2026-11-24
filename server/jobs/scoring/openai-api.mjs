@@ -40,9 +40,9 @@ export function createOpenAiProvider({ getSettings, fetch = globalThis.fetch, ti
       const key = keyOf(ai);
       return { available: Boolean(key), detail: key ? `OpenAI API · ${modelFor('openai-api', ai.model)}` : 'Add an OpenAI API key in Settings.' };
     },
-    // One prompt in, one JSON object (matching schema) out.
-    async ask({ system, prompt, schema, signal }) {
-      const { ai } = getSettings();
+    // One prompt in, one JSON object (matching schema) out. use: this call's own model and effort.
+    async ask({ system, prompt, schema, signal, use }) {
+      const ai = { ...getSettings().ai, ...use };
       const apiKey = keyOf(ai);
       if (!apiKey) throw new Error('No OpenAI API key is set.');
       const request = openAiRequest({ ai, system, prompt, schema });
@@ -58,13 +58,13 @@ export function createOpenAiProvider({ getSettings, fetch = globalThis.fetch, ti
         if (response.status === 429) throw new Error('The OpenAI API is rate limiting requests; scoring will resume on the next run.');
         throw new Error(`OpenAI API error ${response.status}: ${String(data.error?.message || response.statusText || 'no detail').slice(0, 300)}`);
       }
-      return { value: JSON.parse(openAiReply(data)), provider: 'openai-api', model: data.model || request.model, usage: openAiUsage(data.usage), turns: 1,
-        chars: system.length + prompt.length };
+      return { value: JSON.parse(openAiReply(data)), provider: 'openai-api', model: data.model || request.model, effort: request.reasoning?.effort || null,
+        usage: openAiUsage(data.usage), turns: 1, chars: system.length + prompt.length };
     },
-    async score({ resume, posting, signal }) {
+    async score({ resume, posting, signal, use }) {
       const { ai } = getSettings();
-      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal, use });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, effort: reply.effort, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

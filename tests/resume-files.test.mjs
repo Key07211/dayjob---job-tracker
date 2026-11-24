@@ -85,14 +85,15 @@ test('a database from before files were kept gains the column and keeps its resu
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dayjob-db-'));
   try {
     const first = openDatabase(directory);
-    // As an older Dayjob left it: no file column (and nothing that came after it), and the schema five steps back.
+    // As an older Dayjob left it: no file column (and nothing that came after it), and the schema six steps back.
     const version = first.db.prepare('PRAGMA user_version').get().user_version;
     first.db.exec('ALTER TABLE resumes DROP COLUMN file');
     first.db.exec('DROP TABLE assistant_steps');
     first.db.exec('DROP TABLE cover_letters');
     first.db.exec('DROP TABLE cover_letter_samples');
     first.db.exec('DROP TABLE transcripts');
-    first.db.exec(`PRAGMA user_version = ${version - 5}`);
+    first.db.exec('ALTER TABLE scores DROP COLUMN effort');
+    first.db.exec(`PRAGMA user_version = ${version - 6}`);
     first.db.prepare('INSERT INTO resumes (id, name, mime, size, text, uploaded_at) VALUES (?, ?, ?, ?, ?, ?)').run('r1', 'old.pdf', 'application/pdf', 3, DATA, '2026-10-01T00:00:00.000Z');
     first.db.close();
     const again = openDatabase(directory);

@@ -13,7 +13,7 @@ import { claudeCandidates, cliArgs, createClaudeCliProvider, detectClaude, parse
 import { apiRequest, createApiProvider } from '../server/jobs/scoring/anthropic-api.mjs';
 import { codexArgs, codexCandidates, createCodexCliProvider } from '../server/jobs/scoring/codex-cli.mjs';
 import { createOpenAiProvider, openAiRequest } from '../server/jobs/scoring/openai-api.mjs';
-import { PROVIDERS, effortFor, modelInfo } from '../server/jobs/scoring/models.mjs';
+import { PROVIDERS, effortFor, modelInfo, scoringChoice } from '../server/jobs/scoring/models.mjs';
 import { createScorer } from '../server/jobs/scoring/index.mjs';
 
 const RESULT = { score: 78, verdict: 'good', summary: '匹配大部分要求。', strengths: ['Python'], gaps: ['No Spark'], missing_keywords: ['Spark'] };
@@ -492,4 +492,93 @@ test('the scorer logs what each answered call used', async () => {
   const later = repo.usageSummary(new Date('2026-10-23T16:00:00Z'));
   assert.deepEqual([later.today.score.calls, later.month.score.calls], [0, 2]);
   assert.equal(repo.usageSummary(new Date('2026-12-01T16:00:00Z')).month.score.calls, 0);
+});
+
+test('one score can ask for its own provider, model and effort; what is left out is as in Settings', () => {
+  const ai = { provider: 'claude-cli', model: 'claude-sonnet-5-5', effort: 'medium' };
+  assert.equal(scoringChoice(ai, {}), null, 'nothing asked for: Settings as they are');
+  assert.equal(scoringChoice(ai, { provider: '', model: null }), null);
+  assert.deepEqual(scoringChoice(ai, { effort: 'max' }), { provider: 'claude-cli', model: 'claude-sonnet-5-5', effort: 'max' });
+  assert.deepEqual(scoringChoice(ai, { model: 'claude-fable-5-2' }), { provider: 'claude-cli', model: 'claude-fable-5-2', effort: 'medium' });
+  // The model in Settings belongs to the provider in Settings: another provider starts from its own default.
+  assert.deepEqual(scoringChoice(ai, { provider: 'openai-api' }), { provider: 'openai-api', model: '', effort: 'medium' });
+  assert.deepEqual(scoringChoice(ai, { provider: 'anthropic-api', model: 'claude-opus-4-6', effort: 'high' }), { provider: 'anthropic-api', model: 'claude-opus-4-6', effort: 'high' });
+  // An effort from Settings that the asked model does not take is left to the model; one asked for is refused.
+  assert.equal(scoringChoice({ ...ai, effort: 'xhigh' }, { model: 'claude-opus-4-6' }).effort, '');
+  assert.throws(() => scoringChoice(ai, { model: 'claude-opus-4-6', effort: 'xhigh' }), /claude-opus-4-6 takes these efforts: low, medium, high, max/);
+  assert.throws(() => scoringChoice(ai, { model: 'claude-haiku-4-5', effort: 'low' }), /takes no effort setting/);
+  assert.throws(() => scoringChoice(ai, { effort: 'extreme' }), /effort must be one of/);
+  assert.throws(() => scoringChoice(ai, { provider: 'gemini' }), /provider must be one of: claude-cli, anthropic-api, codex-cli, openai-api/);
+  assert.throws(() => scoringChoice(ai, { model: 'gpt-6-sol' }), /gpt-6-sol is not a model of claude-cli/);
+  assert.throws(() => scoringChoice(ai, { provider: 'codex-cli', model: 'gpt-5.5' }), /not a model of codex-cli/, 'Codex offers fewer models than the OpenAI API');
+  assert.throws(() => scoringChoice(ai, { model: 'opus; rm -rf' }), /model must be a model id/);
+  assert.throws(() => scoringChoice(ai, { model: 7 }), /model must be a model id/);
+  assert.equal(scoringChoice(ai, { model: 'claude-opus-6' }).model, 'claude-opus-6', 'a model newer than the list is let through');
+  assert.equal(scoringChoice(ai, { model: 'claude-opus-6', effort: 'max' }).effort, 'max');
+  try { scoringChoice(ai, { effort: 'extreme' }); } catch (error) { assert.equal(error.status, 400); }
+});
+
+test('every provider scores with the model and effort one call asks for, and says which it used', async () => {
+  const use = { model: 'claude-fable-5-2', effort: 'max' };
+  const { spawn, calls } = fakeSpawn([{ stdout: JSON.stringify({ type: 'result', is_error: false, structured_output: RESULT }) },
+    { stdout: JSON.stringify({ type: 'result', is_error: false, structured_output: RESULT }) }]);
+  const getSettings = settings({ model: 'claude-sonnet-5-5', effort: 'low' });
+  const cli = createClaudeCliProvider({ getSettings, spawn, detect: async () => ({ available: true, command: 'claude', version: 'x' }) });
+  const chosen = await cli.score({ resume: 'r', posting: { title: 'x' }, use });
+  assert.deepEqual(calls[0].args.slice(-4), ['--effort', 'max', '--model', 'claude-fable-5-2']);
+  assert.deepEqual([chosen.model, chosen.effort], ['claude-fable-5-2', 'max']);
+  const usual = await cli.score({ resume: 'r', posting: { title: 'x' } });
+  assert.deepEqual(calls[1].args.slice(-4), ['--effort', 'low', '--model', 'claude-sonnet-5-5'], 'the next score is back on Settings');
+  assert.deepEqual([usual.model, usual.effort], ['claude-sonnet-5-5', 'low']);
+  assert.deepEqual([getSettings().ai.model, getSettings().ai.effort], ['claude-sonnet-5-5', 'low']);
+
+  let sent;
+  const api = createApiProvider({ getSettings: settings({ apiKey: 'sk-ant-test', model: 'claude-haiku-5-5', effort: '' }),
+    createClient: () => ({ beta: { messages: { create: async request => { sent = request; return { stop_reason: 'end_turn', model: request.model, content: [{ type: 'text', text: JSON.stringify(RESULT) }], usage: {} }; } } } }) });
+  const viaApi = await api.score({ resume: 'r', posting: { title: 'x' }, use });
+  assert.deepEqual([sent.model, sent.output_config.effort, sent.max_tokens], ['claude-fable-5-2', 'max', 32000]);
+  assert.deepEqual([viaApi.model, viaApi.effort], ['claude-fable-5-2', 'max']);
+  assert.equal((await api.score({ resume: 'r', posting: { title: 'x' } })).effort, null, 'no effort sent: the model\'s own');
+  assert.equal(sent.model, 'claude-haiku-5-5');
+
+  let body;
+  const openai = createOpenAiProvider({ getSettings: settings({ provider: 'openai-api', openaiApiKey: 'sk-test', model: 'gpt-6-luna', effort: 'low' }),
+    fetch: async (_url, options) => { body = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ model: body.model, status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(RESULT) }] }], usage: {} }) }; } });
+  const viaOpenAi = await openai.score({ resume: 'r', posting: { title: 'x' }, use: { model: 'gpt-6.1-sol', effort: 'high' } });
+  assert.deepEqual([body.model, body.reasoning.effort], ['gpt-6.1-sol', 'high']);
+  assert.deepEqual([viaOpenAi.model, viaOpenAi.effort], ['gpt-6.1-sol', 'high']);
+});
+
+test('the scorer gives one score its own choice, stores what made it, and leaves Settings alone', async () => {
+  const { repo } = memoryRepo();
+  for (const id of ['1', '2']) repo.upsertPosting(posting({ site: 'linkedin', externalId: id, title: `Job ${id}`, company: 'Acme', jobUrl: `https://www.linkedin.com/jobs/view/${id}` }));
+  repo.addResume({ name: 'r', mime: 'text/plain', size: 1, text: 'resume' });
+  repo.updateSettings({ ai: { model: 'claude-sonnet-5-5', effort: 'low' } });
+  const asked = [];
+  const standIn = (id, available = true) => ({ id, status: async () => ({ available, detail: available ? 'ok' : `Add a key for ${id}.` }),
+    score: async ({ use }) => { asked.push([id, use]); return { ...normalizeScore(RESULT), provider: id, model: use?.model || 'from-settings', effort: use ? use.effort || null : 'low' }; } });
+  const scorer = createScorer({ repo, providers: { 'claude-cli': standIn('claude-cli'), 'anthropic-api': standIn('anthropic-api'), 'openai-api': standIn('openai-api', false) }, log: () => {} });
+
+  const usual = await scorer.score('li-1');
+  assert.deepEqual(asked.pop(), ['claude-cli', undefined], 'nothing asked for: the provider reads Settings itself');
+  assert.deepEqual([usual.provider, usual.model, usual.effort], ['claude-cli', 'from-settings', 'low']);
+
+  const kept = await scorer.score('li-1', { choice: { model: 'claude-fable-5-2', effort: 'max' } });
+  assert.equal(asked.length, 0, 'an existing score comes back as it is unless forced');
+  assert.equal(kept.model, 'from-settings');
+  const again = await scorer.score('li-1', { force: true, choice: { model: 'claude-fable-5-2', effort: 'max' } });
+  assert.deepEqual(asked.pop(), ['claude-cli', { model: 'claude-fable-5-2', effort: 'max' }]);
+  assert.deepEqual([again.provider, again.model, again.effort], ['claude-cli', 'claude-fable-5-2', 'max']);
+  assert.deepEqual([repo.getPosting('li-1').score.model, repo.getPosting('li-1').score.effort], ['claude-fable-5-2', 'max'], 'the score says what made it');
+
+  const other = await scorer.score('li-2', { choice: { provider: 'anthropic-api' } });
+  assert.deepEqual(asked.pop(), ['anthropic-api', { model: '', effort: 'low' }], 'another provider: its own default model, the effort from Settings');
+  assert.equal(other.provider, 'anthropic-api');
+  await assert.rejects(scorer.score('li-2', { force: true, choice: { provider: 'openai-api' } }), error => error.status === 409 && /Add a key for openai-api/.test(error.message));
+  await assert.rejects(scorer.score('li-2', { force: true, choice: { effort: 'extreme' } }), error => error.status === 400);
+  assert.equal(asked.length, 0);
+
+  const { ai } = repo.getSettings();
+  assert.deepEqual([ai.provider, ai.model, ai.effort], ['claude-cli', 'claude-sonnet-5-5', 'low'], 'Settings are as they were');
+  assert.equal(repo.usageSummary(new Date('2026-10-21T16:00:00Z')).today.score.calls, 3, 'each answered call is in the usage log');
 });

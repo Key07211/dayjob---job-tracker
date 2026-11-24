@@ -75,11 +75,11 @@ export function createCodexCliProvider({ getSettings, spawn = nodeSpawn, detect 
       const { model } = getSettings().ai;
       return { available: found.available, detail: found.available ? `Codex ${found.version.replace(/^codex(-cli)?\s*/i, '')}${model ? ` · ${model}` : ''}` : NOT_FOUND };
     },
-    // One prompt in, one JSON object (matching schema) out.
-    async ask({ system, prompt, schema, signal }) {
+    // One prompt in, one JSON object (matching schema) out. use: this call's own model and effort.
+    async ask({ system, prompt, schema, signal, use }) {
       const found = await info();
       if (!found.available) throw new Error(NOT_FOUND);
-      const { ai } = getSettings();
+      const ai = { ...getSettings().ai, ...use };
       const effort = effortFor('codex-cli', ai.model, ai.effort);
       // --output-schema carries the schema; without that flag it goes in the text.
       let input = `${system}\n\n${NO_TOOLS}\n\n${prompt}`;
@@ -97,12 +97,12 @@ export function createCodexCliProvider({ getSettings, spawn = nodeSpawn, detect 
       }
       signedOut = 0;
       // Codex does not report what a call used.
-      return { value: parseJsonText(reply), provider: 'codex-cli', model: ai.model || null, usage: null, turns: null, chars: input.length };
+      return { value: parseJsonText(reply), provider: 'codex-cli', model: ai.model || null, effort: effort || null, usage: null, turns: null, chars: input.length };
     },
-    async score({ resume, posting, signal }) {
+    async score({ resume, posting, signal, use }) {
       const { ai } = getSettings();
-      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal });
-      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, usage: reply.usage, turns: reply.turns, chars: reply.chars };
+      const reply = await this.ask({ system: SYSTEM_PROMPT, prompt: buildUserPrompt({ resume, posting, language: ai.language }), schema: SCORE_SCHEMA, signal, use });
+      return { ...normalizeScore(reply.value), provider: reply.provider, model: reply.model, effort: reply.effort, usage: reply.usage, turns: reply.turns, chars: reply.chars };
     },
   };
 }

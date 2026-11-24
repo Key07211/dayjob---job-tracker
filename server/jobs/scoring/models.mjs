@@ -58,6 +58,30 @@ export function modelInfo(provider, model) {
   return [...CLAUDE_MODELS, ...OPENAI_MODELS].find(item => item.id === id) || null;
 }
 
+// One score asked for with its own provider, model or effort (the MCP tool can), without touching Settings: what
+// that call uses. Anything left out is as in Settings, except that another provider than the one in Settings starts
+// from its own default model, since the model in Settings belongs to the other. -> null when nothing was asked
+// for, { provider, model, effort } otherwise. Throws (with what would do) on a value that cannot be used.
+export function scoringChoice(ai, { provider, model, effort } = {}) {
+  const asked = value => value !== undefined && value !== null && value !== '';
+  if (![provider, model, effort].some(asked)) return null;
+  const refuse = message => { throw Object.assign(new Error(message), { status: 400 }); };
+  if (asked(provider) && !PROVIDER_IDS.includes(provider)) refuse(`provider must be one of: ${PROVIDER_IDS.join(', ')}.`);
+  const chosen = asked(provider) ? provider : PROVIDER_IDS.includes(ai.provider) ? ai.provider : 'claude-cli';
+  if (asked(model) && (typeof model !== 'string' || model.length > 100 || !/^[\w.:[\]-]+$/.test(model))) refuse('model must be a model id such as claude-opus-5-5.');
+  const { family, models } = PROVIDERS[chosen];
+  // A model of the other family can only fail; one that is in no list (a newer one) is let through.
+  const other = asked(model) && [...CLAUDE_MODELS, ...OPENAI_MODELS].some(item => item.id === model) && !models.some(item => item.id === model);
+  if (other) refuse(`${model} is not a model of ${chosen} (${family === 'claude' ? 'Claude' : 'OpenAI'} models: ${models.map(item => item.id).join(', ')}).`);
+  const useModel = asked(model) ? model : chosen === ai.provider ? ai.model || '' : '';
+  if (asked(effort) && !EFFORTS.includes(effort)) refuse(`effort must be one of: ${EFFORTS.join(', ')}.`);
+  const info = modelInfo(chosen, useModel);
+  if (asked(effort) && info && !info.efforts.includes(effort)) {
+    refuse(info.efforts.length ? `${info.id} takes these efforts: ${info.efforts.join(', ')}.` : `${info.id} takes no effort setting; leave effort out.`);
+  }
+  return { provider: chosen, model: useModel, effort: asked(effort) ? effort : effortFor(chosen, useModel, ai.effort || '') };
+}
+
 // The effort to send: '' means the model's own default. A level the model
 // does not accept falls back to the default instead of failing every score.
 export function effortFor(provider, model, effort) {

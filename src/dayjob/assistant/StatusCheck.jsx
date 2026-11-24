@@ -6,6 +6,7 @@ import { label, recentTime, usd } from '../format.js';
 import { serverText } from '../server-text.js';
 import { Markdown } from '../Markdown.jsx';
 import { assistant, useAssistant } from './store.js';
+import { Tip } from '../Tip.jsx';
 
 const desktop = typeof window !== 'undefined' ? window.dayjobDesktop : null;
 
@@ -73,8 +74,8 @@ export function StatusCheck({ boot, reload }) {
       {error ? <p className="notice error">{error}</p> : null}
       {open ? (
         <div className="status-check-body">
-          <p className="hint">{t('助手用这台电脑上的 Claude Code 去查：通过你在 claude.ai 连好的 Gmail 连接器搜索并读和申请有关的邮件（只能搜索和读，不能发、删或改），再到投递用的网站上看申请状态（只看，不提交任何东西）。查到的进展记到对应申请的时间线上。每次都会用 Claude Code 的额度；读到的邮件内容会交给 Claude。',
-            'The assistant checks with the Claude Code on this computer: through the Gmail connector you set up on claude.ai it searches and reads mail about your applications (it can only search and read, never send, delete or change), then looks at the sites you applied through (it only looks and submits nothing). What it finds goes on the application\'s timeline. Each check draws on your Claude Code allowance, and the mail it reads is given to Claude.')}</p>
+          <Tip>{t('助手用这台电脑上的 Claude Code 去查：通过你在 claude.ai 连好的 Gmail 连接器搜索并读和申请有关的邮件（只能搜索和读，不能发、删或改），再到投递用的网站上看申请状态（只看，不提交任何东西）。查到的进展记到对应申请的时间线上。每次都会用 Claude Code 的额度；读到的邮件内容会交给 Claude。',
+            'The assistant checks with the Claude Code on this computer: through the Gmail connector you set up on claude.ai it searches and reads mail about your applications (it can only search and read, never send, delete or change), then looks at the sites you applied through (it only looks and submits nothing). What it finds goes on the application\'s timeline. Each check draws on your Claude Code allowance, and the mail it reads is given to Claude.')}</Tip>
           <div className="status-check-options">
             <label className="check-line"><input type="checkbox" checked={settings.enabled} onChange={toggle('enabled')} />{t('每天第一次打开 Dayjob 时自动查一次', 'Check by itself the first time Dayjob starts each day')}</label>
             {loginItem ? <label className="check-line"><input type="checkbox" checked={Boolean(boot.settings.desktop.openAtLogin)} onChange={startWithComputer} />{t('开机时启动 Dayjob（留在托盘里）', 'Start Dayjob with the computer (in the tray)')}</label> : null}

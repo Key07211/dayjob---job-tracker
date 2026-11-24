@@ -16,6 +16,7 @@ import { findCompanyBoards } from './jobs/company-finder.mjs';
 import { companyJobMatches } from './jobs/matching.mjs';
 import { createSearchRunner } from './jobs/search-runner.mjs';
 import { createScorer } from './jobs/scoring/index.mjs';
+import { scoringChoice } from './jobs/scoring/models.mjs';
 import { createTracker } from './jobs/tracker.mjs';
 import { createScheduler } from './jobs/scheduler.mjs';
 import { recommend } from './jobs/recommend.mjs';
@@ -429,7 +430,11 @@ export async function createApp(options = {}) {
           return repo.getPosting(posting.id);
         }
         if (!posting.resumeId) throw new HttpError(409, 'Upload a resume before scoring.');
-        try { await scorer.score(posting.id, { force: input.force === true }); }
+        // provider, model, effort: this one score's own choice (the MCP tool offers it); Settings stay as they are.
+        const choice = { provider: input.provider, model: input.model, effort: input.effort };
+        // Said at once, not after the scores that are waiting their turn.
+        try { scoringChoice(repo.getSettings().ai, choice); } catch (error) { throw new HttpError(400, error.message); }
+        try { await scorer.score(posting.id, { force: input.force === true, choice }); }
         catch (error) { throw new HttpError(error.status || 502, error.message); }
         return repo.getPosting(posting.id);
       }

@@ -12,6 +12,7 @@ import { burst, flipIn, flipList, leave, leaveThen, pop, rings, rise, stamp, tin
 import { BeatLoader } from './groove/BrandMark.jsx';
 import { StatusCheck } from './assistant/StatusCheck.jsx';
 import { DateField } from './groove/Picker.jsx';
+import { Tip } from './Tip.jsx';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -72,7 +73,7 @@ function NewApplication({ onCreated, onCancel }) {
   return (
     <form className="panel-form" ref={own} onSubmit={submit}>
       <div className="form-head"><h3>{t('手动添加投递', 'Add an application')}</h3><button type="button" className="icon-button" onClick={() => leave(own.current, 'up', onCancel)} title={t('关闭', 'Close')}><X size={16} /></button></div>
-      <p className="hint">{t('用于内推或在其他地方投递、Dayjob 没有抓到的岗位。', 'For referrals and jobs you applied to elsewhere that Dayjob did not find.')}</p>
+      <Tip>{t('用于内推或在其他地方投递、Dayjob 没有抓到的岗位。', 'For referrals and jobs you applied to elsewhere that Dayjob did not find.')}</Tip>
       <div className="form-grid">
         <label>{t('公司', 'Company')}<input value={form.company} onChange={set('company')} required maxLength={160} /></label>
         <label>{t('职位', 'Title')}<input value={form.title} onChange={set('title')} required maxLength={240} /></label>

@@ -11,6 +11,7 @@ import { Eq } from './groove/Fx.jsx';
 import { ViewDate } from './ViewDate.jsx';
 import { ListenWave } from './groove/ListenWave.jsx';
 import { Select } from './groove/Picker.jsx';
+import { Tip } from './Tip.jsx';
 
 // A search or company that was just added drops in like a new track on a mixing desk, its level meter jumping for a moment.
 function useArrived() {
@@ -67,7 +68,7 @@ function SearchForm({ initial, sites, countries, quota, onSaved, onCancel }) {
       <div className="form-head"><h3>{existing ? t('编辑搜索', 'Edit search') : t('新建搜索', 'New search')}</h3><button type="button" className="icon-button" title={t('关闭', 'Close')} onClick={close}><X size={16} /></button></div>
       <div className="form-grid">
         <label>{t('关键词', 'Keywords')}<input value={form.keywords} onChange={event => set('keywords', event.target.value)} required maxLength={200}
-          placeholder="Data Scientist, Machine Learning Engineer" /><small>{t('用逗号分隔表示“任一”。', 'Separate with commas to match any of them.')}</small></label>
+          placeholder="Data Scientist, Machine Learning Engineer" /><Tip>{t('用逗号分隔表示“任一”。', 'Separate with commas to match any of them.')}</Tip></label>
         <label>{t('地点', 'Location')}<input value={form.location} onChange={event => set('location', event.target.value)} maxLength={120} placeholder="San Francisco Bay Area" /></label>
         <label>{t('名称（可选）', 'Name (optional)')}<input value={form.name} onChange={event => set('name', event.target.value)} maxLength={80} placeholder={t('默认用关键词', 'Defaults to the keywords')} /></label>
         <label>{t('发布时间', 'Posted')}
@@ -83,8 +84,8 @@ function SearchForm({ initial, sites, countries, quota, onSaved, onCancel }) {
         </label>
         <label>{t('每个网站最多', 'Results per site')}
           <input type="number" min={1} max={200} value={form.resultsWanted} onChange={event => set('resultsWanted', event.target.value)} />
-          <small>{quota ? t('设置里的“每个来源抓多少”已经按来源定了数量，这个数现在不用。', 'Settings → “Results per source” sets the numbers by source now, so this one is not used.')
-            : t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</small>
+          {quota ? <small>{t('设置里的“每个来源抓多少”已经按来源定了数量，这个数现在不用。', 'Settings → “Results per source” sets the numbers by source now, so this one is not used.')}</small>
+            : <Tip>{t('LinkedIn 每个岗位要多请求一次，数量越大越慢。', 'LinkedIn needs one extra request per job, so more results take longer.')}</Tip>}
         </label>
         <label>{t('Indeed 国家/地区', 'Indeed country')}
           <Select value={form.country} onChange={event => set('country', event.target.value)}>
@@ -199,8 +200,8 @@ function Suggestions({ boot, reload, onEdit, setView, onAdded }) {
   return (
     <section className="card-section suggestions">
       <h2><Sparkles size={18} />{t('AI 按简历推荐', 'Suggestions from your resumes')}</h2>
-      <p className="hint">{t('AI 读你的简历，推荐每天要抓的搜索和值得关注的公司；公司招聘页会先检查确实存在。推荐不会自动加入，点“添加”或“关注”的才会。使用“简历与 AI”里选的 AI 和模型（本机 Claude Code 或 Codex 会用你的额度）。',
-        'The AI reads your resumes and suggests daily searches and companies worth following; Dayjob checks that each company board exists. Nothing is added until you click Add or Follow. Uses the AI and model chosen under Resume & AI (Claude Code or Codex on this computer uses your allowance).')}</p>
+      <Tip>{t('AI 读你的简历，推荐每天要抓的搜索和值得关注的公司；公司招聘页会先检查确实存在。推荐不会自动加入，点“添加”或“关注”的才会。使用“简历与 AI”里选的 AI 和模型（本机 Claude Code 或 Codex 会用你的额度）。',
+        'The AI reads your resumes and suggests daily searches and companies worth following; Dayjob checks that each company board exists. Nothing is added until you click Add or Follow. Uses the AI and model chosen under Resume & AI (Claude Code or Codex on this computer uses your allowance).')}</Tip>
       {!boot.resumes.length ? (
         <p className="notice">{t('先上传简历，AI 才能推荐。', 'Upload a resume first so the AI has something to read.')}<button className="link" onClick={() => setView('resume')}>{t('上传简历', 'Upload a resume')}</button></p>
       ) : (
@@ -338,8 +339,8 @@ function Companies({ companies, onChange }) {
   return (
     <section className="card-section">
       <h2><Building2 size={18} />{t('关注的公司', 'Followed companies')}</h2>
-      <p className="hint">{t('直接读取公司自己的招聘系统（Greenhouse、Lever、Ashby 的官方公开接口），最稳定，也能准确知道岗位何时下线。每天保留和上面搜索的关键词、地点匹配的所有开放岗位，不受发布时间限制。',
-        'Reads the company\'s own hiring system (the official public Greenhouse, Lever and Ashby feeds): the most reliable source, and it knows exactly when a job closes. Every day Dayjob keeps all open jobs that match your searches\' keywords and location, however long ago they were posted.')}</p>
+      <Tip>{t('直接读取公司自己的招聘系统（Greenhouse、Lever、Ashby 的官方公开接口），最稳定，也能准确知道岗位何时下线。每天保留和上面搜索的关键词、地点匹配的所有开放岗位，不受发布时间限制。',
+        'Reads the company\'s own hiring system (the official public Greenhouse, Lever and Ashby feeds): the most reliable source, and it knows exactly when a job closes. Every day Dayjob keeps all open jobs that match your searches\' keywords and location, however long ago they were posted.')}</Tip>
       <form className="inline-form" onSubmit={add}>
         <input value={url} onChange={event => setUrl(event.target.value)} required placeholder={t('招聘页链接，例如 https://jobs.lever.co/acme 或 https://job-boards.greenhouse.io/acme', 'Careers link, e.g. https://jobs.lever.co/acme or https://job-boards.greenhouse.io/acme')} />
         <input value={name} onChange={event => setName(event.target.value)} placeholder={t('公司名（可选）', 'Company name (optional)')} className="narrow" />

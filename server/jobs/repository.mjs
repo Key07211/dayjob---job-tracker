@@ -525,14 +525,14 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   // ---------- scores ----------
   const scoreRow = row => row && ({ postingId: row.posting_id, resumeId: row.resume_id, score: row.score, verdict: row.verdict,
     summary: row.summary, strengths: json(row.strengths, []), gaps: json(row.gaps, []), missingKeywords: json(row.missing_keywords, []),
-    provider: row.provider, model: row.model, createdAt: row.created_at });
+    provider: row.provider, model: row.model, effort: row.effort || null, createdAt: row.created_at });
   function saveScore(postingIdValue, resumeId, result) {
-    q(`INSERT INTO scores (posting_id, resume_id, score, verdict, summary, strengths, gaps, missing_keywords, provider, model, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (posting_id, resume_id) DO UPDATE SET score = excluded.score, verdict = excluded.verdict,
+    q(`INSERT INTO scores (posting_id, resume_id, score, verdict, summary, strengths, gaps, missing_keywords, provider, model, effort, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (posting_id, resume_id) DO UPDATE SET score = excluded.score, verdict = excluded.verdict,
       summary = excluded.summary, strengths = excluded.strengths, gaps = excluded.gaps, missing_keywords = excluded.missing_keywords,
-      provider = excluded.provider, model = excluded.model, created_at = excluded.created_at`).run(
+      provider = excluded.provider, model = excluded.model, effort = excluded.effort, created_at = excluded.created_at`).run(
       postingIdValue, resumeId, result.score, result.verdict, result.summary, JSON.stringify(result.strengths || []),
-      JSON.stringify(result.gaps || []), JSON.stringify(result.missingKeywords || []), result.provider, result.model || null, iso());
+      JSON.stringify(result.gaps || []), JSON.stringify(result.missingKeywords || []), result.provider, result.model || null, result.effort || null, iso());
     return getScore(postingIdValue, resumeId);
   }
   function getScore(postingIdValue, resumeId) { return scoreRow(q('SELECT * FROM scores WHERE posting_id = ? AND resume_id = ?').get(postingIdValue, resumeId)) ?? null; }

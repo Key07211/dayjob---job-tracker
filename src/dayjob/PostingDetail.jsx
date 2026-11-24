@@ -13,6 +13,7 @@ import { BeatLoader } from './groove/BrandMark.jsx';
 import { DateField } from './groove/Picker.jsx';
 import { ApplyButton } from './assistant/Runs.jsx';
 import { LetterButton } from './CoverLetters.jsx';
+import { Tip } from './Tip.jsx';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -65,7 +66,7 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, sav
         <div className={`score-number${rolled ? ' roll' : ''}`} key={score.createdAt}>{score.score}<small>/100</small></div>
         <div>
           <strong>{label('verdict', score.verdict)}</strong>
-          <span>{score.provider === 'claude-mcp' ? t('来自 Claude（MCP）', 'From Claude (MCP)') : SCORED_BY[score.provider] || 'Claude Code'}{score.model ? ` · ${score.model}` : ''} · {formatTime(score.createdAt)}</span>
+          <span>{score.provider === 'claude-mcp' ? t('来自 Claude（MCP）', 'From Claude (MCP)') : SCORED_BY[score.provider] || 'Claude Code'}{score.model ? ` · ${score.model}` : ''}{score.effort ? ` · ${t('强度', 'effort')} ${score.effort}` : ''} · {formatTime(score.createdAt)}</span>
         </div>
         <button className="icon-button" data-fx="rescore" title={t('重新打分', 'Score again')} onClick={() => { cue('rescore'); onScore(true); }} disabled={scoring}>
           {scoring ? <Eq /> : <RotateCcw size={15} />}
@@ -96,7 +97,7 @@ function ResumeMatch({ match }) {
       {match.ranking.length > 1 ? (
         <ul>{match.ranking.map(entry => <li key={entry.id} className={entry.id === chosen.id ? 'chosen' : undefined}><span>{entry.name}</span><em>{percent(entry.overlap)}</em></li>)}</ul>
       ) : null}
-      <p className="hint">{t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</p>
+      <Tip>{t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</Tip>
     </details>
   );
 }
@@ -115,8 +116,8 @@ function ApplyForm({ onApply, onCancel, busy }) {
         <button type="button" className="button" onClick={() => leave(form.current, 'up', onCancel)}>{t('取消', 'Cancel')}</button>
         <button type="submit" className={`button primary${busy ? ' fx-draw' : ''}`} disabled={busy}><CircleCheck size={15} />{t('确认已投递', 'Confirm applied')}</button>
       </div>
-      <p className="hint">{t('确认后 Dayjob 会自动追踪：定期检查岗位是否关闭、到期提醒跟进、长时间无回复时提示。',
-        'Dayjob then tracks it for you: it checks whether the posting closes, reminds you to follow up, and flags a long silence.')}</p>
+      <Tip>{t('确认后 Dayjob 会自动追踪：定期检查岗位是否关闭、到期提醒跟进、长时间无回复时提示。',
+        'Dayjob then tracks it for you: it checks whether the posting closes, reminds you to follow up, and flags a long silence.')}</Tip>
     </form>
   );
 }

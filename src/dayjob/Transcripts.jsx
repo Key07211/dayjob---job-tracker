@@ -6,6 +6,7 @@ import { useI18n } from '../i18n.jsx';
 import { serverText } from './server-text.js';
 import { cue } from './groove/sound.js';
 import { leaveThen } from './groove/fx.js';
+import { Tip } from './Tip.jsx';
 
 // 成绩单: the transcripts kept in Dayjob's transcript folder, as PDF files. An application form that asks for a
 // transcript is given one of them; which one is told by the note beside it, or by the star. A PDF put into the
@@ -91,8 +92,8 @@ export function Transcripts({ reload = () => {} }) {
   return (
     <section className="card-section cover-letters transcripts" id="transcripts">
       <h2>{t(`成绩单（${transcripts.length}/${max}）`, `Transcripts (${transcripts.length}/${max})`)}</h2>
-      <p className="hint">{t('把大学成绩单存成 PDF 放在这里。申请表里有“Transcript / 成绩单”上传栏时，自动填写和助手会把它附上去，文件由 Dayjob 直接放进网页，AI 只知道文件名和备注，看不到内容。有几份时，按备注里写的学校、学位和上传栏的要求对上；对不上就用打了星的那份，都没打星就用最新的一份。成绩单只保存在本机的成绩单文件夹里，直接把 PDF 放进那个文件夹也可以。',
-        'Keep your university transcripts here as PDF files. When an application form has an upload for a transcript, autofill and the assistant attach one: Dayjob puts the file straight into the page, and the AI learns its file name and note, never what is in it. With several, the note (school, degree) is matched with what the upload asks for; when nothing matches, the starred one is used, or the newest when none has a star. Transcripts stay on this computer, in the transcript folder; putting a PDF into that folder yourself works too.')}</p>
+      <Tip>{t('把大学成绩单存成 PDF 放在这里。申请表里有“Transcript / 成绩单”上传栏时，自动填写和助手会把它附上去，文件由 Dayjob 直接放进网页，AI 只知道文件名和备注，看不到内容。有几份时，按备注里写的学校、学位和上传栏的要求对上；对不上就用打了星的那份，都没打星就用最新的一份。成绩单只保存在本机的成绩单文件夹里，直接把 PDF 放进那个文件夹也可以。',
+        'Keep your university transcripts here as PDF files. When an application form has an upload for a transcript, autofill and the assistant attach one: Dayjob puts the file straight into the page, and the AI learns its file name and note, never what is in it. With several, the note (school, degree) is matched with what the upload asks for; when nothing matches, the starred one is used, or the newest when none has a star. Transcripts stay on this computer, in the transcript folder; putting a PDF into that folder yourself works too.')}</Tip>
       <input ref={input} type="file" hidden multiple accept=".pdf,application/pdf" onChange={event => upload(event.target.files)} />
       <ul className="resume-list">
         <li>
