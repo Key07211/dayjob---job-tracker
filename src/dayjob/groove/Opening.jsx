@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { prefs } from './prefs.js';
 import { reducedMotion } from './sound.js';
+import { coverTitleBar } from '../titlebar.js';
 import { BEAT, OPENING_TOKENS, OUT, T_OUT, buildAssets, fitStage, outTime, paintOpening, pickOpening } from './opening-scenes.js';
 
 // The opening: when Dayjob's window first shows, one of three short pixel pictures plays over the page (the
@@ -28,6 +29,8 @@ function firstOpen() {
   } catch { return false; }
 }
 let playing = firstOpen();
+// While it covers the window, the window's own buttons are drawn on its ground, not on the title strip's.
+coverTitleBar(playing);
 // Whether the opening is (still) covering the page, so the sidebar's logo skips its own arrival under it.
 export const openingPlays = () => playing;
 
@@ -56,6 +59,7 @@ export function Opening({ ready, failed, onEnd }) {
   const close = useCallback(() => {
     if (!playing) return;
     playing = false;
+    coverTitleBar(false);
     run.current?.stop();
     setOn(false);
     ended.current?.();

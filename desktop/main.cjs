@@ -144,6 +144,7 @@ function setupIpc() {
     return claude.ensure();
   });
   const handle = (channel, work) => ipcMain.handle(channel, (event, ...args) => { verifiedSender(event); return work(...args); });
+  handle('dayjob:title-bar', colors => paintTitleBar(colors));
   handle('dayjob:browser-state', () => browser.state());
   handle('dayjob:browser-bounds', rect => browser.setBounds(rect));
   handle('dayjob:browser-open', url => browser.show(String(url)));
@@ -234,12 +235,31 @@ function setLanguage(next) {
   buildTray();
 }
 
+// 窗口边框: on Windows and Linux the window has no title bar of its own. The page reaches the window's top edge and
+// keeps a strip there, TITLE_BAR tall, in its own colour; the system draws only the three window buttons, over the
+// strip's right end, in the colours the page asks for (it asks again whenever day turns to night or back). The strip
+// drags the window. macOS keeps its own title bar. The same number is in desktop/preload.cjs.
+const TITLE_BAR = 32;
+const ownTitleBar = process.platform !== 'darwin';
+const FRAME_DAY = { color: '#DCEBF7', symbolColor: '#1E2B38' };
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+function paintTitleBar(colors) {
+  const color = String(colors?.color || '');
+  const symbolColor = String(colors?.symbolColor || '');
+  if (!HEX_COLOR.test(color) || !HEX_COLOR.test(symbolColor) || !window || window.isDestroyed()) return false;
+  // The window's own colour shows for an instant before a frame is drawn (at the start, while it is resized).
+  window.setBackgroundColor(color);
+  if (ownTitleBar) window.setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR });
+  return true;
+}
+
 async function createWindow() {
   const image = nativeImage.createFromPath(windowIcon);
   window = new BrowserWindow({
     width: 1440, height: 960, minWidth: 960, minHeight: 640,
-    title: text().title, backgroundColor: '#F4F8FB', icon: image,
+    title: text().title, backgroundColor: FRAME_DAY.color, icon: image,
     show: false, paintWhenInitiallyHidden: smoke, autoHideMenuBar: true,
+    ...(ownTitleBar ? { titleBarStyle: 'hidden', titleBarOverlay: { ...FRAME_DAY, height: TITLE_BAR } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true,
@@ -312,16 +332,9 @@ async function createWindow() {
   buildTray();
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
+  // By the time the page has loaded it has said what colours its frame has (src/dayjob/titlebar.js), so a night
+  // window opens dark at once.
   await window.loadURL(origin);
-  // The window's own colour shows for an instant before the page's first frame, so it takes the page's ground: a
-  // night window then opens dark at once (the page has picked its theme by now, in public/theme-init.js).
-  try {
-    const night = await Promise.race([
-      window.webContents.executeJavaScript("document.documentElement.dataset.theme === 'night'"),
-      new Promise(resolve => setTimeout(() => resolve(false), 500)),
-    ]);
-    if (night && !window.isDestroyed()) window.setBackgroundColor('#23201C');
-  } catch { /* the day ground stays */ }
   if (!smoke && !process.argv.includes('--hidden')) showWindow();
 }
 
@@ -1486,6 +1499,23 @@ async function smokeUpdate() {
   return steps;
 }
 
+// 窗口边框: the page keeps its strip for the window's buttons, its panel begins under the strip and scrolls inside
+// itself (the window never does), and the window has taken the strip's colour from the page. Looked at once the
+// guide has left: while its shade is over the window, the window is drawn in the shaded colour.
+async function smokeFrame() {
+  const page = await window.webContents.executeJavaScript(`(() => {
+    const view = document.querySelector('.main-view');
+    return { bar: window.dayjobDesktop.titleBar, strip: document.getElementById('titlebar').getBoundingClientRect().height, top: view.getBoundingClientRect().top,
+      side: getComputedStyle(document.documentElement).getPropertyValue('--side').trim().toUpperCase(), corner: getComputedStyle(view).borderTopLeftRadius,
+      windowStill: document.documentElement.scrollHeight <= innerHeight, panelScrolls: getComputedStyle(view).overflowY === 'auto' };
+  })()`);
+  const expected = ownTitleBar ? TITLE_BAR : 0;
+  const coloured = await until(() => window.getBackgroundColor().toUpperCase() === page.side, 3000);
+  return { ...page, background: window.getBackgroundColor(), refusesOthers: paintTitleBar({ color: 'red', symbolColor: '#000000' }) === false,
+    ok: page.bar === expected && page.strip === expected && page.top === expected && page.corner === '20px' && page.windowStill && page.panelScrolls && coloured
+      && paintTitleBar({ color: 'red', symbolColor: '#000000' }) === false };
+}
+
 // The first time Dayjob opens on a computer, the assistant steps out once the opening has gone, greets the user and
 // offers to show them around. Here it is sent away the way a user who presses "Not now" does: the window is given
 // back, and this computer has seen it. (A profile that had seen it before is not greeted again.)
@@ -1566,6 +1596,8 @@ async function runSmoke() {
   }
   const guideCheck = await smokeGuide(guideSeenBefore);
   timings.guide = Date.now() - started;
+  const frameCheck = await smokeFrame();
+  timings.frame = Date.now() - started;
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))))');
   const screenshotPath = smokeOutput.replace(/\.json$/i, '') + '.png';
   fs.writeFileSync(screenshotPath, (await window.webContents.capturePage()).toPNG());
@@ -1595,8 +1627,8 @@ async function runSmoke() {
   await new Promise(resolve => setTimeout(resolve, 300));
   const closeKeepsRunning = !window.isDestroyed();
   const ok = response.ok && Boolean(state.csrfToken) && rendererLoaded && languageAtStart.ok && english && languageSaved && renderer.nodeUnavailable && Boolean(renderer.info.dataPath)
-    && openingClosed && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
-  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, openingClosed, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
+    && openingClosed && frameCheck.ok && guideCheck.ok && browserCheck.ok && updateCheck.ok && musicCheck.ok && jobspy.ok && closeKeepsRunning;
+  fs.writeFileSync(smokeOutput, JSON.stringify({ ok, origin, rendererLoaded, languageAtStart, english, englishTitle, languageSaved, openingClosed, frame: frameCheck, guide: guideCheck, browser: browserCheck, update: updateCheck, music: musicCheck, jobspy, closeKeepsRunning, ...renderer, screenshotPath, trayAvailable: Boolean(tray),
     windowSecurity: window.webContents.getLastWebPreferences(), version: app.getVersion(), executable: process.execPath, timings, log: smokeLog }, null, 2));
   if (!ok) throw Object.assign(new Error('Desktop smoke assertions failed.'), { reported: true });
   // With "keep running" turned off, closing the window quits Dayjob: the
