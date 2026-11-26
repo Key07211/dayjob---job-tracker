@@ -22,7 +22,8 @@ function Invoke-Smoke([string]$Name, [string]$Exe) {
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
   $result = Join-Path $dir 'result.json'
   $process = Start-Process -FilePath $Exe -ArgumentList @('--smoke-test', "`"$result`"") -PassThru
-  if (-not $process.WaitForExit(180000)) { $process.Kill(); throw "$Name smoke test did not finish in 3 minutes" }
+  # The smoke test takes about three minutes on the build machine (most of it in the built-in browser), so it gets five.
+  if (-not $process.WaitForExit(300000)) { $process.Kill(); throw "$Name smoke test did not finish in 5 minutes" }
   # The portable launcher can return before the app inside it writes the report.
   $deadline = (Get-Date).AddSeconds(120)
   while (-not (Test-Path -LiteralPath $result) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
