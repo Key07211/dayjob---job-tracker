@@ -560,10 +560,11 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
         + 'on show under "appeared", with refs: the rows of a dropdown or menu that opened can be clicked next without reading the page again. A click that submits or '
         + 'sends something (for example "Submit application") waits until the user allows it on a card in the chat, unless the user has turned on full takeover; a refusal comes '
         + 'back as an error and nothing is clicked. When the page then confirms an application, the result carries "recorded": Dayjob has started tracking it. A page that is still sending '
-        + 'the form is waited for, up to a minute; when it is still at it then, the result carries "sending" (still: true): the form is on its way, so do not click again.',
+        + 'the form is waited for, up to a minute; when it is still at it then, the result carries "sending" (still: true, and humanCheck when the page waits on a check that the visitor is a person): '
+        + 'whether it went through is not known, so do not click again; its note says what to tell the user.',
       shape: { ref: ref.optional(), text: z.string().min(1).max(200).optional().describe('In place of ref: the words on the thing, as the page shows them.') },
-      label: (input, result) => (result.allowed ? [`点了“${short(result.clicked.name, 40)}”（${result.allowed === 'user' ? '你确认过' : '全权接管'}）${result.recorded ? '，已自动记为已投递' : result.sending?.still ? '，页面还在提交' : ''}`,
-        `Clicked “${short(result.clicked.name, 40)}” (${result.allowed === 'user' ? 'you allowed it' : 'full takeover'})${result.recorded ? '; recorded as applied' : result.sending?.still ? '; the page is still sending' : ''}`]
+      label: (input, result) => (result.allowed ? [`点了“${short(result.clicked.name, 40)}”（${result.allowed === 'user' ? '你确认过' : '全权接管'}）${result.recorded ? '，已自动记为已投递' : result.sending?.still ? (result.sending.humanCheck ? '，页面在等真人验证' : '，页面还在提交') : ''}`,
+        `Clicked “${short(result.clicked.name, 40)}” (${result.allowed === 'user' ? 'you allowed it' : 'full takeover'})${result.recorded ? '; recorded as applied' : result.sending?.still ? (result.sending.humanCheck ? '; the page waits on a human check' : '; the page is still sending') : ''}`]
         : result.clicked.checked === true ? [`选了“${short(result.clicked.name, 40)}”`, `Chose “${short(result.clicked.name, 40)}”`]
           : result.clicked.expanded === true && result.appeared ? [`点开了“${short(result.clicked.name, 40) || result.clicked.role}”`, `Opened “${short(result.clicked.name, 40) || result.clicked.role}”`]
             : [`点了“${short(result.clicked.name, 40) || result.clicked.role}”`, `Clicked “${short(result.clicked.name, 40) || result.clicked.role}”`]),
@@ -808,7 +809,7 @@ export function createTools({ db, repo, scheduler, goals, dashboard, status, sco
     {
       name: 'report_application', tier: 'read', view: null,
       description: 'Note how an application went, for the feedback file Dayjob keeps for the user. Call it once when you stop working on an application, sent or not, just before your last '
-        + 'words to the user. outcome: submitted (the page confirmed it, or it was sent and the page was still sending when you stopped: say which in reason), needs-user (the user has to do something first: a captcha, a code, a question only they can answer, a confirmation '
+        + 'words to the user. outcome: submitted (the page confirmed it), needs-user (the user has to do something first: a captcha, a code, a question only they can answer, a confirmation '
         + 'they declined), failed (the site or the form would not let it through), skipped (not this job after all: closed, the wrong page, applied already). stoppedAt: the step it ended at. '
         + 'reason: one sentence on why it was not sent. problems: what got in the way, also when it was sent in the end (a field that would not take its value, a sign-in that failed, a page that '
         + 'kept changing), each with what happened and, when you know it, why. Keep it short and factual. Never put a password, a code, or what was typed into a field here.',

@@ -161,8 +161,54 @@ function installAutofill(name, makeHidden) {
 
   const setter = element => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set;
   const glow = element => { try { element.animate([{ boxShadow: '0 0 0 3px rgba(18, 130, 94, 0.55)' }, { boxShadow: '0 0 0 3px rgba(18, 130, 94, 0)' }], { duration: 1800 }); } catch { /* cosmetic */ } };
+  // Where the mouse can press a thing: a point of it in this frame's window with nothing lying over it, after a
+  // scroll when it was out of view (moved). A choice whose own box is kept out of sight is pressed on its label,
+  // though never on a link inside one. null: the mouse cannot get to it from here.
+  function spot(element) {
+    const labels = [...(element.labels || [])];
+    const look = point => {
+      const rect = point.getBoundingClientRect();
+      if (rect.width < 3 || rect.height < 3) return null;
+      const view = point.ownerDocument.defaultView;
+      const x = rect.left + Math.min(rect.width / 2, 40);
+      const y = rect.top + rect.height / 2;
+      if (x < 1 || y < 1 || x > view.innerWidth - 1 || y > view.innerHeight - 1) return { out: true };
+      const root = point.getRootNode();
+      const hit = (root.elementFromPoint ? root : point.ownerDocument).elementFromPoint(x, y);
+      if (!hit || (hit.closest('a[href]') && !point.closest('a[href]'))) return null;
+      if (!(hit === element || hit === point || point.contains(hit) || labels.some(label => label.contains(hit)))) return null;
+      let left = 0;
+      let top = 0;
+      for (let inner = view; inner !== window;) {
+        const frame = inner.frameElement;
+        if (!frame) return null;
+        const box = frame.getBoundingClientRect();
+        left += box.left + frame.clientLeft;
+        top += box.top + frame.clientTop;
+        inner = frame.ownerDocument.defaultView;
+      }
+      return { x: x + left, y: y + top };
+    };
+    for (const point of [element, ...labels]) {
+      if (point.checkVisibility && !point.checkVisibility({ visibilityProperty: true })) continue;
+      let at = look(point);
+      let moved = false;
+      // Inside another page, this frame cannot tell whether that page has it in view: the scroll goes through
+      // the pages around it too.
+      if (at?.out || (at && window.parent !== window)) {
+        point.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        moved = true;
+        at = look(point);
+      }
+      if (at && !at.out) return { x: at.x, y: at.y, moved };
+    }
+    return null;
+  }
+  // Text and lists are set here. A checkbox or a radio button is left for the mouse (choices): where it is
+  // (choice), and after the press, whether it took (choose).
   function fill(items) {
     let filled = 0;
+    const choices = [];
     for (const item of items) {
       const group = registry[item.index];
       const element = group?.[0];
@@ -184,17 +230,35 @@ function installAutofill(name, makeHidden) {
         glow(element);
         filled += 1;
       } else if (item.check === true && element.type === 'checkbox') {
-        if (!element.checked) element.click();
-        glow(element.labels?.[0] || element);
+        if (!element.checked) choices.push({ index: item.index, check: true });
         filled += 1;
       } else if (Number.isInteger(item.option) && group[item.option]?.type === 'radio') {
-        group[item.option].click();
-        glow(group[item.option].labels?.[0] || group[item.option]);
+        if (!group[item.option].checked) choices.push({ index: item.index, option: item.option });
         filled += 1;
       }
     }
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur?.();
-    return { filled };
+    return { filled, choices };
+  }
+  const chosen = item => {
+    const group = registry[item.index];
+    const element = item.check ? group?.[0] : group?.[item.option];
+    return element?.isConnected && (element.type === 'checkbox' || element.type === 'radio') ? element : null;
+  };
+  function choice(item) {
+    const element = chosen(item);
+    if (!element) return { error: 'missing' };
+    return element.checked ? { set: true } : { at: spot(element) };
+  }
+  // After the press: a choice the mouse did not set (it could not get there, or the page did not take it) is set
+  // by command, as before.
+  function choose(item) {
+    const element = chosen(item);
+    if (!element) return { error: 'missing' };
+    const by = element.checked ? 'mouse' : 'command';
+    if (!element.checked) element.click();
+    glow(element.labels?.[0] || element);
+    return { set: element.checked, by };
   }
 
   // The button that sends the form most of the fields belong to.
@@ -214,12 +278,32 @@ function installAutofill(name, makeHidden) {
     }
     return candidates.sort((a, b) => b.score - a.score)[0] || null;
   }
-  function submit() {
+  // Sends the form. mouse: the button is not pressed here; where it is comes back (at), for the mouse to press
+  // it as a hand would, and the press is listened for. check, after that: a button the mouse's press did not
+  // reach is pressed by command, so that the form is sent once either way; on a page that has moved on since,
+  // nothing is pressed. A button the mouse cannot get to at all is pressed by command at once, as before.
+  let armed = null;
+  function submit(how = {}) {
+    if (how.check) {
+      if (!armed) return { gone: true };
+      const { button, name: said, pressed } = armed;
+      armed = null;
+      if (pressed) return { clicked: said, by: 'mouse' };
+      if (!button.isConnected || disabled(button)) return { clicked: said, by: 'unknown' };
+      button.click();
+      return { clicked: said, by: 'command' };
+    }
     const found = submitButton();
     if (!found) return { error: 'no-button' };
+    const at = how.mouse ? spot(found.button) : null;
+    if (at) {
+      const mine = (armed = { button: found.button, name: found.name, pressed: false });
+      found.button.addEventListener('click', event => { if (event.isTrusted) mine.pressed = true; }, { capture: true, once: true });
+      return { name: found.name, at };
+    }
     found.button.scrollIntoView({ block: 'center', behavior: 'instant' });
     found.button.click();
-    return { clicked: found.name };
+    return { clicked: found.name, by: 'command' };
   }
   function confirmation() {
     const text = (document.body?.innerText || '').slice(0, 20000);
@@ -403,7 +487,7 @@ function installAutofill(name, makeHidden) {
     } catch (error) { return { error: String(error?.message || error).slice(0, 200) }; }
   }
 
-  return (globalThis[name] = { scan, fill, submit, confirmation, watch, files, attach });
+  return (globalThis[name] = { scan, fill, choice, choose, submit, confirmation, watch, files, attach });
 }
 
 // ---------- matching, outside the page ----------

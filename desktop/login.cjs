@@ -64,14 +64,71 @@ function installLogin(makeHidden) {
     return buttons.find(button => submits(button) && SENDS.test(label(button))) || buttons.find(button => SENDS.test(label(button)))
       || (buttons.filter(submits).length === 1 ? buttons.find(submits) : null);
   }
+  // Where the mouse can press a button: a point of it in the window with nothing lying over it, after a scroll
+  // when it was out of view (moved). null: the mouse cannot get to it from here.
+  function spot(button) {
+    const look = () => {
+      const rect = button.getBoundingClientRect();
+      if (rect.width < 3 || rect.height < 3) return null;
+      const view = button.ownerDocument.defaultView;
+      const x = rect.left + Math.min(rect.width / 2, 40);
+      const y = rect.top + rect.height / 2;
+      if (x < 1 || y < 1 || x > view.innerWidth - 1 || y > view.innerHeight - 1) return { out: true };
+      const root = button.getRootNode();
+      const hit = (root.elementFromPoint ? root : button.ownerDocument).elementFromPoint(x, y);
+      if (!hit || !(hit === button || button.contains(hit))) return null;
+      let left = 0;
+      let top = 0;
+      for (let inner = view; inner !== window;) {
+        const frame = inner.frameElement;
+        if (!frame) return null;
+        const box = frame.getBoundingClientRect();
+        left += box.left + frame.clientLeft;
+        top += box.top + frame.clientTop;
+        inner = frame.ownerDocument.defaultView;
+      }
+      return { x: x + left, y: y + top };
+    };
+    let at = look();
+    let moved = false;
+    if (at?.out) {
+      button.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+      moved = true;
+      at = look();
+    }
+    return at && !at.out ? { x: at.x, y: at.y, moved } : null;
+  }
   // Sends a box's form: its button, or the form itself, or Enter in the box (pressed by Dayjob as real input).
-  function send(box) {
+  // mouse: the button is not pressed here; where it is comes back (at), for the mouse to press it as a hand
+  // would, and the press is listened for (see pressed). A button the mouse cannot get to is pressed by command.
+  let armed = null;
+  function send(box, how = {}) {
     const button = sender(box);
     if (button && disabled(button)) return { waiting: true };
-    if (button) { button.click(); return { sent: true }; }
+    if (button) {
+      const at = how.mouse ? spot(button) : null;
+      if (at) {
+        const heard = (armed = { button, pressed: false });
+        button.addEventListener('click', event => { if (event.isTrusted) heard.pressed = true; }, { capture: true, once: true });
+        return { at };
+      }
+      button.click();
+      return { sent: true };
+    }
     if (box.form) { box.form.requestSubmit(); return { sent: true }; }
     box.focus({ preventScroll: true });
     return { enter: true };
+  }
+  // After the mouse: a button its press did not reach is pressed by command, so that the form is sent once either
+  // way. On a page that has moved on since, nothing is pressed.
+  function pressed() {
+    const was = armed;
+    armed = null;
+    if (!was) return { sent: false, gone: true };
+    if (was.pressed) return { sent: true, by: 'mouse' };
+    if (!was.button.isConnected || disabled(was.button)) return { sent: true, by: 'unknown' };
+    was.button.click();
+    return { sent: true, by: 'command' };
   }
   // The login or sign-up form on the page, if there is one.
   function form() {
@@ -182,10 +239,11 @@ function installLogin(makeHidden) {
     return { filled: true };
   }
   // 自动登录: sends the login form, but only while it still holds the password Dayjob put in.
-  function submit() {
+  function submit(how = {}) {
+    if (how.check) return pressed();
     const found = form();
     if (!found || found.kind !== 'login' || !found.password.value || mine.get(found.password) !== found.password.value) return { sent: false };
-    return send(found.password);
+    return send(found.password, how);
   }
   // The first step of a two-step sign-in: the user name, then on to the password page.
   function fillUser({ username }) {
@@ -194,9 +252,10 @@ function installLogin(makeHidden) {
     set(box, username);
     return { filled: true };
   }
-  function sendUser() {
+  function sendUser(how = {}) {
+    if (how.check) return pressed();
     const box = userStep();
-    return box?.value ? send(box) : { sent: false };
+    return box?.value ? send(box, how) : { sent: false };
   }
   // ---------- 邮箱验证码 ----------
   // The box for a code a site sent (a "verification code", a "one-time code"): one box, or a row of boxes that
