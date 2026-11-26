@@ -307,14 +307,36 @@ function installAutofill(name, makeHidden) {
     for (const button of sibling.querySelectorAll('button, [role="button"]')) text = text.replace(textOf(button), ' ');
     return clean(text);
   }
+  // What an upload says about how it stands, for people who cannot see it: "Total 0 file selected", "No file
+  // chosen", "2 files attached", "未选择任何文件". It is written beside the field, often between the field and its
+  // question, and is never the question.
+  const UPLOAD_STATE = /^[\s\p{P}\p{S}]*(?:(?:total[\s\p{P}]+)?(?:\d+|no|none|zero|one)\s+(?:files?|documents?|attachments?|items?)(?:\s+(?:is|are|was|were|has been|have been|currently))?\s+(?:selected|chosen|attached|uploaded|added)\b|(?:nothing|none|not)\s+(?:selected|chosen|attached|uploaded)\b|(?:尚未|未|没有|还没有?)(?:选择|上传|添加)|没有文件|已?(?:选择|上传)了?\s*\d+\s*个文件)/iu;
+  const stateOnly = (text, node) => UPLOAD_STATE.test(text || '') || Boolean(node?.matches?.('[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"], output, progress'));
+  const byIds = (element, ids) => String(ids || '').split(/\s+/).filter(Boolean).map(id => element.getRootNode().getElementById?.(id) || element.ownerDocument.getElementById(id)).filter(Boolean);
+  // What the field is called by the names tied to it: its own, and those of the label around it, which some pages
+  // name in pieces (aria-labelledby on the label: a line that says how many files are chosen, then the question).
+  // The pieces that say only how to hand a file over, or how the field stands, are left out.
+  function uploadName(element) {
+    const parts = [];
+    const add = (text, node) => { const said = clean(text); if (said && !nameless(said) && !stateOnly(said, node) && !parts.includes(said)) parts.push(said); };
+    for (const node of byIds(element, element.getAttribute('aria-labelledby'))) add(textOf(node), node);
+    for (const label of [...(element.labels || [])]) {
+      for (const node of byIds(label, label.getAttribute('aria-labelledby'))) add(textOf(node), node);
+      add(label.getAttribute('aria-label'));
+      add(textOf(label));
+    }
+    add(element.getAttribute('aria-label'));
+    return clean(parts.join(' '));
+  }
   function uploadLabel(element) {
     const own = ownLabel(element);
-    if (own && !nameless(own)) return own;
+    const named = uploadName(element);
+    if (named) return named;
     for (let node = element, depth = 0; node && depth < 5; depth += 1) {
       for (let sibling = node.previousElementSibling, step = 0; sibling && step < 4; sibling = sibling.previousElementSibling, step += 1) {
         if (sibling.matches('input:not([type="hidden"]), select, textarea') || sibling.querySelector('input:not([type="hidden"]), select, textarea')) break;
         const text = besides(sibling);
-        if (!text || text.length > 80 || howOnly(text) || sibling.matches('button, [role="button"]')) continue;
+        if (!text || text.length > 80 || howOnly(text) || stateOnly(text, sibling) || sibling.matches('button, [role="button"]')) continue;
         if (sibling.tagName === 'LABEL' && sibling.control && sibling.control !== element) break;
         if (sibling.matches(LABEL_LIKE) || /[*:：]\s*$/.test(text)) return text;
         // Under a label that only says how, the line over the box is the question even when nothing marks it as one.
@@ -324,7 +346,22 @@ function installAutofill(name, makeHidden) {
       if (!parent || [...parent.querySelectorAll('input, select, textarea')].some(field => field !== element && field.type !== 'hidden')) break;
       node = parent;
     }
-    return own;
+    return stateOnly(own) ? '' : own;
+  }
+  // What the page's own code calls the field: its marks for tests and scripts (data-testid="input-resume",
+  // data-automation-id, name, id), on the field, on the label around it and on the boxes that hold nothing else
+  // to fill in. Read only to tell which file goes where, never shown.
+  const CODE_MARKS = ['data-testid', 'data-test-id', 'data-test', 'data-qa', 'data-cy', 'data-automation-id', 'data-automation', 'data-field', 'data-name', 'data-kind', 'data-type', 'name', 'id', 'for'];
+  function uploadHint(element) {
+    const said = [];
+    const read = node => { for (const mark of CODE_MARKS) { const value = node.getAttribute?.(mark); if (value && value.length <= 80) said.push(value); } };
+    read(element);
+    for (const label of [...(element.labels || [])]) read(label);
+    for (let node = element.parentElement, depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+      if (node.matches('form, body, main, fieldset') || [...node.querySelectorAll('input, select, textarea')].some(field => field !== element && field.type !== 'hidden')) break;
+      read(node);
+    }
+    return clean([...new Set(said)].join(' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2'), 240);
   }
   function files() {
     uploads = [];
@@ -335,7 +372,7 @@ function installAutofill(name, makeHidden) {
         const index = uploads.push(element) - 1;
         const over = uploadLabel(element);
         const said = describe(element);
-        found.push({ index, ...said, label: clean(over).replace(/\s*\*$/, '') || said.label, required: said.required || /\*\s*$/.test(over),
+        found.push({ index, ...said, label: clean(over).replace(/\s*\*$/, '') || (stateOnly(said.label) ? '' : said.label), hint: uploadHint(element), required: said.required || /\*\s*$/.test(over),
           accept: clean(element.getAttribute('accept') || ''), multiple: element.multiple, filled: element.files?.length > 0,
           shown: Boolean(element.checkVisibility?.({ visibilityProperty: true })) });
       }
@@ -708,6 +745,9 @@ const FILE_WORDS = {
   transcript: /transcript|academic record|grade (report|sheet)|成绩/i,
 };
 const OTHER_FILE = /portfolio|作品|photo|picture|headshot|avatar|头像|照片|certificat|证书|reference|推荐信|writing sample|passport|licen[cs]e|additional|other (file|document)|其他|附加/i;
+// Words as they are compared: accents taken off however they were written ("Résumé" as one letter or as two marks),
+// and the dashes of a name in code read as spaces.
+const plainWords = text => String(text || '').normalize('NFD').replace(/\p{M}+/gu, '').replace(/[_\-[\].]+/g, ' ');
 const imagesOnly = accept => Boolean(accept) && accept.split(',').every(item => /^\s*(image\/|\.(png|jpe?g|gif|webp|bmp|svg|heic)\b)/i.test(item));
 
 // The field (from the page's files()) a file of this kind goes into, or null. A field that says it is for
@@ -720,10 +760,14 @@ function pickFileField(fields, want = 'resume') {
   const plain = [];
   for (const field of fields) {
     if (imagesOnly(field.accept)) continue;
-    const own = `${field.label || ''} ${field.name || ''} ${field.id || ''}`.replace(/[_\-[\]]+/g, ' ');
+    const own = plainWords(`${field.label || ''} ${field.name || ''} ${field.id || ''}`);
+    // What the page's own code calls it counts when the words a person reads do not say.
+    const code = plainWords(field.hint);
     let score = 0;
     if (wanted.test(own)) score = 5;
     else if (others.some(words => words.test(own)) || OTHER_FILE.test(own)) score = -5;
+    else if (wanted.test(code)) score = 4;
+    else if (others.some(words => words.test(code))) score = -5;
     else if (wanted.test(field.section || '')) score = 2;
     if (score === 0) plain.push(field);
     if (score > 0 && score > (best?.score ?? 0)) best = { field, score };

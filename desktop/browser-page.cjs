@@ -344,6 +344,7 @@ function install(makeHidden, pickOption) {
     }
     if (disabled(element)) item.disabled = true;
     if (element.required || element.getAttribute('aria-required') === 'true') item.required = true;
+    if (picksFile(element)) item.picksFile = true;
     if (!inViewport(element)) item.offscreen = true;
     return item;
   }
@@ -488,9 +489,20 @@ function install(makeHidden, pickOption) {
     return false;
   }
 
+  // A button, a label or a line that only hands the click on to a file field (the label around it, or for it): a
+  // click on it opens the computer's file dialog, which nothing in the page can answer.
+  function picksFile(element) {
+    if (element.tagName === 'INPUT') return false;
+    const label = element.closest('label');
+    if (!label) return false;
+    const field = label.control || label.querySelector('input[type="file"]');
+    return field?.tagName === 'INPUT' && field.type === 'file' && !field.disabled;
+  }
+
   // What the mouse is about to go for.
   function aim(element) {
     const info = { ref: refFor(element), role: role(element), name: name(element), disabled: disabled(element), risky: riskyAt(element, element), editable: typable(element) };
+    if (picksFile(element)) info.picksFile = true;
     if (element.tagName === 'SELECT') info.select = true;
     else if (opensList(element)) info.opens = 'list';
     else if (suggests(element)) info.opens = 'suggestions';

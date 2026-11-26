@@ -259,6 +259,79 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (!tab.engaged) { tab.engaged = true; layout(); }
     return tab;
   }
+  // The debugger on a tab, for what only it can tell or do; null when the tab's developer tools hold it.
+  function wired(tab) {
+    const contents = tab.view.webContents;
+    try {
+      if (contents.isDestroyed()) return null;
+      if (!contents.debugger.isAttached()) {
+        contents.debugger.attach('1.3');
+        contents.debugger.once('detach', () => { tab.focusKept = false; });
+      }
+      return contents.debugger;
+    } catch { return null; }
+  }
+  // 上传之后. A form may read a resume the moment it is attached (Rippling's says so): it sends the file off, and
+  // when the answer is back it writes what it found into the boxes, over whatever was in them. So a file goes in
+  // before anything is filled in, and the page is then given until its requests have come back: at least a
+  // moment, and no longer than a few seconds (a page that keeps a request open for news would hold it for ever).
+  // attach() puts the file in and answers { attached }. Without the debugger the wait is a plain one.
+  const TAKEN = { least: 600, calm: 500, most: 6000, plain: 1500 };
+  async function taken(tab, attach) {
+    const wire = wired(tab);
+    const open = new Set();
+    let last = Date.now();
+    const hear = (event, method, params) => {
+      if (method === 'Network.requestWillBeSent') {
+        if (!['XHR', 'Fetch', 'Other'].includes(params.type) || /^(data|blob):/i.test(params.request?.url || '')) return;
+        open.add(params.requestId);
+        last = Date.now();
+      } else if ((method === 'Network.loadingFinished' || method === 'Network.loadingFailed') && open.delete(params.requestId)) last = Date.now();
+    };
+    let heard = false;
+    if (wire) {
+      wire.on('message', hear);
+      try { await wire.sendCommand('Network.enable'); heard = true; } catch { /* a plain wait then */ }
+    }
+    try {
+      const done = await attach();
+      if (!done?.attached) return done;
+      const from = Date.now();
+      if (!heard) await delay(TAKEN.plain);
+      else {
+        while (tabs.includes(tab) && Date.now() - from < TAKEN.most) {
+          await delay(100);
+          if (Date.now() - from >= TAKEN.least && !open.size && Date.now() - last >= TAKEN.calm) break;
+        }
+      }
+      return done;
+    } finally {
+      if (wire) {
+        wire.removeListener('message', hear);
+        if (heard) wire.sendCommand('Network.disable').catch(() => {});
+      }
+    }
+  }
+  // 文件对话框. A button of the page that opens the computer's file dialog cannot be told from any other by looking
+  // at it (the page's script opens the dialog). While Claude or the assistant clicks, the dialog is therefore held
+  // back, and the click says that it asked for one: the dialog would sit in front of the user with nobody to
+  // answer it. A click of the user's own opens it as ever. Returns what ends the watch and says whether one was
+  // asked for.
+  async function noDialog(tab) {
+    const wire = wired(tab);
+    if (!wire) return async () => false;
+    let asked = false;
+    const hear = (event, method) => { if (method === 'Page.fileChooserOpened') asked = true; };
+    wire.on('message', hear);
+    let on = false;
+    try { await wire.sendCommand('Page.enable'); await wire.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }); on = true; } catch { /* left as it is */ }
+    return async () => {
+      if (on) await wire.sendCommand('Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {});
+      wire.removeListener('message', hear);
+      return asked;
+    };
+  }
+  const FILE_BY_HAND = 'Attach the resume with dayjob_browser_upload_resume and a transcript with dayjob_browser_upload_transcript (Dayjob picks the file); any other file is chosen by the user in the Dayjob window.';
   // tucked: the window has the browser open, folded into its bar for want of room. No page is on show, and none is
   // asked for (see reveal).
   function setBounds(rect) {
@@ -969,7 +1042,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const refused = files.find(file => !acceptsFile(target.accept, file));
     if (refused) return { attached: false, reason: 'type', field, accept: target.accept, transcript: { id: refused.id, name: refused.name } };
     const [first, ...more] = files.map(file => ({ name: file.name, mime: file.mime, data: file.data.toString('base64') }));
-    const done = await inFrame(tab, roots[target.frame], name, 'attach', { index: target.index, ...first, more });
+    const done = await taken(tab, () => inFrame(tab, roots[target.frame], name, 'attach', { index: target.index, ...first, more }));
     if (!done?.attached) return { attached: false, reason: 'failed', field };
     return { attached: true, field, transcripts: picked.transcripts, by: picked.reason, others: picked.others || [] };
   }
@@ -986,7 +1059,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const file = resumes.file(picked.resume.id);
     if (!file) return { attached: false, reason: 'no-file', field };
     if (!acceptsFile(target.accept, file)) return { attached: false, reason: 'type', field, accept: target.accept, resume: { id: file.id, name: file.name } };
-    const done = await inFrame(tab, roots[target.frame], name, 'attach', { index: target.index, name: file.name, mime: file.mime.split(';')[0], data: file.data.toString('base64') });
+    const done = await taken(tab, () => inFrame(tab, roots[target.frame], name, 'attach', { index: target.index, name: file.name, mime: file.mime.split(';')[0], data: file.data.toString('base64') }));
     if (!done?.attached) return { attached: false, reason: 'failed', field };
     return { attached: true, field, resume: { id: file.id, name: file.name }, by: picked.reason, ...(picked.posting ? { posting: picked.posting } : {}),
       ...(picked.better ? { better: picked.better } : {}) };
@@ -1006,6 +1079,12 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     const roots = formRoots(tab);
     let fields = await scanForm(tab, roots, name);
     if (!fields.length) fail(409, 'There is no form on this page to fill in. Open the application form first (often behind an “Apply” button).');
+    // The resume goes in first, when the form has a place for it and its file is kept: a form that reads the
+    // resume writes over its boxes when it has (see taken), and what is filled in after that stays.
+    const attachment = resume === 'none' ? null : await attachResume(tab, resume, name, roots);
+    // And a transcript, when the form has a field that says it is for one.
+    const transcript = transcripts ? await attachTranscript(tab, null, name, roots) : null;
+    if (attachment?.attached || transcript?.attached) fields = await scanForm(tab, roots, name);
     const filled = [];
     for (let pass = 0; pass < 2; pass += 1) {
       const { fills, used } = planFill(fields, profile);
@@ -1015,14 +1094,6 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         if (items.length) await inFrame(tab, root, name, 'fill', items);
       }
       filled.push(...used.map(item => ({ label: String(item.label).slice(0, 100), key: item.key })));
-      await delay(250);
-      fields = await scanForm(tab, roots, name);
-    }
-    // The resume goes in with the rest, when the form has a place for it and its file is kept.
-    const attachment = resume === 'none' ? null : await attachResume(tab, resume, name, roots);
-    // And a transcript, when the form has a field that says it is for one.
-    const transcript = transcripts ? await attachTranscript(tab, null, name, roots) : null;
-    if (attachment?.attached || transcript?.attached) {
       await delay(250);
       fields = await scanForm(tab, roots, name);
     }
@@ -1289,7 +1360,8 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       let target = await aim(tab, input);
       const ref = target.ref;
       const again = input.x != null ? input : { ref };
-      if (target.role === 'file') fail(409, 'A file field cannot be clicked. Attach the resume with dayjob_browser_upload_resume and a transcript with dayjob_browser_upload_transcript (Dayjob picks the file); any other file is chosen by the user in the Dayjob window.');
+      if (target.role === 'file') fail(409, `A file field cannot be clicked. ${FILE_BY_HAND}`);
+      if (target.picksFile) fail(409, `${ref} (“${target.name}”) only opens the computer's file dialog, which nobody but the user can answer. ${FILE_BY_HAND}`);
       if (target.role === 'select') fail(409, `${ref} is a dropdown; use dayjob_browser_select.`);
       if (target.disabled) fail(409, `${ref} (“${target.name}”) is disabled right now.`);
       let auto = false;
@@ -1304,8 +1376,13 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (target.coveredBy && !target.choice) fail(409, covered(target));
       const documents = tab.documents;
       if (!target.coveredBy) {
-        await mouse(tab, target);
-        await settle(tab);
+        const dialog = await noDialog(tab);
+        let asked = false;
+        try {
+          await mouse(tab, target);
+          await settle(tab);
+        } finally { asked = await dialog(); }
+        if (asked) fail(409, `${ref} (“${target.name}”) asked for the computer's file dialog, which nobody but the user can answer; it was not opened. ${FILE_BY_HAND}`);
       }
       // A checkbox or radio button says whether it took the click. One the mouse did not reach, or that stayed
       // as it was, is set the way the keyboard would set it.
@@ -1843,7 +1920,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         if (kind) {
           let data;
           try { data = await kind.make(); } catch (error) { fail(502, `The letter could not be made into a file: ${error.message}`); }
-          const done = await inFrame(tab, roots[upload.frame], name, 'attach', { index: upload.index, name: kind.name, mime: kind.mime, data: Buffer.from(data).toString('base64') });
+          const done = await taken(tab, () => inFrame(tab, roots[upload.frame], name, 'attach', { index: upload.index, name: kind.name, mime: kind.mime, data: Buffer.from(data).toString('base64') }));
           if (!done?.attached) fail(409, `The page did not take the file in “${fieldName(upload) || 'Cover letter'}”. Ask the user to attach the letter in the Dayjob window.`);
           return { notice, letter: { as: 'file', file: kind.name, field: fieldName(upload) || 'Cover letter' }, page: info(tab) };
         }
