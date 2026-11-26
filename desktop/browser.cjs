@@ -40,7 +40,9 @@ const GUARD_MS = 2 * 60 * 1000;
 // page must say so, and how long the note about it stays.
 const WATCH_MS = 2500;
 const FORM_MS = 45 * 60 * 1000;
-const SENT_MS = 5 * 60 * 1000;
+const SENT_MS = 10 * 60 * 1000;
+// How long a click that sent a form waits for a page that is still sending it.
+const SENDING_MS = 60 * 1000;
 const APPLIED_NOTE_MS = 3 * 60 * 1000;
 const SEND_WAIT_MS = 2500;
 const SENT_NOTE_MS = 3500;
@@ -75,7 +77,7 @@ async function letterPdf(text, title) {
 // transcripts: { pick({ label, section, ids }), file(id) } from the service: which transcript goes into a form's
 // transcript field, and its file.
 // track: { applied({ urls, draft, by }) } from the service, which records an application the browser saw go through.
-function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () => ({}), onApproval = () => {}, vault = null, resumes = null, transcripts = null, track = null, devTools = false }) {
+function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () => ({}), onApproval = () => {}, vault = null, resumes = null, transcripts = null, track = null, devTools = false, sendingMs = SENDING_MS }) {
   const browserSession = session.fromPartition(PARTITION);
   // Some sites turn away browsers that name Electron.
   browserSession.setUserAgent(browserSession.getUserAgent().replace(/\s(?:Electron|Dayjob|dayjob)\/\S+/g, ''));
@@ -277,40 +279,56 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
   // moment, and no longer than a few seconds (a page that keeps a request open for news would hold it for ever).
   // attach() puts the file in and answers { attached }. Without the debugger the wait is a plain one.
   const TAKEN = { least: 600, calm: 500, most: 6000, plain: 1500 };
-  async function taken(tab, attach) {
+  // The page's own requests (not its pictures or styles) as the debugger tells of them. writes: only those that
+  // send something (POST and the like), which is what a form being sent is; a page that keeps a request open to
+  // hear news asks with GET. open(): how many are still out; last(): when one last went out or came back;
+  // heard: false when the debugger could not be had.
+  async function requests(tab, { writes = false } = {}) {
     const wire = wired(tab);
-    const open = new Set();
+    const out = new Set();
     let last = Date.now();
     const hear = (event, method, params) => {
       if (method === 'Network.requestWillBeSent') {
         if (!['XHR', 'Fetch', 'Other'].includes(params.type) || /^(data|blob):/i.test(params.request?.url || '')) return;
-        open.add(params.requestId);
+        if (writes && /^(GET|HEAD|OPTIONS)$/i.test(params.request?.method || 'GET')) return;
+        out.add(params.requestId);
         last = Date.now();
-      } else if ((method === 'Network.loadingFinished' || method === 'Network.loadingFailed') && open.delete(params.requestId)) last = Date.now();
+      } else if ((method === 'Network.loadingFinished' || method === 'Network.loadingFailed') && out.delete(params.requestId)) last = Date.now();
     };
     let heard = false;
     if (wire) {
       wire.on('message', hear);
-      try { await wire.sendCommand('Network.enable'); heard = true; } catch { /* a plain wait then */ }
+      try { await wire.sendCommand('Network.enable'); heard = true; } catch { /* nothing is heard then */ }
     }
+    let stopped = false;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(limit);
+      if (!wire) return;
+      wire.removeListener('message', hear);
+      if (heard) wire.sendCommand('Network.disable').catch(() => {});
+    };
+    // Whatever happens to whoever asked, the listening ends.
+    const limit = setTimeout(stop, sendingMs + 60000);
+    limit.unref?.();
+    return { heard, open: () => out.size, last: () => last, stop };
+  }
+  async function taken(tab, attach) {
+    const net = await requests(tab);
     try {
       const done = await attach();
       if (!done?.attached) return done;
       const from = Date.now();
-      if (!heard) await delay(TAKEN.plain);
+      if (!net.heard) await delay(TAKEN.plain);
       else {
         while (tabs.includes(tab) && Date.now() - from < TAKEN.most) {
           await delay(100);
-          if (Date.now() - from >= TAKEN.least && !open.size && Date.now() - last >= TAKEN.calm) break;
+          if (Date.now() - from >= TAKEN.least && !net.open() && Date.now() - net.last() >= TAKEN.calm) break;
         }
       }
       return done;
-    } finally {
-      if (wire) {
-        wire.removeListener('message', hear);
-        if (heard) wire.sendCommand('Network.disable').catch(() => {});
-      }
-    }
+    } finally { net.stop(); }
   }
   // 文件对话框. A button of the page that opens the computer's file dialog cannot be told from any other by looking
   // at it (the page's script opens the dialog). While Claude or the assistant clicks, the dialog is therefore held
@@ -1285,21 +1303,58 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     return state();
   }
   // After Claude, the assistant or the side panel sent a form: the page is given a moment to answer.
-  async function afterSend(tab, by) {
+  // still(): for a click, how the page stands ('busy' while it is still sending: the button it was sent with has
+  // gone disabled or busy, or what was sent has not come back). A form with files to carry, or a check to pass, can
+  // take a long while, with nothing on the page but a button turned grey; whoever looks a few seconds later and
+  // sees neither thanks nor complaint takes it for stuck. So a page that is still sending is waited for, as long as
+  // sendingMs, and when it is still at it then, the result says so (sending.still): the form is on its way, and
+  // nothing says it failed.
+  async function afterSend(tab, by, still = null) {
     try {
-      if (!track || !autoTrack || !tabs.includes(tab)) return {};
-      markSent(tab, by);
-      // A dialog over the job's own page answers after the request has come back: it is given a little longer.
-      const own = Boolean(await ownPosting(tab, tab.view.webContents.getURL()));
-      for (const wait of own ? [0, 700, 1500, 2500] : [0, 700, 1500]) {
-        if (wait) await delay(wait);
+      if (!tabs.includes(tab)) return {};
+      const tracking = Boolean(track && autoTrack);
+      if (!tracking && !still) return {};
+      const from = Date.now();
+      const said = outcome => (outcome?.status === 'recorded' ? { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title } }
+        : outcome?.status === 'already' ? { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title, already: true } } : null);
+      let applying = !tracking;
+      if (tracking) {
+        markSent(tab, by);
+        // A dialog over the job's own page answers after the request has come back: it is given a little longer.
+        const own = Boolean(await ownPosting(tab, tab.view.webContents.getURL()));
+        applying = own || Boolean(tab.form);
+        for (const wait of own ? [0, 700, 1500, 2500] : [0, 700, 1500]) {
+          if (wait) await delay(wait);
+          if (!tabs.includes(tab)) return {};
+          await settle(tab, 0);
+          const outcome = await watchApplied(tab, true);
+          if (said(outcome)) return said(outcome);
+          if (outcome) return {};
+          if (!tab.form && !own) break;
+        }
+      }
+      if (!still || !applying) return {};
+      let state = await still();
+      let waited = false;
+      while (state === 'busy' && tabs.includes(tab) && Date.now() - from < sendingMs) {
+        waited = true;
+        if (sending) sending.until = Date.now() + 20000;
+        await delay(1200);
         if (!tabs.includes(tab)) return {};
-        await settle(tab, 0);
+        if (tracking) {
+          await settle(tab, 0);
+          const outcome = await watchApplied(tab, true);
+          if (said(outcome)) return said(outcome);
+          if (outcome) return {};
+        }
+        state = await still();
+      }
+      if (state === 'busy') return { sending: { still: true, waitedSeconds: Math.round((Date.now() - from) / 1000) } };
+      // It has come to rest: one more look at what the page says now.
+      if (waited && tracking && tabs.includes(tab)) {
+        await settle(tab, 300);
         const outcome = await watchApplied(tab, true);
-        if (outcome?.status === 'recorded') return { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title } };
-        if (outcome?.status === 'already') return { recorded: { applicationId: outcome.application.id, company: outcome.application.company, title: outcome.application.title, already: true } };
-        if (outcome) return {};
-        if (!tab.form && !own) return {};
+        if (said(outcome)) return said(outcome);
       }
       return {};
     } finally { sending = null; }
@@ -1375,6 +1430,9 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       // else is left alone, since the click would land on whatever covers it.
       if (target.coveredBy && !target.choice) fail(409, covered(target));
       const documents = tab.documents;
+      // For a click that sends: how the button stands before, and what the page sends from here on (see afterSend).
+      const base = asked ? await page(tab, 'sending', { ref }).catch(() => null) : null;
+      const net = asked ? await requests(tab, { writes: true }) : null;
       if (!target.coveredBy) {
         const dialog = await noDialog(tab);
         let asked = false;
@@ -1400,7 +1458,20 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       }
       // How it stands now, and what the click brought: the rows of a list that dropped down come back with refs.
       const { state, ...after } = target.coveredBy ? {} : await brought(tab, documents, ref);
-      const tracked = asked ? await afterSend(standing(context) || tab, sender(context)) : {};
+      const still = async () => {
+        if (net?.open()) return 'busy';
+        let now = null;
+        try { now = await page(tab, 'sending', { ref }); } catch { return 'between'; }
+        if (now && base && now.errors > base.errors) return 'errors';
+        if (!now || now.error) return 'gone';
+        return (now.disabled && !base?.disabled) || now.busy ? 'busy' : 'calm';
+      };
+      let tracked = {};
+      try { tracked = asked ? await afterSend(standing(context) || tab, sender(context), tab.documents === documents && !target.coveredBy ? still : null) : {}; } finally { net?.stop(); }
+      if (tracked.sending?.still) {
+        tracked.sending.note = `The page was still sending the form when Dayjob stopped waiting (${tracked.sending.waitedSeconds} s): its button is disabled or busy, and it shows no error. It is on its way, not failed. `
+          + 'Do not click it again and do not reload or leave the page. Tell the user it was sent but not yet confirmed, and that the confirmation usually comes by email; report it as submitted.';
+      }
       return result(tab, before, { clicked: { ref, role: target.role, name: target.name, ...state, ...(set === undefined ? {} : { checked: set }) }, ...after,
         ...(asked ? { allowed: auto ? 'auto' : 'user' } : {}), ...tracked, ...(auto ? { note: autoNote(context) } : {}) }, context);
     },

@@ -320,6 +320,8 @@ async function createWindow() {
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
     transcripts: { pick: input => service.transcripts.pick(input), file: id => service.transcripts.file(id) },
     track: { applied: input => service.trackApplied(input), posting: url => service.postingAt(url) },
+    // The check waits for a page that is still sending a form for a few seconds, not for a minute.
+    ...(smoke ? { sendingMs: 6000 } : {}),
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -783,6 +785,17 @@ const QUIET_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="ut
 <body><h1>Your application</h1><form action="/applied" method="get"><label>First name <input name="first" required></label>
 <label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label> <button>Submit application</button></form></body></html>`;
 
+// A form that takes its time to send, as Rippling's does: the button turns grey and says it is sending, nothing
+// else changes until the answer is back (after ?after= milliseconds), and only then the page says thanks.
+const SLOW_APPLY_PAGE = after => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Slow Co</title></head>
+<body><h1>Operations Analyst</h1><p>Slow Co · Remote</p><form id="form"><label>First name <input name="first" required></label>
+<label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label>
+<button id="apply" data-testid="Apply" type="submit"><span>Apply</span></button></form><p id="done" hidden>Thank you for applying to Slow Co. We have received your application.</p>
+<script>document.getElementById('form').addEventListener('submit', async event => { event.preventDefault(); const button = document.getElementById('apply');
+if (button.getAttribute('aria-disabled') === 'true') return; button.setAttribute('aria-disabled', 'true'); button.dataset.disabled = 'true';
+window.sent = (window.sent || 0) + 1; await fetch('/slow-sent?after=${after}', { method: 'PUT', body: 'x' });
+document.getElementById('form').hidden = true; document.getElementById('done').hidden = false; });</script></body></html>`;
+
 // A board that applies in a dialog over the job's own page, as Handshake does: nothing to fill in but a search box,
 // the address stays as it is, and the dialog then says the application went through.
 const DIALOG_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Insights Intern | Dialog Co</title></head>
@@ -877,6 +890,8 @@ async function smokeBrowser(token) {
     if (url.pathname === '/jobs/long') return response.end(LONG_JOB_PAGE);
     if (url.pathname === '/jobs/late') return response.end(LATE_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
+    if (url.pathname === '/slow-apply') return response.end(SLOW_APPLY_PAGE(Number(url.searchParams.get('after')) || 0));
+    if (url.pathname === '/slow-sent') return void setTimeout(() => response.end('{}'), Math.min(Number(url.searchParams.get('after')) || 0, 30000)).unref();
     if (url.pathname === '/board/job/31') return response.end(DIALOG_JOB_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/upload-drop') return response.end(DROP_UPLOAD_PAGE);
@@ -1356,6 +1371,24 @@ async function smokeBrowser(token) {
     steps.assistantDeclined = (await asked) === 409 && Boolean(pageAt(`${base}/jobs/7`));
     const taken = await browser.agent('click', { ref: sendRef }, { by: 'assistant', takeover: true });
     steps.takeover = taken.allowed === 'auto' && /full takeover/.test(taken.note || '') && taken.page.url.startsWith(`${base}/submitted?name=Asked+First`);
+    // A form that is slow to send (Rippling's took minutes): the click that sent it waits while the button is grey
+    // and what was sent has not come back, and comes back once the page says thanks, well after the few seconds a
+    // form is otherwise given. One that is still sending when the wait is over is said to be on its way, not
+    // failed, and is not sent a second time.
+    const slowSend = async after => {
+      await browser.agent('open', { url: `${base}/slow-apply?after=${after}` }, byAssistant);
+      const form = await browser.agent('read', {}, byAssistant);
+      await browser.agent('type', { ref: form.elements.find(item => item.name === 'First name').ref, text: 'Slow' }, byAssistant);
+      const from = Date.now();
+      const sent = await browser.agent('click', { ref: form.elements.find(item => item.name === 'Apply').ref }, { by: 'assistant', takeover: true });
+      const slowPage = pageAt(`${base}/slow-apply`);
+      return { sent, took: Date.now() - from, thanks: await slowPage.executeJavaScript("!document.getElementById('done').hidden"), times: await slowPage.executeJavaScript('window.sent') };
+    };
+    const waitedFor = await slowSend(3500);
+    steps.sendWaitedFor = waitedFor.took >= 3500 && waitedFor.took < 6000 && waitedFor.thanks === true && !waitedFor.sent.sending && waitedFor.times === 1;
+    const stillSending = await slowSend(30000);
+    steps.sendStillSending = stillSending.sent.sending?.still === true && stillSending.sent.sending.waitedSeconds >= 5 && /on its way, not failed/.test(stillSending.sent.sending.note || '')
+      && stillSending.took < 10000 && stillSending.thanks === false && stillSending.times === 1;
     // 同时申请: two applications, each in a tab of its own, worked on at once while the user looks at another page.
     const shown = browser.state().activeId;
     const runA = { by: 'assistant', run: { key: 'run-a', own: true, job: 'Smoke Co · Data Analyst' } };
@@ -1513,7 +1546,7 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'fileDialogHeld', 'resumeNamedInPieces', 'filledAfterUpload', 'letterNamedInPieces', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'codeAsks', 'codeTyped', 'codeRow', 'codeOnlyMail', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'assistantDeclined', 'takeover', 'sendWaitedFor', 'sendStillSending', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);

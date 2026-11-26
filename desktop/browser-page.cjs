@@ -647,6 +647,17 @@ function install(makeHidden, pickOption) {
 
     // Where to click. An element the mouse already reaches is left where it is (a list that dropped down may close
     // when the page moves under it); any other is scrolled into view first.
+    // How the button that sent a form stands a moment later: disabled or busy while the page is still sending, and
+    // how many complaints the page shows (a box marked invalid, an alert with words in it).
+    sending({ ref }) {
+      const shown = node => node.checkVisibility?.({ visibilityProperty: true }) !== false;
+      const errors = [...document.querySelectorAll('[aria-invalid="true"], [role="alert"]')].filter(node => shown(node) && (node.matches('[aria-invalid="true"]') || textOf(node))).length;
+      const element = find(ref);
+      if (!element) return { error: 'missing', errors };
+      const busy = Boolean(element.closest('[aria-busy="true"]') || element.querySelector('[aria-busy="true"], [role="progressbar"], progress'));
+      return { disabled: disabled(element), busy, errors };
+    },
+
     target({ ref }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };
