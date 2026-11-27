@@ -512,28 +512,11 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     for (const wait of [500, 1200]) {
       await new Promise(resolve => setTimeout(resolve, wait));
       if (!tabs.includes(tab) || tab.view.webContents.getURL() !== url) break;
-      const method = step === 'user' ? 'sendUser' : 'submit';
-      const done = await inLogin(tab, method, { mouse: true });
-      const noted = () => {
-        sent.set(site, { at: Date.now(), step, username: entry.username });
-        setAuto(step === 'user' ? null : { site, username: entry.username, state: 'sent' });
-      };
-      // The button is pressed with the mouse, as a hand would press it; by command only where the mouse cannot
-      // get to it, or its press did not reach the button (see send in login.cjs). It is noted as sent before the
-      // press, since the page may be gone with it.
-      if (done?.at) {
-        noted();
-        let moused = true;
-        try { await mouse(tab, { x: done.at.x, y: done.at.y, moved: Boolean(done.at.moved) }); } catch { moused = false; }
-        if (moused) await delay(120);
-        const took = tabs.includes(tab) ? await inLogin(tab, method, { check: true }) : null;
-        if (moused || took?.sent) return true;
-        sent.delete(site);
-        break;
-      }
+      const done = await inLogin(tab, step === 'user' ? 'sendUser' : 'submit');
       if (done?.enter) press(tab.view.webContents, 'Enter');
       if (done?.sent || done?.enter) {
-        noted();
+        sent.set(site, { at: Date.now(), step, username: entry.username });
+        setAuto(step === 'user' ? null : { site, username: entry.username, state: 'sent' });
         return true;
       }
       if (!done?.waiting) break;
@@ -860,70 +843,17 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     if (key === 'Space') contents.sendInputEvent({ type: 'char', keyCode: ' ' });
     contents.sendInputEvent({ type: 'keyUp', keyCode });
   }
-  // The mouse. A pointer the user can watch glides to the spot, and the mouse itself goes the same way: real
-  // moves along the pointer's path, a press that is held a moment, a release; all of it real input, as from a
-  // hand, and none of it a command given to the page. What is on show is noted just before the mouse comes
-  // over the thing, so that what it brings can be told afterwards; until then the mouse stays outside it. A page
+  // The mouse. A pointer the user can watch glides to the spot first; then real input goes there, as from a hand.
+  // What is on show is noted just before the mouse moves, so that what it brings can be told afterwards. A page
   // that had to be scrolled to the spot is given a moment first: what the scroll set off (a header coming back,
   // say) is not what the click brought.
   const SCROLL_REST = 400;
-  const MOVE_EVERY = 16;
-  const PRESS_HELD = 70;
-  // How far along the way from one point to another the mouse may go before it is over the thing (its box, a
-  // little margin around it): 1 where the thing's place is not known, less a short way before the end.
-  function outside(from, to, box) {
-    const far = Math.hypot(to.x - from.x, to.y - from.y);
-    if (far < 1) return 0;
-    if (!box) return Math.max(0, 1 - 24 / far);
-    const within = point => point.x >= box.left - 3 && point.x <= box.right + 3 && point.y >= box.top - 3 && point.y <= box.bottom + 3;
-    if (within(from)) return 0;
-    let low = 0;
-    let high = 1;
-    for (let turn = 0; turn < 12; turn += 1) {
-      const middle = (low + high) / 2;
-      if (within({ x: from.x + (to.x - from.x) * middle, y: from.y + (to.y - from.y) * middle })) high = middle; else low = middle;
-    }
-    return low;
-  }
   async function mouse(tab, target, { press = true } = {}) {
     const contents = tab.view.webContents;
-    const there = () => tabs.includes(tab) && !contents.isDestroyed();
-    // framed: the point is inside another site's frame. The window's own input goes to the page itself and not
-    // to such a frame in it, so there the browser's input is used (through the debugger), which finds the frame
-    // under the point. It is real input all the same.
-    const wire = target.framed ? wired(tab) : null;
-    const send = (type, at, more = {}, gone = there) => {
-      if (!gone()) return;
-      const zoom = contents.getZoomFactor();
-      const x = Math.max(0, Math.round(at.x * zoom));
-      const y = Math.max(0, Math.round(at.y * zoom));
-      if (!wire) { contents.sendInputEvent({ type, x, y, ...more }); return; }
-      const pressing = type !== 'mouseMove';
-      wire.sendCommand('Input.dispatchMouseEvent', { type: { mouseMove: 'mouseMoved', mouseDown: 'mousePressed', mouseUp: 'mouseReleased' }[type], x, y,
-        button: pressing ? 'left' : 'none', buttons: type === 'mouseDown' ? 1 : 0, clickCount: pressing ? 1 : 0 }).catch(() => {});
-    };
-    // Moves along a straight way, eased as the pointer's glide is, one every few milliseconds.
-    const travel = async (from, to, upTo, ms) => {
-      const steps = Math.min(24, Math.max(1, Math.round(ms / MOVE_EVERY)));
-      for (let step = 1; step <= steps && there(); step += 1) {
-        const along = (1 - (1 - step / steps) ** 3) * upTo;
-        send('mouseMove', { x: from.x + (to.x - from.x) * along, y: from.y + (to.y - from.y) * along });
-        if (ms) await delay(ms / steps);
-      }
-    };
     let shown = null;
     try { shown = await page(tab, 'pointer', { x: target.x, y: target.y, press }); } catch { /* the click matters, not the picture of it */ }
     const wait = Math.max(shown?.wait || 0, target.moved ? SCROLL_REST : 0);
-    const began = Date.now();
-    let at = shown?.from && Number.isFinite(shown.from.x) && Number.isFinite(shown.from.y) ? shown.from : null;
-    if (at && shown.wait) {
-      const upTo = outside(at, target, target.box);
-      if (upTo > 0) {
-        await travel(at, target, upTo, shown.wait);
-        at = { x: at.x + (target.x - at.x) * upTo, y: at.y + (target.y - at.y) * upTo };
-      }
-    }
-    if (wait > Date.now() - began) await delay(wait - (Date.now() - began));
+    if (wait) await delay(wait);
     // The page may have moved under the pointer meanwhile: a list scrolls back to its chosen row once it has
     // opened (Workday's does), a line of the form unfolds. Where the thing is now is looked up again, and the
     // mouse goes there; if it had to be scrolled to once more, the page is given its moment again.
@@ -933,24 +863,20 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
         try { now = await page(tab, 'target', { ref: target.ref }); } catch { break; }
         if (!now || now.error || now.coveredBy) break;
         const still = Math.abs(now.x - target.x) < 2 && Math.abs(now.y - target.y) < 2;
-        target = { ...target, x: now.x, y: now.y, box: now.box };
+        target = { ...target, x: now.x, y: now.y };
         if (!now.moved) { if (!still) await page(tab, 'pointer', { x: now.x, y: now.y, press }).catch(() => {}); break; }
         await delay(SCROLL_REST);
       }
     }
     await page(tab, 'mark');
-    // The last of the way, onto the thing itself.
-    const near = at && Math.hypot(target.x - at.x, target.y - at.y) > 3 ? at : { x: Math.max(0, target.x - 2), y: Math.max(0, target.y - 2) };
-    const last = Math.hypot(target.x - near.x, target.y - near.y);
-    send('mouseMove', near);
-    if (last > 12) await travel(near, target, 1, Math.min(96, 32 + last / 4));
-    send('mouseMove', target);
+    const zoom = contents.getZoomFactor();
+    const x = Math.round(target.x * zoom);
+    const y = Math.round(target.y * zoom);
+    contents.sendInputEvent({ type: 'mouseMove', x: Math.max(0, x - 2), y: Math.max(0, y - 2) });
+    contents.sendInputEvent({ type: 'mouseMove', x, y });
     if (!press) return;
-    await delay(MOVE_EVERY * 2);
-    send('mouseDown', target, { button: 'left', clickCount: 1 });
-    await delay(PRESS_HELD);
-    // Released wherever the tab is by now, so that a press never stays down.
-    send('mouseUp', target, { button: 'left', clickCount: 1 }, () => !contents.isDestroyed());
+    contents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+    contents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
   }
   const covered = target => `${target.ref} (“${target.name}”) is covered by ${target.coveredBy}. Close or scroll past it first.`;
   // What a click or a hover goes for: an element by its ref, by the words on it, or whatever is at a point of the
@@ -1088,93 +1014,6 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       return root.frame ? await root.frame.executeJavaScript(code) : await tab.view.webContents.executeJavaScriptInIsolatedWorld(WORLD, [{ code }]);
     } catch { return null; }
   }
-  // Where a point of another site's frame is in the window, for the mouse (which works in the window's own
-  // measure). A frame cannot say where it stands in the page around it, and a page cannot tell its frames apart
-  // from outside; so the frame sends one word to the page around it, and that page, told beforehand to listen
-  // for the word, says where the frame it came from stands, and whether the point shows through there. Frame by
-  // frame, up to the window. null: it cannot be told (the frame is turned or scaled, covered, or gone), and the
-  // mouse is not used.
-  function placeScript(word, step, point) {
-    return `(${(function place(key, turn, at) {
-      const state = globalThis[key];
-      if (turn === 'listen') {
-        const mine = (globalThis[key] = { heard: false, frame: null });
-        const hear = event => {
-          if (event.data !== key) return;
-          event.stopImmediatePropagation();
-          window.removeEventListener('message', hear, true);
-          mine.heard = true;
-          const visit = root => {
-            for (const element of root.querySelectorAll('*')) {
-              if (element.shadowRoot) visit(element.shadowRoot);
-              if ((element.tagName === 'IFRAME' || element.tagName === 'FRAME') && element.contentWindow === event.source) mine.frame = element;
-            }
-          };
-          visit(document);
-        };
-        mine.hear = hear;
-        window.addEventListener('message', hear, true);
-        return true;
-      }
-      if (!state) return null;
-      if (!state.heard && turn !== 'drop') return 'waiting';
-      window.removeEventListener('message', state.hear, true);
-      delete globalThis[key];
-      const frame = state.frame;
-      if (turn === 'drop' || !frame || !frame.isConnected) return null;
-      const rect = frame.getBoundingClientRect();
-      if (Math.abs(rect.width - frame.offsetWidth) > 1 || Math.abs(rect.height - frame.offsetHeight) > 1) return null;
-      const style = getComputedStyle(frame);
-      const x = rect.left + frame.clientLeft + (parseFloat(style.paddingLeft) || 0) + at.x;
-      const y = rect.top + frame.clientTop + (parseFloat(style.paddingTop) || 0) + at.y;
-      if (x < 1 || y < 1 || x > window.innerWidth - 1 || y > window.innerHeight - 1) return null;
-      const root = frame.getRootNode();
-      const hit = (root.elementFromPoint ? root : document).elementFromPoint(x, y);
-      return hit === frame ? { x, y } : null;
-    }).toString()})(${JSON.stringify(word)}, ${JSON.stringify(step)}, ${JSON.stringify(point || null)})`;
-  }
-  async function inWindow(tab, frame, at) {
-    const main = tab.view.webContents.mainFrame;
-    let point = { x: at.x, y: at.y };
-    try {
-      for (let inner = frame, depth = 0; inner !== main; inner = inner.parent, depth += 1) {
-        const outer = inner.parent;
-        if (!outer || inner.detached || depth > 6) return null;
-        const word = randomUUID();
-        const run = code => (outer === main ? tab.view.webContents.executeJavaScriptInIsolatedWorld(WORLD, [{ code }]) : outer.executeJavaScript(code));
-        await run(placeScript(word, 'listen'));
-        let place = 'waiting';
-        try {
-          await inner.executeJavaScript(`void window.parent.postMessage(${JSON.stringify(word)}, '*')`);
-          for (const wait of [20, 60, 150, 300]) {
-            await delay(wait);
-            place = await run(placeScript(word, 'take', point));
-            if (place !== 'waiting') break;
-          }
-        } finally { if (place === 'waiting') await run(placeScript(word, 'drop')).catch(() => {}); }
-        if (!place || place === 'waiting') return null;
-        point = place;
-      }
-    } catch { return null; }
-    return point;
-  }
-  // 自动填写 presses with the mouse what a hand would press: a choice here, the form's button below. Where the
-  // mouse cannot get to the thing, null, and it is set by command as before.
-  async function mouseIn(tab, root, at) {
-    if (!at) return false;
-    // A frame that scrolled itself into view moved the page around it, which may be drawn elsewhere: a moment for it.
-    if (root.frame && at.moved) await delay(150);
-    const point = root.frame ? await inWindow(tab, root.frame, at) : at;
-    if (!point) return false;
-    try { await mouse(tab, { x: point.x, y: point.y, moved: Boolean(at.moved), framed: Boolean(root.frame) }); } catch { return false; }
-    return true;
-  }
-  async function pressChoice(tab, root, name, item) {
-    const found = await inFrame(tab, root, name, 'choice', item);
-    if (!found || found.error || found.set) return;
-    if (await mouseIn(tab, root, found.at)) await delay(80);
-    await inFrame(tab, root, name, 'choose', item);
-  }
   async function scanForm(tab, roots, name) {
     const fields = [];
     for (const [frame, root] of roots.entries()) {
@@ -1279,9 +1118,7 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
       if (!fills.length) break;
       for (const [frame, root] of roots.entries()) {
         const items = fills.filter(item => item.frame === frame).map(({ index, value, option, check }) => ({ index, value, option, check }));
-        if (!items.length) continue;
-        const done = await inFrame(tab, root, name, 'fill', items);
-        for (const item of done?.choices || []) if (tabs.includes(tab)) await pressChoice(tab, root, name, item);
+        if (items.length) await inFrame(tab, root, name, 'fill', items);
       }
       filled.push(...used.map(item => ({ label: String(item.label).slice(0, 100), key: item.key })));
       await delay(250);
@@ -1299,29 +1136,18 @@ function createBrowser({ window, appOrigin, settingsFile, copy, getProfile = () 
     // The form's button is in the frame that holds most of its fields.
     const order = roots.map((root, frame) => ({ root, count: fields.filter(field => field.frame === frame).length }))
       .filter(item => item.count).sort((a, b) => b.count - a.count);
-    // The button is pressed with the mouse, as a hand would press it. Only where the mouse cannot get to it, or
-    // its press did not reach the button, is it pressed by command (see submit in autofill.cjs).
     let button = null;
-    let pressedBy = 'command';
     sending = { tab, by: 'user', until: Date.now() + 20000 };
     for (const { root } of order) {
-      const found = await inFrame(tab, root, name, 'submit', { mouse: true });
-      if (!found || found.error) continue;
-      if (found.clicked != null) { button = found.clicked; break; }
-      const moused = await mouseIn(tab, root, found.at);
-      if (moused) await delay(120);
-      // No answer: the page went with the press.
-      const took = tabs.includes(tab) ? await inFrame(tab, root, name, 'submit', { check: true }) : null;
-      button = took?.clicked ?? found.name;
-      pressedBy = took?.by === 'command' ? 'command' : moused ? 'mouse' : 'command';
-      break;
+      button = (await inFrame(tab, root, name, 'submit'))?.clicked ?? null;
+      if (button !== null) break;
     }
     if (button === null) { sending = null; return { ...outcome, noButton: true, page: info(tab) }; }
     await settle(tab, 800);
     let confirmed = false;
     for (const root of formRoots(tab)) if (await inFrame(tab, root, name, 'confirmation')) { confirmed = true; break; }
     const tracked = await afterSend(tab, 'user');
-    return { ...outcome, submitted: true, button, pressedBy, confirmed, ...tracked, page: info(tab) };
+    return { ...outcome, submitted: true, button, confirmed, ...tracked, page: info(tab) };
   }
 
   // 自动收录. The active page is looked at every few seconds. A tab that showed an application form, had something

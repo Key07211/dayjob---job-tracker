@@ -165,11 +165,6 @@ function install(makeHidden, pickOption) {
     return list;
   }
 
-  // Where a thing stands in the window, for the mouse to know when it is over it.
-  function boxOf(element, offset) {
-    const rect = element.getBoundingClientRect();
-    return { left: rect.left + offset.x, top: rect.top + offset.y, right: rect.right + offset.x, bottom: rect.bottom + offset.y };
-  }
   function frameOffset(element) {
     let x = 0;
     let y = 0;
@@ -551,7 +546,6 @@ function install(makeHidden, pickOption) {
     pointer.fade?.cancel();
     pointer.fade = null;
     // Moved with `translate`, which is applied outside `scale`: the ring grows where it stands.
-    const start = { x: pointer.x, y: pointer.y };
     const from = `${pointer.x}px ${pointer.y}px`;
     const to = `${x}px ${y}px`;
     const far = Math.hypot(x - pointer.x, y - pointer.y);
@@ -568,7 +562,7 @@ function install(makeHidden, pickOption) {
       mine.fade = mine.host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: still ? 1 : 260, fill: 'forwards' });
       mine.fade.onfinish = () => { mine.host.remove(); if (pointer === mine) pointer = null; };
     }, 1800);
-    return { wait: glide, from: start };
+    return glide;
   }
 
   function focused() {
@@ -687,7 +681,7 @@ function install(makeHidden, pickOption) {
       if (!reaches(element, point, at.hit)) info.coveredBy = at.hit ? `${at.hit.tagName.toLowerCase()} “${textOf(at.hit).slice(0, 80) || name(at.hit) || at.hit.className}”` : 'nothing (outside the window)';
       const offset = frameOffset(point);
       // aimed: the spot is the element's own, and can be looked up again by its ref (see mouse in browser.cjs).
-      return { ...info, aimed: true, x: at.x + offset.x, y: at.y + offset.y, box: boxOf(point, offset) };
+      return { ...info, aimed: true, x: at.x + offset.x, y: at.y + offset.y };
     },
 
     // What is at a point of the window (as in a picture of the page): the control there, or the bare thing itself.
@@ -713,7 +707,7 @@ function install(makeHidden, pickOption) {
       for (let box = hit; !control && box; box = box.parentElement) if (loose.has(box) || looseControl(box)) control = box;
       control ||= hit;
       const info = aim(control);
-      return { ...info, name: info.name || textOf(hit).slice(0, 120), risky: info.risky || riskyAt(hit, control), x, y, box: boxOf(control, { x: left, y: top }) };
+      return { ...info, name: info.name || textOf(hit).slice(0, 120), risky: info.risky || riskyAt(hit, control), x, y };
     },
 
     // Which control some words on the page belong to: one that reads so, else the words themselves where they
@@ -881,10 +875,9 @@ function install(makeHidden, pickOption) {
       return spare || { error: 'none' };
     },
 
-    // Shows the pointer on its way to a point; answers how long (ms) it takes to get there and where it sets
-    // out from, so that the mouse itself can go the same way (see mouse in browser.cjs).
+    // Shows the pointer on its way to a point; answers how long (ms) it takes to get there.
     pointer({ x, y, press = false }) {
-      try { return showPointer(x, y, press); } catch { return { wait: 0 }; }
+      try { return { wait: showPointer(x, y, press) }; } catch { return { wait: 0 }; }
     },
 
     // Sets a real checkbox or radio button the way pressing Space on it would, for one the mouse cannot reach.

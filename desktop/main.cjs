@@ -362,31 +362,6 @@ const APPLY_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta char
 const EMBED_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head>
 <body><label>Phone <input name="phone" type="tel"></label> <label>LinkedIn profile <input name="linkedin" required></label> <label>Desired salary <input name="salary"></label></body></html>`;
 
-// 模拟鼠标: a form that writes down how each press came to it (by hand: real input; by command: a script's click),
-// how many moves of the mouse came before it, and how long the button was held. The form stands below the first
-// screen, so it has to be scrolled to. On its own page, and inside a page of another site.
-const MOUSE_FORM = action => `<form action="${action}" method="get"><label>First name <input name="first" required></label>
-<fieldset><legend>Are you legally authorized to work in the United States?</legend>
-<label><input type="radio" name="auth" value="yes"> Yes</label> <label><input type="radio" name="auth" value="no"> No</label></fieldset>
-<input type="hidden" name="seen" id="seen"> <button>Submit application</button></form>
-<script>
-let moves = 0;
-let down = 0;
-const seen = [];
-const note = what => event => { seen.push(what + ':' + (event.isTrusted ? 'hand' : 'command') + ':' + moves); document.getElementById('seen').value = seen.join(','); };
-addEventListener('mousemove', event => { if (event.isTrusted) moves += 1; }, true);
-addEventListener('mousedown', () => { down = performance.now(); }, true);
-addEventListener('mouseup', event => { seen.push('held:' + (event.isTrusted ? 'hand' : 'command') + ':' + Math.round(performance.now() - down)); }, true);
-for (const radio of document.querySelectorAll('input[type=radio]')) radio.addEventListener('click', note('choice'));
-document.querySelector('button').addEventListener('click', note('send'));
-</script>`;
-const MOUSE_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mouse · Smoke Co</title></head>
-<body><h1>Apply for Data Analyst</h1><div style="height:900px">About the job.</div>${MOUSE_FORM('/moused')}</body></html>`;
-const MOUSE_EMBED_PAGE = embedPort => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mouse, embedded · Smoke Co</title></head>
-<body><h1>Apply for Data Analyst</h1><div style="height:900px">About the job.</div>
-<iframe src="http://embed.localhost:${embedPort}/embed-mouse" width="460" height="240" style="border:6px solid #999;padding:5px;margin-left:30px"></iframe><div style="height:300px"></div></body></html>`;
-const EMBED_MOUSE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embedded form</title></head><body>${MOUSE_FORM('/embed-moused')}</body></html>`;
-
 // An application form that takes files: a cover letter on the page, and the resume inside the form embedded from
 // another site, in a field hidden behind a button (as most application forms have it). The embedded page writes
 // down what it was handed.
@@ -851,8 +826,7 @@ document.getElementById('text').textContent = 'Slow Co is hiring a Late Analyst.
 // so the password never shows in an address.
 const LOGIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in · Smoke Co</title></head>
 <body><h1>Sign in</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email" autocomplete="username"></label>
-<label>Password <input name="password" type="password" autocomplete="current-password"></label> <input type="hidden" name="how" id="how"> <button>Sign in</button></form>
-<script>document.querySelector('button').addEventListener('click', event => { document.getElementById('how').value = event.isTrusted ? 'hand' : 'command'; });</script></body></html>`;
+<label>Password <input name="password" type="password" autocomplete="current-password"></label> <button>Sign in</button></form></body></html>`;
 const SIGNUP_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Create account · Smoke Co</title></head>
 <body><h1>Create account</h1><form action="/signed-in" method="post"><label>Email <input name="email" type="email"></label>
 <label>Password <input name="password" type="password"></label> <label>Confirm password <input name="confirm" type="password"></label> <button>Create account</button></form></body></html>`;
@@ -886,9 +860,7 @@ async function smokeBrowser(token) {
   const escape = value => String(value ?? '').replace(/[<>&"]/g, character => `&#${character.charCodeAt(0)};`);
   const embed = http.createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    if (request.url.startsWith('/embed-moused')) return response.end('<!doctype html><title>Sent</title><h1>Sent.</h1>');
-    if (request.url.startsWith('/embed-mouse')) return response.end(EMBED_MOUSE_PAGE);
-    return response.end(request.url.startsWith('/embed-upload') ? EMBED_UPLOAD_PAGE : EMBED_PAGE);
+    response.end(request.url.startsWith('/embed-upload') ? EMBED_UPLOAD_PAGE : EMBED_PAGE);
   });
   await new Promise(resolve => embed.listen(0, '127.0.0.1', resolve));
   const site = http.createServer((request, response) => {
@@ -899,7 +871,7 @@ async function smokeBrowser(token) {
       request.on('data', chunk => { body += chunk; });
       request.on('end', () => {
         const form = new URLSearchParams(body);
-        response.end(`<!doctype html><title>Signed in</title><h1>Signed in as ${escape(form.get('email'))}</h1><p>${(form.get('password') || '').length}-character password</p>${form.get('how') ? `<p>Sent by ${escape(form.get('how'))}</p>` : ''}`);
+        response.end(`<!doctype html><title>Signed in</title><h1>Signed in as ${escape(form.get('email'))}</h1><p>${(form.get('password') || '').length}-character password</p>`);
       });
       return undefined;
     }
@@ -910,9 +882,6 @@ async function smokeBrowser(token) {
     if (url.pathname === '/login-step1') return response.end(STEP_ONE_PAGE);
     if (url.pathname === '/login-step2') return response.end(STEP_TWO_PAGE(escape(url.searchParams.get('email'))));
     if (url.pathname === '/apply') return response.end(APPLY_PAGE(embed.address().port));
-    if (url.pathname === '/mouse-apply') return response.end(MOUSE_APPLY_PAGE);
-    if (url.pathname === '/mouse-embed') return response.end(MOUSE_EMBED_PAGE(embed.address().port));
-    if (url.pathname === '/moused') return response.end('<!doctype html><title>Sent</title><h1>Sent.</h1>');
     if (url.pathname === '/choices') return response.end(CHOICE_PAGE);
     if (url.pathname === '/marked-hidden') return response.end(MARKED_HIDDEN_PAGE);
     if (url.pathname === '/widgets') return response.end(WIDGET_PAGE);
@@ -1294,8 +1263,6 @@ async function smokeBrowser(token) {
     browser.setAutoLogin(true);
     await browser.go(`${base}/login?auto=1`);
     steps.autoLoggedIn = await until(() => signedInAs('smoke@example.com'), 10000);
-    // Its button was pressed with the mouse, as a hand would press it, not by a command given to the page.
-    steps.autoLoginByMouse = (await pageAt(`${base}/signed-in`)?.executeJavaScript('document.body.innerText').catch(() => ''))?.includes('Sent by hand') === true;
     steps.autoNoted = browser.state().login?.auto?.state === 'sent' && browser.state().login.auto.username === 'smoke@example.com';
     await browser.go(`${base}/login?again=1`);
     steps.autoGuarded = await until(() => browser.state().login?.auto?.state === 'failed', 10000) && !browser.state().login.filled
@@ -1427,32 +1394,6 @@ async function smokeBrowser(token) {
     const humanWait = await slowSend(30000, '&check=1');
     steps.sendWaitsOnHuman = humanWait.sent.sending?.still === true && humanWait.sent.sending.humanCheck === 'Cloudflare Turnstile' && /only the user can/.test(humanWait.sent.sending.note || '')
       && humanWait.took < 6000 && humanWait.times === 1;
-    // 模拟鼠标: 自动填写 with auto-submit on presses a choice and the form's button with the mouse: the page hears
-    // real presses, moves of the mouse on the way there, and a button held a moment. So it does in a form that
-    // another site's page holds, whose place in the window Dayjob has to ask for.
-    const moused = async address => {
-      await browser.go(address);
-      await until(() => pageAt(address) && !pageAt(address).isLoading(), 5000);
-      browser.setAutoSubmit(true);
-      try { return await browser.autofill({ submit: true }); } finally { browser.setAutoSubmit(false); }
-    };
-    const heard = address => {
-      const asked = new URL(address || 'http://none/').searchParams;
-      const said = Object.fromEntries((asked.get('seen') || '').split(',').map(part => part.split(':')).filter(part => part.length === 3).map(([what, by, count]) => [what, { by, count: Number(count) }]));
-      return { ...said, auth: asked.get('auth'), first: asked.get('first') };
-    };
-    const onPage = await moused(`${base}/mouse-apply`);
-    await until(() => Boolean(pageAt(`${base}/moused`)), 4000);
-    const pageHeard = heard(pageAt(`${base}/moused`)?.getURL());
-    steps.mouseSends = onPage.submitted === true && onPage.pressedBy === 'mouse' && pageHeard.send?.by === 'hand' && pageHeard.send.count >= 4 && pageHeard.held?.by === 'hand'
-      && pageHeard.held.count >= 40 && pageHeard.first === 'Smoke';
-    steps.mouseChooses = pageHeard.choice?.by === 'hand' && pageHeard.auth === 'yes';
-    const onEmbed = await moused(`${base}/mouse-embed`);
-    const framed = () => pageAt(`${base}/mouse-embed`)?.mainFrame.frames[0]?.url || '';
-    await until(() => framed().includes("/embed-moused"), 4000);
-    const embedHeard = heard(framed());
-    steps.mouseInFrame = onEmbed.submitted === true && onEmbed.pressedBy === 'mouse' && embedHeard.send?.by === 'hand' && embedHeard.send.count >= 2 && embedHeard.choice?.by === 'hand'
-      && embedHeard.auth === 'yes' && embedHeard.first === 'Smoke';
     // 同时申请: two applications, each in a tab of its own, worked on at once while the user looks at another page.
     const shown = browser.state().activeId;
     const runA = { by: 'assistant', run: { key: 'run-a', own: true, job: 'Smoke Co · Data Analyst' } };
@@ -1610,7 +1551,7 @@ async function smokeBrowser(token) {
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
     'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'fileDialogHeld', 'resumeNamedInPieces', 'filledAfterUpload', 'letterNamedInPieces', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'codeAsks', 'codeTyped', 'codeRow', 'codeOnlyMail', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'sendWaitedFor', 'sendStillSending', 'sendWaitsOnHuman', 'mouseSends', 'mouseChooses', 'mouseInFrame', 'autoLoginByMouse', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'assistantDeclined', 'takeover', 'sendWaitedFor', 'sendStillSending', 'sendWaitsOnHuman', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);
