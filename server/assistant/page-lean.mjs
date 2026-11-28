@@ -36,6 +36,8 @@ export function elementLine(item, { href = true } = {}) {
   if (item.expanded !== undefined) parts.push(item.expanded ? 'expanded' : 'collapsed');
   if (item.opens === 'list') parts.push('opens-list');
   if (item.opens === 'suggestions') parts.push('suggests-list');
+  // A button that only opens the computer's file dialog: the file is attached with the upload tools instead.
+  if (item.picksFile) parts.push('opens-file-dialog');
   if (item.required) parts.push('required');
   // A box put there to catch robots: nothing is ever typed in it.
   if (item.trap) parts.push('trap-leave-empty');

@@ -344,6 +344,7 @@ function install(makeHidden, pickOption) {
     }
     if (disabled(element)) item.disabled = true;
     if (element.required || element.getAttribute('aria-required') === 'true') item.required = true;
+    if (picksFile(element)) item.picksFile = true;
     if (!inViewport(element)) item.offscreen = true;
     return item;
   }
@@ -488,9 +489,20 @@ function install(makeHidden, pickOption) {
     return false;
   }
 
+  // A button, a label or a line that only hands the click on to a file field (the label around it, or for it): a
+  // click on it opens the computer's file dialog, which nothing in the page can answer.
+  function picksFile(element) {
+    if (element.tagName === 'INPUT') return false;
+    const label = element.closest('label');
+    if (!label) return false;
+    const field = label.control || label.querySelector('input[type="file"]');
+    return field?.tagName === 'INPUT' && field.type === 'file' && !field.disabled;
+  }
+
   // What the mouse is about to go for.
   function aim(element) {
     const info = { ref: refFor(element), role: role(element), name: name(element), disabled: disabled(element), risky: riskyAt(element, element), editable: typable(element) };
+    if (picksFile(element)) info.picksFile = true;
     if (element.tagName === 'SELECT') info.select = true;
     else if (opensList(element)) info.opens = 'list';
     else if (suggests(element)) info.opens = 'suggestions';
@@ -635,6 +647,20 @@ function install(makeHidden, pickOption) {
 
     // Where to click. An element the mouse already reaches is left where it is (a list that dropped down may close
     // when the page moves under it); any other is scrolled into view first.
+    // How the button that sent a form stands a moment later: disabled or busy while the page is still sending, and
+    // how many complaints the page shows (a box marked invalid, an alert with words in it).
+    sending({ ref }) {
+      const shown = node => node.checkVisibility?.({ visibilityProperty: true }) !== false;
+      const errors = [...document.querySelectorAll('[aria-invalid="true"], [role="alert"]')].filter(node => shown(node) && (node.matches('[aria-invalid="true"]') || textOf(node))).length;
+      // A check that the visitor is a person, by the box its answer is written into: there, and still empty.
+      const checks = [['Cloudflare Turnstile', '[name="cf-turnstile-response"]'], ['reCAPTCHA', '[name="g-recaptcha-response"]'], ['hCaptcha', '[name="h-captcha-response"]']];
+      const human = checks.find(([, box]) => [...document.querySelectorAll(box)].some(node => !node.value))?.[0] || '';
+      const element = find(ref);
+      if (!element) return { error: 'missing', errors, human };
+      const busy = Boolean(element.closest('[aria-busy="true"]') || element.querySelector('[aria-busy="true"], [role="progressbar"], progress'));
+      return { disabled: disabled(element), busy, errors, human };
+    },
+
     target({ ref }) {
       const element = find(ref);
       if (!element) return { error: 'missing' };

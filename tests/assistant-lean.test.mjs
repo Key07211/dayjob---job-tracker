@@ -44,6 +44,8 @@ test('each thing on a page is one line that says only what is set', () => {
   assert.equal(elementLine({ ref: 'e11', role: 'radio', name: 'Yes', group: 'Authorized to work?', checked: true }), 'e11 radio "Yes" group="Authorized to work?" checked');
   assert.equal(elementLine({ ref: 'e12', role: 'checkbox', name: 'I agree', checked: false, required: true }), 'e12 checkbox "I agree" unchecked required');
   assert.equal(elementLine({ ref: 'e13', role: 'combobox', name: 'Code', value: '+1', expanded: false, opens: 'list' }), 'e13 combobox "Code" value="+1" collapsed opens-list');
+  // A button that only opens the computer's file dialog says so: the file goes in with the upload tools.
+  assert.equal(elementLine({ ref: 'e14', role: 'button', name: 'Drop or select (.doc / .docx / .pdf)', picksFile: true }), 'e14 button "Drop or select (.doc / .docx / .pdf)" opens-file-dialog');
   assert.equal(elementLine({ ref: 'e2', role: 'button', name: 'Bold', pressed: false, disabled: true }), 'e2 button "Bold" unpressed disabled');
   assert.equal(elementLine({ ref: 'e3', role: 'option', name: 'Canada', selected: true }), 'e3 option "Canada" selected');
   assert.equal(elementLine({ ref: 'e4', role: 'link', name: 'He said "hi"', href: 'https://example.com/a' }), 'e4 link "He said \\"hi\\"" href=https://example.com/a');

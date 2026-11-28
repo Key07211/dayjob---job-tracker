@@ -228,6 +228,19 @@ test('the resume goes into the field that is for it', () => {
   assert.equal(pickFileField([upload('Attach', { section: 'Portfolio' }), upload('Cover letter')]), null, 'not one in a part of the form that is for something else');
   // A field named by the line over its box (an accent and all), as a form that says only "Drop or select" on the box has it.
   assert.equal(pickFileField([upload('Cover letter'), upload('Résumé')]).label, 'Résumé');
+  // Accents written as marks of their own (e + ´) read the same.
+  assert.equal(pickFileField([upload('Cover letter'), upload('Re\u0301sume\u0301')]).label, 'Re\u0301sume\u0301');
+  // Two uploads whose words say nothing, as on Rippling's form before its names were read in full: what the
+  // page's own code calls each one tells them apart, for the resume and for the cover letter.
+  const marked = upload('Drop or select (.doc / .docx / .pdf)', { hint: 'input-resume resume field' });
+  const markedLetter = upload('Drop or select (.doc / .docx / .pdf)', { hint: 'input-cover_letter cover_letter field' });
+  assert.equal(pickFileField([markedLetter, marked]), marked);
+  assert.equal(pickFileField([markedLetter, marked], 'coverLetter'), markedLetter);
+  assert.equal(pickFileField([upload('', { hint: 'cover Letter Upload' }), upload('')]).hint, undefined, 'the one left beside a marked cover letter');
+  assert.equal(pickFileField([upload('', { hint: 'transcript-input' })]), null);
+  // The words a person reads win over the marks in the code.
+  assert.equal(pickFileField([upload('Cover letter', { hint: 'resume-2' }), upload('Attach')]).label, 'Attach');
+  assert.equal(pickFileField([upload('Résumé', { hint: 'attachment-cover' }), upload('', { hint: 'resume' })]).label, 'Résumé');
   assert.equal(pickFileField([]), null);
 });
 

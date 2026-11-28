@@ -320,6 +320,8 @@ async function createWindow() {
     resumes: { pick: input => service.repo.pickResumeFile(input), file: id => service.repo.getResumeFile(id) },
     transcripts: { pick: input => service.transcripts.pick(input), file: id => service.transcripts.file(id) },
     track: { applied: input => service.trackApplied(input), posting: url => service.postingAt(url) },
+    // The check waits for a page that is still sending a form for a few seconds, not for a minute.
+    ...(smoke ? { sendingMs: 6000 } : {}),
     onApproval: request => desktopNotification(text().approval(request)), devTools: !app.isPackaged });
   // A vault with its own password closes again when the computer locks or goes to sleep.
   const closeVault = () => {
@@ -373,16 +375,32 @@ const EMBED_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <script>document.getElementById('file').addEventListener('change', async event => { const file = event.target.files[0];
 document.getElementById('got').textContent = file ? file.name + '|' + file.size + '|' + (await file.text()).slice(0, 24) : 'none'; });</script></body></html>`;
 
-// A form whose two uploads are each labelled only by how to hand a file over, with the line that says what the
-// file is in a plain box above it (as Rippling's application form has them). The page writes down what it got.
+// A form whose two uploads are drawn the way Rippling's application form draws them. The label around each field
+// says only how to hand a file over ("Drop or select"); it is named in pieces, the first a line for people who
+// cannot see it ("Total 0 file selected"), the second the question itself ("Résumé"), which stands in a plain box
+// above. The page's own code marks say which is which as well. Once the resume is in, the page sends it off to be
+// read and, when the answer is back, writes what was found over its boxes: the first name is emptied. A third
+// button opens the file dialog from a script. The page writes down what it got.
 const DROP_UPLOAD_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Drop Co</title></head>
-<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get"><label>First name <input name="first"></label>
-<div class="field"><div class="title">Résumé<span>*</span></div><div class="zone"><label><span>Drop or select (.doc / .docx / .pdf)</span>
-<input id="one" type="file" accept=".doc,.docx,.pdf,.txt" style="display:none"></label></div></div>
-<div class="field"><div class="title">Cover letter</div><div class="zone"><label><span>Drop or select (.doc / .docx / .pdf)</span>
-<input id="two" type="file" accept=".doc,.docx,.pdf,.txt" style="display:none"></label></div></div><p id="got"></p></form>
-<script>document.getElementById('one').addEventListener('change', event => { const file = event.target.files[0];
-document.getElementById('got').textContent = file ? file.name + '|' + file.size : 'none'; });</script></body></html>`;
+<body><h1>Apply for Data Analyst</h1><form action="/applied" method="get"><label>First name <input id="first" name="first"></label>
+<div data-testid="field"><div><span aria-describedby="tip-5" id="field-4-label">Résumé</span><span>*</span></div><div>
+<div data-testid="screen-reader-only" id="file-input-6">Total 0 file selected</div>
+<label data-testid="resume" type="DEFAULT" tabindex="-1" aria-labelledby="file-input-6 field-4-label" aria-describedby="field-4-helptext">
+<input id="one" title="" accept=".doc,.docx,.pdf,.txt" data-testid="input-resume" type="File" style="position:absolute;opacity:0;width:1px;height:1px">
+<button id="pick-one" data-testid="test_button" type="button"><span>Drop or select (.doc / .docx / .pdf)</span></button></label>
+<span id="field-4-helptext">The résumé will be parsed to fill in the application details</span></div></div>
+<div data-testid="field"><div><span id="field-7-label">Cover letter</span></div><div>
+<div data-testid="screen-reader-only" id="file-input-9">Total 0 file selected</div>
+<label data-testid="cover_letter" type="DEFAULT" tabindex="-1" aria-labelledby="file-input-9 field-7-label">
+<input id="two" title="" accept=".doc,.docx,.pdf,.txt" data-testid="input-cover_letter" type="File" style="position:absolute;opacity:0;width:1px;height:1px">
+<button data-testid="test_button" type="button"><span>Drop or select (.doc / .docx / .pdf)</span></button></label></div></div>
+<p><button id="by-script" type="button">Add a writing sample</button><input id="three" name="writing_sample" type="file" style="display:none"></p>
+<p id="got"></p><p id="asked">0</p></form>
+<script>document.getElementById('one').addEventListener('change', async event => { const file = event.target.files[0];
+document.getElementById('got').textContent = file ? file.name + '|' + file.size : 'none';
+if (file) { await fetch('/parsed'); document.getElementById('first').value = ''; document.getElementById('got').dataset.read = 'yes'; } });
+document.getElementById('pick-one').addEventListener('click', () => document.getElementById('one').click());
+document.getElementById('by-script').addEventListener('click', () => { document.getElementById('asked').textContent = String(Number(document.getElementById('asked').textContent) + 1); document.getElementById('three').click(); });</script></body></html>`;
 
 // A form drawn the way BambooHR's is: three uploads whose own name is the same "file-input", each under a plain
 // line that says what the file is, the buttons in the reader's language; and a box that says to leave it empty,
@@ -767,6 +785,18 @@ const QUIET_APPLY_PAGE = `<!doctype html><html lang="en"><head><meta charset="ut
 <body><h1>Your application</h1><form action="/applied" method="get"><label>First name <input name="first" required></label>
 <label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label> <button>Submit application</button></form></body></html>`;
 
+// A form that takes its time to send, as Rippling's does: the button turns grey and says it is sending, nothing
+// else changes until the answer is back (after ?after= milliseconds), and only then the page says thanks.
+// check: the page also waits on a check that the visitor is a person, the way Turnstile leaves a box for its answer.
+const SLOW_APPLY_PAGE = (after, check) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Apply · Slow Co</title></head>
+<body><h1>Operations Analyst</h1><p>Slow Co · Remote</p><form id="form"><label>First name <input name="first" required></label>
+<label>Email <input name="email" type="email"></label> <label>Phone <input name="phone"></label>
+<button id="apply" data-testid="Apply" type="submit"><span>Apply</span></button></form><p id="done" hidden>Thank you for applying to Slow Co. We have received your application.</p>
+<script>document.getElementById('form').addEventListener('submit', async event => { event.preventDefault(); const button = document.getElementById('apply');
+if (button.getAttribute('aria-disabled') === 'true') return; button.setAttribute('aria-disabled', 'true'); button.dataset.disabled = 'true';
+window.sent = (window.sent || 0) + 1; ${check ? "document.getElementById('form').insertAdjacentHTML('beforeend', '<div><div></div><input type=\"hidden\" name=\"cf-turnstile-response\"></div>'); " : ''}await fetch('/slow-sent?after=${after}', { method: 'PUT', body: 'x' });
+document.getElementById('form').hidden = true; document.getElementById('done').hidden = false; });</script></body></html>`;
+
 // A board that applies in a dialog over the job's own page, as Handshake does: nothing to fill in but a search box,
 // the address stays as it is, and the dialog then says the application went through.
 const DIALOG_JOB_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Insights Intern | Dialog Co</title></head>
@@ -861,9 +891,13 @@ async function smokeBrowser(token) {
     if (url.pathname === '/jobs/long') return response.end(LONG_JOB_PAGE);
     if (url.pathname === '/jobs/late') return response.end(LATE_JOB_PAGE);
     if (url.pathname === '/quiet-apply') return response.end(QUIET_APPLY_PAGE);
+    if (url.pathname === '/slow-apply') return response.end(SLOW_APPLY_PAGE(Number(url.searchParams.get('after')) || 0, url.searchParams.has('check')));
+    if (url.pathname === '/slow-sent') return void setTimeout(() => response.end('{}'), Math.min(Number(url.searchParams.get('after')) || 0, 30000)).unref();
     if (url.pathname === '/board/job/31') return response.end(DIALOG_JOB_PAGE);
     if (url.pathname === '/upload') return response.end(UPLOAD_PAGE(embed.address().port));
     if (url.pathname === '/upload-drop') return response.end(DROP_UPLOAD_PAGE);
+    // The answer of whatever reads a resume: it takes its time.
+    if (url.pathname === '/parsed') return void setTimeout(() => response.end('{}'), 1200);
     if (url.pathname === '/upload-fabric') return response.end(FABRIC_UPLOAD_PAGE);
     if (url.pathname === '/applied') return response.end(`<!doctype html><title>Applied</title><h1>Thank you for applying, ${escape(url.searchParams.get('first'))}</h1>`);
     return response.end(url.pathname === '/submitted'
@@ -1112,13 +1146,30 @@ async function smokeBrowser(token) {
       && service.letters.remove(keptLetter.id) && !fs.existsSync(letterFile);
     steps.assistantOnly = (await post('letter', { text: 'x'.repeat(60) })).status === 404 && (await post('signin')).status === 404 && (await post('signup')).status === 404
       && (await post('codebox')).status === 404 && (await post('codefill', { code: '123456' })).status === 404;
-    // Two uploads that both say only "Drop or select": the line over each box says which one is the resume's.
+    // Two uploads drawn as Rippling draws them (see DROP_UPLOAD_PAGE). The reading marks the buttons that only open
+    // the computer's file dialog, and a click on one is refused; so is a click on a button whose script asks for
+    // the dialog, which is held back and never opens.
     await call('open', { url: `${base}/upload-drop` });
-    const underHeading = await call('upload');
     const dropPage = window.contentView.children.find(child => child.webContents?.getURL().startsWith(`${base}/upload-drop`)).webContents;
-    steps.resumeUnderHeading = underHeading.uploaded.resume === 'Smoke Resume.txt' && underHeading.uploaded.field === 'Résumé'
-      && await until(async () => (await dropPage.executeJavaScript("document.getElementById('got').textContent")) === `Smoke Resume.txt|${Buffer.byteLength(resumeText)}`, 5000)
-      && (await dropPage.executeJavaScript("document.getElementById('two').files.length")) === 0;
+    const inDrop = code => dropPage.executeJavaScript(code);
+    const drop = await call('read');
+    const pickers = drop.elements.filter(item => item.picksFile);
+    const byLabel = await post('click', { ref: pickers[0]?.ref });
+    const byScript = await post('click', { ref: drop.elements.find(item => item.name === 'Add a writing sample')?.ref });
+    steps.fileDialogHeld = pickers.length === 2 && byLabel.status === 409 && /file dialog/.test((await byLabel.json()).error || '')
+      && byScript.status === 409 && /asked for the computer's file dialog/.test((await byScript.json()).error || '') && (await inDrop("document.getElementById('asked').textContent")) === '1';
+    // 自动填写 on that form. The resume's field is told by the question among the pieces of its name, not by the
+    // line that says how many files are chosen. It goes in before anything is filled in, and the page is given
+    // until it has read it, so that what is filled in afterwards is not written over.
+    const dropFilled = await browser.autofill({});
+    steps.resumeNamedInPieces = dropFilled.resume?.attached === true && dropFilled.resume.resume.name === 'Smoke Resume.txt' && dropFilled.resume.field === 'Résumé'
+      && (await inDrop("document.getElementById('got').textContent")) === `Smoke Resume.txt|${Buffer.byteLength(resumeText)}` && (await inDrop("document.getElementById('two').files.length")) === 0;
+    steps.filledAfterUpload = dropFilled.filled.some(item => item.key === 'firstName') && (await inDrop("document.getElementById('got').dataset.read")) === 'yes'
+      && (await inDrop("document.getElementById('first').value")) === 'Smoke';
+    // The cover letter's field is told the same way, and the upload that is for something else is left alone.
+    const dropLetter = await browser.agent('letter', { text: 'Dear Drop Co team,\n\nI build dashboards that people use every week.\n\nSmoke Tester' }, { by: 'assistant' });
+    steps.letterNamedInPieces = dropLetter.letter.as === 'file' && dropLetter.letter.field === 'Cover letter' && (await inDrop("document.getElementById('two').files.length")) === 1
+      && (await inDrop("document.getElementById('three').files.length")) === 0;
     // 成绩单: transcripts are PDF files in the transcript folder; one put there by hand is listed too. On a form
     // whose three uploads all call themselves "file-input", the line over each says which is which: the resume
     // goes under "Resume", the transcript marked as the default under "College Transcript", and the cover letter's
@@ -1321,6 +1372,28 @@ async function smokeBrowser(token) {
     steps.assistantDeclined = (await asked) === 409 && Boolean(pageAt(`${base}/jobs/7`));
     const taken = await browser.agent('click', { ref: sendRef }, { by: 'assistant', takeover: true });
     steps.takeover = taken.allowed === 'auto' && /full takeover/.test(taken.note || '') && taken.page.url.startsWith(`${base}/submitted?name=Asked+First`);
+    // A form that is slow to send (Rippling's took minutes): the click that sent it waits while the button is grey
+    // and what was sent has not come back, and comes back once the page says thanks, well after the few seconds a
+    // form is otherwise given. One that is still sending when the wait is over is not called sent and not sent a
+    // second time: the result says that nobody knows. One that waits on a check that the visitor is a person is
+    // handed over sooner, with the check named.
+    const slowSend = async (after, more = '') => {
+      await browser.agent('open', { url: `${base}/slow-apply?after=${after}${more}` }, byAssistant);
+      const form = await browser.agent('read', {}, byAssistant);
+      await browser.agent('type', { ref: form.elements.find(item => item.name === 'First name').ref, text: 'Slow' }, byAssistant);
+      const from = Date.now();
+      const sent = await browser.agent('click', { ref: form.elements.find(item => item.name === 'Apply').ref }, { by: 'assistant', takeover: true });
+      const slowPage = pageAt(`${base}/slow-apply`);
+      return { sent, took: Date.now() - from, thanks: await slowPage.executeJavaScript("!document.getElementById('done').hidden"), times: await slowPage.executeJavaScript('window.sent') };
+    };
+    const waitedFor = await slowSend(3500);
+    steps.sendWaitedFor = waitedFor.took >= 3500 && waitedFor.took < 6000 && waitedFor.thanks === true && !waitedFor.sent.sending && waitedFor.times === 1;
+    const stillSending = await slowSend(30000);
+    steps.sendStillSending = stillSending.sent.sending?.still === true && stillSending.sent.sending.waitedSeconds >= 5 && !stillSending.sent.sending.humanCheck
+      && /not known/.test(stillSending.sent.sending.note || '') && /needs-user/.test(stillSending.sent.sending.note) && stillSending.took < 10000 && stillSending.thanks === false && stillSending.times === 1;
+    const humanWait = await slowSend(30000, '&check=1');
+    steps.sendWaitsOnHuman = humanWait.sent.sending?.still === true && humanWait.sent.sending.humanCheck === 'Cloudflare Turnstile' && /only the user can/.test(humanWait.sent.sending.note || '')
+      && humanWait.took < 6000 && humanWait.times === 1;
     // 同时申请: two applications, each in a tab of its own, worked on at once while the user looks at another page.
     const shown = browser.state().activeId;
     const runA = { by: 'assistant', run: { key: 'run-a', own: true, job: 'Smoke Co · Data Analyst' } };
@@ -1477,8 +1550,8 @@ async function smokeBrowser(token) {
   steps.ok = !steps.error && ['refusesDayjob', 'opened', 'jobPosting', 'typed', 'selected', 'askedFirst', 'submitted', 'screenshot',
     'autofilled', 'autofillRepeat', 'autoSubmitted', 'autoAllowed', 'vaultEncrypted', 'vaultFilled', 'vaultHidden', 'vaultSubmitted', 'vaultOffered',
     'vaultNoSecrets', 'vaultKept', 'vaultClosed', 'vaultClosedFills', 'vaultOpened', 'vaultImported', 'autoLoggedIn', 'autoNoted', 'autoGuarded', 'autoRetried',
-    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'resumeUnderHeading', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'codeAsks', 'codeTyped', 'codeRow', 'codeOnlyMail', 'assistantAsked',
-    'assistantDeclined', 'takeover', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
+    'autoTwoStep', 'vaultCleared', 'resumeUploaded', 'resumeOnce', 'fileDialogHeld', 'resumeNamedInPieces', 'filledAfterUpload', 'letterNamedInPieces', 'letterAttached', 'letterSaved', 'assistantOnly', 'assistantSignedIn', 'assistantNoRetry', 'signupNeedsName', 'signupAsks', 'signupDeclined', 'signupSet', 'signupAgain', 'signupSent', 'signupOnlyNew', 'codeAsks', 'codeTyped', 'codeRow', 'codeOnlyMail', 'assistantAsked',
+    'assistantDeclined', 'takeover', 'sendWaitedFor', 'sendStillSending', 'sendWaitsOnHuman', 'runsOwnTabs', 'runsWorkUnseen', 'runsAskTogether', 'runsAnswered', 'runsEnd', 'dialogRecorded', 'redrawn', 'fieldKinds', 'optionsRead', 'optionsKept', 'typedIntoList', 'typedSuggests', 'workdayRead', 'workdayTrap', 'workdayLists', 'workdayFading', 'workdayPrompt', 'workdayFurther', 'workdayNoRow', 'workdayLeft', 'workdayOptions', 'jobsRead', 'jobsUnread', 'jobsTabGone', 'autoRecorded', 'autoRecordedShown', 'userRecorded', 'askedWhichJob', 'namedRecorded', 'autoTrackSwitch',
     'choiceUnderLabel', 'choiceBesideLabel', 'choiceCovered', 'choiceCheckbox', 'choiceRead', 'plainFieldTyped', 'codeRefused',
     'markedRead', 'markedFilled', 'markedBehindDialog', 'widgetsRead', 'listSearched', 'pointerShown', 'closestRow', 'clickBrought', 'plainList', 'noSuchRow', 'typeahead',
     'drawnChoices', 'hovered', 'clickedWords', 'pointNeedsShot', 'clickedPoint', 'pointAsksFirst', 'pointDeclined', 'labelsOnce', 'scrolledClick', 'pointerLeaves'].every(step => steps[step] === true);

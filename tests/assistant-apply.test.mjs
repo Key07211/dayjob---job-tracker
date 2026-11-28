@@ -230,6 +230,9 @@ test('the assistant learns a form\'s dropdowns before it answers them, and text 
   // The tools and the prompt say how a field's kind is told and that dropdowns are chosen from.
   const tools = app.assistant.tools;
   assert.match(tools.get('browser_read').description, /opens-list.*suggests-list.*never typed in/s);
+  // A button that only opens the file dialog is told apart, and a form that is slow to send is not taken for stuck.
+  assert.match(tools.get('browser_read').description, /opens-file-dialog.*never click it/s);
+  assert.match(tools.get('browser_click').description, /still sending the form is waited for.*"sending".*humanCheck.*not known, so do not click again/s);
   assert.match(tools.get('browser_type').description, /Not for dropdowns/);
   assert.match(tools.get('browser_select').description, /do not guess at the wording/);
 });
