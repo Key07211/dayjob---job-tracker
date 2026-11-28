@@ -14,6 +14,7 @@ import { DateField } from './groove/Picker.jsx';
 import { ApplyButton } from './assistant/Runs.jsx';
 import { LetterButton } from './CoverLetters.jsx';
 import { Tip } from './Tip.jsx';
+import { SLOW_MS, usePageHold } from './detail-swap.js';
 
 const SCORED_BY = { 'claude-cli': 'Claude Code', 'anthropic-api': 'Claude API', 'codex-cli': 'Codex', 'openai-api': 'OpenAI API' };
 
@@ -84,20 +85,33 @@ function ScoreCard({ score, onScore, scoring, hasResume, setView, scoreMode, sav
   );
 }
 
-// Which resume this job is scored against, and how the others compare.
-function ResumeMatch({ match }) {
+// Which resume this job is scored against, and how the others compare. 手动换简历: beside each of the others is
+// a button that makes it this job's resume and scores the job against it (onChoose); a choice made by hand says
+// so, and can be given back to Dayjob (onChoose(null)).
+function ResumeMatch({ match, onChoose, busy }) {
   const { t } = useI18n();
   if (!match?.ranking?.length) return null;
   const chosen = match.ranking.find(entry => entry.id === match.resumeId) || match.ranking[0];
   const percent = value => `${Math.round(value * 100)}%`;
   return (
     <details className="resume-match">
-      <summary><FileUser size={14} />{t(`按简历“${chosen.name}”分析 · 关键词重合 ${percent(chosen.overlap)}`, `Scored against “${chosen.name}” · ${percent(chosen.overlap)} keyword overlap`)}</summary>
+      <summary><FileUser size={14} />{t(`按简历“${chosen.name}”分析 · 关键词重合 ${percent(chosen.overlap)}`, `Scored against “${chosen.name}” · ${percent(chosen.overlap)} keyword overlap`)}
+        {match.manual ? t(' · 手动选择', ' · chosen by hand') : ''}</summary>
       {chosen.matched.length ? <div className="keywords"><h4>{t('重合的关键词', 'Shared keywords')}</h4><div>{chosen.matched.map(word => <span key={word}>{word}</span>)}</div></div> : null}
       {match.ranking.length > 1 ? (
-        <ul>{match.ranking.map(entry => <li key={entry.id} className={entry.id === chosen.id ? 'chosen' : undefined}><span>{entry.name}</span><em>{percent(entry.overlap)}</em></li>)}</ul>
+        <ul>{match.ranking.map(entry => (
+          <li key={entry.id} className={entry.id === chosen.id ? 'chosen' : undefined}>
+            <span>{entry.name}</span><em>{percent(entry.overlap)}</em>
+            {entry.id === chosen.id ? <i>{t('当前', 'In use')}</i>
+              : <button className="button small" data-fx="sparkle" onClick={() => onChoose(entry.id)} disabled={busy}>{t('用这份评分', 'Score with this')}</button>}
+          </li>
+        ))}</ul>
       ) : null}
-      <Tip>{t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</Tip>
+      {match.manual ? <p className="match-back"><button className="button small" onClick={() => onChoose(null)} disabled={busy}><RotateCcw size={13} />{t('恢复自动选择', 'Back to automatic')}</button></p> : null}
+      <Tip>{match.ranking.length > 1
+        ? t('Dayjob 会自动选关键词重合度最高的简历来打分。点“用这份评分”可以换成另一份：这一对没打过分就打一次，打过的直接显示。让助手申请时附上的也是这一份。',
+          'Dayjob scores each job against the resume with the highest keyword overlap. “Score with this” switches to another one: the pair is scored once if it has no score yet, and shown at once if it has. It is also the resume attached when the assistant applies.')
+        : t('Dayjob 会自动选关键词重合度最高的简历来打分。', 'Dayjob scores each job against the resume with the highest keyword overlap.')}</Tip>
     </details>
   );
 }
@@ -137,20 +151,42 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   // A slow request (scoring takes about 30 s) must not show on another job.
   const shown = useRef(id);
   shown.current = id;
+  // The card on screen, whether it took the place of another job's card, and the page held still while it does.
+  const card = useRef(null);
+  const swapped = useRef(false);
+  const [slow, setSlow] = useState(false);
+  // The job the card on screen was loaded for.
+  const [loaded, setLoaded] = useState(null);
+  const take = usePageHold(card, posting?.id);
+  // The job whose 我已投递 form the list asked for while that job was still on its way here.
+  const wanted = useRef(null);
 
+  // Another job was picked. The one on screen stays until the next has arrived and is then changed for it in one
+  // go: an empty pane in between made the page shorter for a moment, and the whole page jumped (detail-swap.js).
+  // What the last click left on the card goes with the card, not before it.
   useEffect(() => {
     let cancelled = false;
-    setPosting(null);
-    setApplying(false);
-    setBusy('');
-    setError('');
-    setMark('');
-    setRolled(false);
-    setJustApplied(false);
-    setLetter(null);
-    api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) { setPosting(value); setLetter(value.coverLetter || null); } })
-      .catch(failure => { if (!cancelled) setError(failure.message); });
-    return () => { cancelled = true; };
+    setSlow(false);
+    const waiting = setTimeout(() => { if (!cancelled) setSlow(true); }, SLOW_MS);
+    const arrive = (value, failure = '') => {
+      if (cancelled) return;
+      clearTimeout(waiting);
+      take();
+      swapped.current = Boolean(card.current);
+      setPosting(value);
+      setLoaded(id);
+      setLetter(value?.coverLetter || null);
+      setApplying(wanted.current === id);
+      wanted.current = null;
+      setBusy('');
+      setError(failure);
+      setMark('');
+      setRolled(false);
+      setJustApplied(false);
+      setSlow(false);
+    };
+    api(`/api/postings/${encodeURIComponent(id)}`).then(value => arrive(value), failure => arrive(null, failure.message));
+    return () => { cancelled = true; clearTimeout(waiting); };
   }, [id]);
   // The list's right-click menu changed this job: load it again in place. Or it asked for 我已投递: open the form.
   useEffect(() => {
@@ -159,7 +195,10 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
     api(`/api/postings/${encodeURIComponent(id)}`).then(value => { if (!cancelled) { setPosting(value); setLetter(value.coverLetter || null); } }).catch(() => {});
     return () => { cancelled = true; };
   }, [version]);
-  useEffect(() => { if (applyAsk?.id === id) setApplying(true); }, [applyAsk]);
+  useEffect(() => {
+    if (applyAsk?.id !== id) return;
+    if (loaded === id) setApplying(true); else wanted.current = id;
+  }, [applyAsk]);
 
   async function act(name, work) {
     const own = () => shown.current === id;
@@ -171,6 +210,17 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
     const updated = await api(`/api/postings/${encodeURIComponent(id)}/score`, { method: 'POST', body: { force } });
     if (own()) { setPosting(updated); setRolled(force); }
     onChanged(updated);
+  });
+  // 手动换简历: this job goes with the resume the user picked (null: Dayjob's own choice again). A pair that has no
+  // score yet is scored at once, since that is what the button says; one that has shows the score it got.
+  const chooseResume = resumeId => act('score', async own => {
+    const updated = await api(`/api/postings/${encodeURIComponent(id)}/resume`, { method: 'POST', body: { resumeId } });
+    if (own()) setPosting(updated);
+    onChanged(updated);
+    if (!resumeId || updated.score) return;
+    const scored = await api(`/api/postings/${encodeURIComponent(id)}/score`, { method: 'POST', body: { force: false } });
+    if (own()) { setPosting(scored); setRolled(true); }
+    onChanged(scored);
   });
   const setStatus = (status, done) => act(status, async own => {
     const updated = await api(`/api/postings/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } });
@@ -208,8 +258,10 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
   if (!posting) return <div className="detail-empty"><BeatLoader /></div>;
   const salary = salaryText(posting.salary);
   const facts = [jobTypeText(posting.jobType), posting.jobLevel, posting.isRemote ? t('远程', 'Remote') : null, posting.department, posting.jobFunction].filter(Boolean);
+  // Until the next job has arrived this is still the last one: it can be read, not acted on.
+  const stale = loaded !== id;
   return (
-    <article className="posting-detail" key={posting.id}>
+    <article className={`posting-detail${swapped.current ? ' swap' : ''}${stale && slow ? ' waiting' : ''}`} key={posting.id} ref={card} inert={stale} aria-busy={stale || undefined}>
       <header>
         <div className="detail-title">
           <div className="logo large">{posting.companyLogo ? <img src={posting.companyLogo} alt="" referrerPolicy="no-referrer" /> : <span>{(posting.company || posting.title).slice(0, 1).toUpperCase()}</span>}</div>
@@ -259,7 +311,7 @@ export function PostingDetail({ id, onChanged, setView, hasResume, mode, scoreMo
       </header>
       <FactsLine posting={posting} />
       <ScoreCard score={posting.score} onScore={score} scoring={busy === 'score'} hasResume={hasResume} setView={setView} scoreMode={scoreMode} saved={posting.status === 'saved'} rolled={rolled} />
-      <ResumeMatch match={posting.resumeMatch} />
+      <ResumeMatch match={posting.resumeMatch} onChoose={chooseResume} busy={Boolean(busy)} />
       <section className="description">
         <h3>{t('职位描述', 'Job description')}</h3>
         {posting.description ? <Markdown text={posting.description} /> : <p className="hint">{t('这个来源没有提供完整描述。打开原帖查看。', 'This source does not include the full description. Open the posting to read it.')}</p>}

@@ -291,6 +291,11 @@ const migrations = [
   `
   ALTER TABLE scores ADD COLUMN effort TEXT;
   `,
+  // 手动换简历: 1 for a posting whose resume the user chose by hand. Such a posting keeps its resume when postings
+  // are matched to resumes again, for as long as that resume is there.
+  `
+  ALTER TABLE postings ADD COLUMN resume_manual INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export const SCHEMA_VERSION = migrations.length;
