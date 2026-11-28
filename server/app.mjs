@@ -410,9 +410,15 @@ export async function createApp(options = {}) {
       }
       return [201, repo.getPosting(stored.id)];
     }
-    match = pathname.match(/^\/api\/postings\/([^/]+)(\/score|\/apply)?$/);
+    match = pathname.match(/^\/api\/postings\/([^/]+)(\/score|\/apply|\/resume)?$/);
     if (match) {
       const posting = need(repo.getPosting(match[1]), 'Posting');
+      // 手动换简历: the resume this job is scored against and applied with, chosen by hand ({ resumeId }), or
+      // Dayjob's own choice again ({ resumeId: null }). Scoring it is a request of its own (/score).
+      if (match[2] === '/resume' && method === 'POST') {
+        if (input.resumeId !== null && (typeof input.resumeId !== 'string' || !input.resumeId || input.resumeId.length > 100)) throw new HttpError(400, 'resumeId must be a resume id, or null for the automatic choice.');
+        return need(repo.setPostingResume(posting.id, input.resumeId) || null, 'Resume');
+      }
       if (!match[2] && method === 'PATCH') {
         if (posting.status === 'applied') throw new HttpError(409, 'This job is already tracked as an application.');
         const updated = repo.setPostingStatus(posting.id, postingStatus(input));

@@ -56,6 +56,9 @@ input[type="checkbox"]:checked:focus { animation: tick-up 234ms cubic-bezier(.2,
 
 /* Details, panels and pages arrive instead of switching. */
 .posting-detail, .application-detail { animation: detail-in 234ms cubic-bezier(.2, .8, .2, 1); }
+/* One job or application taking the place of another in the pane is a switch: it is simply there. */
+.posting-detail.swap, .application-detail.swap { animation: none; }
+.posting-detail.waiting, .application-detail.waiting { opacity: .55; transition: opacity 156ms ease-out; }
 @keyframes detail-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .notifications { animation: panel-in 234ms cubic-bezier(.2, .8, .2, 1); }
 @keyframes panel-in { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }

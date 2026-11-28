@@ -13,6 +13,7 @@ import { BeatLoader } from './groove/BrandMark.jsx';
 import { StatusCheck } from './assistant/StatusCheck.jsx';
 import { DateField } from './groove/Picker.jsx';
 import { Tip } from './Tip.jsx';
+import { SLOW_MS, usePageHold } from './detail-swap.js';
 
 const TABS = [
   { id: 'open', label: ['进行中', 'Active'], match: item => OPEN_STATUSES.includes(item.status) },
@@ -87,32 +88,54 @@ function NewApplication({ onCreated, onCancel }) {
   );
 }
 
-function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
+// The application picked in the list. The one on screen stays until the next has arrived and then gives way to it
+// in one go, with the page held where it was (detail-swap.js): an empty pane in between made the whole page jump.
+function ApplicationPane({ id, ...rest }) {
+  const [shown, setShown] = useState(null);
+  const [error, setError] = useState('');
+  const [slow, setSlow] = useState(false);
+  const pane = useRef(null);
+  const swapped = useRef(false);
+  const take = usePageHold(pane, shown?.item.id);
+  useEffect(() => {
+    let cancelled = false;
+    setSlow(false);
+    const waiting = setTimeout(() => { if (!cancelled) setSlow(true); }, SLOW_MS);
+    const arrive = (item, failure = '') => {
+      if (cancelled) return;
+      clearTimeout(waiting);
+      take();
+      swapped.current = Boolean(pane.current);
+      setShown(item ? { for: id, item } : null);
+      setError(failure);
+      setSlow(false);
+    };
+    api(`/api/applications/${encodeURIComponent(id)}`).then(item => arrive(item), failure => arrive(null, failure.message));
+    return () => { cancelled = true; clearTimeout(waiting); };
+  }, [id]);
+  if (!shown) return <div className="detail-empty">{error || <BeatLoader />}</div>;
+  const stale = shown.for !== id;
+  // Until the next application has arrived this is still the last one: it can be read, not acted on.
+  return (
+    <div className="detail-swap" ref={pane} inert={stale} aria-busy={stale || undefined}>
+      <ApplicationDetail key={shown.item.id} id={shown.item.id} initial={shown.item} swapped={swapped.current} waiting={stale && slow} {...rest} />
+    </div>
+  );
+}
+
+function ApplicationDetail({ id, initial, swapped = false, waiting = false, onChanged, onDeleted, setView }) {
   const { t } = useI18n();
-  const [item, setItem] = useState(null);
+  const [item, setItem] = useState(initial);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [statusDay, setStatusDay] = useState(localDateInput());
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initial.notes || '');
   const [busy, setBusy] = useState(false);
   // Timeline entries that just arrived drop in at the top.
   const [fresh, setFresh] = useState(() => new Set());
   const card = useRef(null);
   const noteInput = useRef(null);
   const followInput = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setItem(null);
-    api(`/api/applications/${encodeURIComponent(id)}`).then(value => {
-      if (cancelled) return;
-      setItem(value);
-      setNotes(value.notes || '');
-      setNote('');
-      setStatusDay(localDateInput());
-    }).catch(failure => { if (!cancelled) setError(failure.message); });
-    return () => { cancelled = true; };
-  }, [id]);
 
   // A status that ends the application lets its moment play on the card before the list moves it to Closed.
   async function patch(body, { linger = 0 } = {}) {
@@ -179,10 +202,9 @@ function ApplicationDetail({ id, onChanged, onDeleted, setView }) {
     });
   }
 
-  if (!item) return <div className="detail-empty">{error || <BeatLoader />}</div>;
   const quiet = daysSince(item.statusChangedAt);
   return (
-    <article className="application-detail" ref={card}>
+    <article className={`application-detail${swapped ? ' swap' : ''}${waiting ? ' waiting' : ''}`} ref={card}>
       <header>
         <h2>{item.title}</h2>
         <p className="detail-company"><span>{item.company}</span>{item.location ? <span>{item.location}</span> : null}{item.site ? <span>{label('site', item.site)}</span> : null}</p>
@@ -343,7 +365,7 @@ export function ApplicationsView({ boot, reload, dataVersion, refreshStatus, set
           ))}
         </div>
         <div className="detail-pane">
-          {selected ? <ApplicationDetail key={selected} id={selected} onChanged={changed} setView={setView}
+          {selected ? <ApplicationPane id={selected} onChanged={changed} setView={setView}
             onDeleted={id => { flip.measure(); setItems(current => current.filter(item => item.id !== id)); void refreshStatus(); }} />
             : <div className="detail-empty">{t('选择一条投递查看时间线', 'Pick an application to see its timeline')}</div>}
         </div>

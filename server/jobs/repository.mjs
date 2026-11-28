@@ -214,6 +214,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     jobUrl: row.job_url, applyUrl: row.apply_url, datePosted: row.date_posted, firstSeenAt: row.first_seen_at, lastSeenAt: row.last_seen_at,
     closedAt: row.closed_at, lastCheckedAt: row.last_checked_at, status: row.status, duplicateOf: row.duplicate_of,
     resumeId: row.resume_id ?? null, resumeOverlap: row.resume_overlap ?? null,
+    ...(row.resume_manual ? { resumeManual: true } : {}),
     ...(row.description !== undefined ? { description: row.description, emails: json(row.emails, []) } : {}),
     ...(row.score !== undefined ? { score: row.score === null ? null : { score: row.score, verdict: row.verdict, summary: row.score_summary } } : {}),
     ...(row.application_id !== undefined ? { application: row.application_id ? { id: row.application_id, status: row.application_status } : null } : {}),
@@ -443,32 +444,50 @@ export function createRepository(db, { now = () => new Date() } = {}) {
   let resumeIndex = null;
   const resumes = () => (resumeIndex ??= q('SELECT id, name, uploaded_at, text FROM resumes').all()
     .map(row => ({ id: row.id, name: row.name, uploadedAt: row.uploaded_at, terms: resumeTerms(row.text) })));
+  // The resume a posting goes with: the one that shares most of its keywords, unless the user chose one by hand
+  // (resume_manual), which stays for as long as that resume is there.
+  function pickResume(row, index) {
+    const ranking = index.length ? rankResumes(row, index) : [];
+    const kept = row.resume_manual ? ranking.find(entry => entry.id === row.resume_id) : null;
+    const best = kept || ranking[0];
+    return [best?.id ?? null, best?.overlap ?? null, kept ? 1 : 0];
+  }
   function matchPosting(id) {
-    const index = resumes();
-    const row = q('SELECT title, description FROM postings WHERE id = ?').get(id);
+    const row = q('SELECT title, description, resume_id, resume_manual FROM postings WHERE id = ?').get(id);
     if (!row) return;
-    const [best] = index.length ? rankResumes(row, index) : [];
-    q('UPDATE postings SET resume_id = ?, resume_overlap = ? WHERE id = ?').run(best?.id ?? null, best?.overlap ?? null, id);
+    q('UPDATE postings SET resume_id = ?, resume_overlap = ?, resume_manual = ? WHERE id = ?').run(...pickResume(row, resumes()), id);
+  }
+  // 手动换简历: the user's own choice of resume for one posting, or (resumeId null) back to Dayjob's choice.
+  // Returns the posting; null when there is no such posting, false when there is no such resume.
+  function setPostingResume(id, resumeId) {
+    const row = q('SELECT title, description FROM postings WHERE id = ?').get(id);
+    if (!row) return null;
+    if (resumeId === null) {
+      q('UPDATE postings SET resume_manual = 0 WHERE id = ?').run(id);
+      matchPosting(id);
+      return getPosting(id);
+    }
+    const entry = rankResumes(row, resumes()).find(item => item.id === resumeId);
+    if (!entry) return false;
+    q('UPDATE postings SET resume_id = ?, resume_overlap = ?, resume_manual = 1 WHERE id = ?').run(entry.id, entry.overlap, id);
+    return getPosting(id);
   }
   // After resumes change, every posting picks its resume again; on start only
   // postings without a valid match are looked at.
   function rematchPostings({ missingOnly = false } = {}) {
     const index = resumes();
     return transaction(db, () => {
-      const rows = q(`SELECT id, title, description FROM postings
+      const rows = q(`SELECT id, title, description, resume_id, resume_manual FROM postings
         ${missingOnly ? 'WHERE resume_id IS NULL OR resume_id NOT IN (SELECT id FROM resumes)' : ''}`).all();
-      const update = q('UPDATE postings SET resume_id = ?, resume_overlap = ? WHERE id = ?');
-      for (const row of rows) {
-        const [best] = index.length ? rankResumes(row, index) : [];
-        update.run(best?.id ?? null, best?.overlap ?? null, row.id);
-      }
+      const update = q('UPDATE postings SET resume_id = ?, resume_overlap = ?, resume_manual = ? WHERE id = ?');
+      for (const row of rows) update.run(...pickResume(row, index), row.id);
       return rows.length;
     });
   }
   function resumeMatch(row) {
     const index = resumes();
     if (!index.length) return null;
-    return { resumeId: row.resume_id, ranking: rankResumes(row, index).map(entry => ({ id: entry.id, name: index.find(resume => resume.id === entry.id).name,
+    return { resumeId: row.resume_id, manual: Boolean(row.resume_manual), ranking: rankResumes(row, index).map(entry => ({ id: entry.id, name: index.find(resume => resume.id === entry.id).name,
       overlap: entry.overlap, matched: entry.matched })) };
   }
   function addResume({ name, mime, size, text, file = null }) {
@@ -792,7 +811,7 @@ export function createRepository(db, { now = () => new Date() } = {}) {
     listCompanies, addCompany, setCompanyEnabled, deleteCompany,
     upsertPosting, holdsPosting, listPostings, getPosting, findPostingByUrl, findSameJob, removePosting, postingForScoring, setPostingStatus, dismissBelowScore, restoreDismissed, markChecked, markUnseenCompanyJobsClosed, purgeOldPostings,
     startRun, finishRun, updateRunScoring, listRuns, abandonRunningRuns,
-    addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings,
+    addResume, listResumes, getResume, getResumeFile, setResumeFile, pickResumeFile, countResumes, deleteResume, rematchPostings, setPostingResume,
     saveScore, getScore, unscoredPostingIds, logUsage, logStep, listSteps, priceUsage, usageSummary, usageSpend,
     createApplication, getApplication, applicationForPosting, listApplications, updateApplication, setApplicationFlags, deleteApplication, addEvent,
     addNotification, listNotifications, markNotificationsRead, stats,
