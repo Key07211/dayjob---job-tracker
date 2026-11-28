@@ -28,7 +28,9 @@
 
 /* The panels. */
 .main { height: 100vh; display: flex; gap: var(--bezel); padding: var(--titlebar) var(--bezel) var(--bezel) 0; overflow: hidden; }
-.main-view { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: var(--page-top) 28px 28px; border-radius: var(--screen); background: var(--glow), var(--surface); }
+/* The page keeps room for its scroll bar whether or not it needs one. Without that, going from a job that fits
+   the window to one that does not (or back) made everything in the page 10 px narrower or wider at once. */
+.main-view { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: var(--page-top) 28px 28px; border-radius: var(--screen); background: var(--glow), var(--surface); }
 .assistant-pane { border-left: 0; border-radius: var(--screen); overflow: hidden; }
 .assistant-pane.full { border-radius: 0; }
 .browser-pane { border-radius: var(--screen); overflow: hidden; }

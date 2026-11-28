@@ -8,7 +8,7 @@
 
 /* Full page: the assistant stands where the view does, the browser still beside it. The kept conversations get a
    column of their own while there is room for it; below that they fold back behind the header's button. */
-.main.assistant-full .main-view { flex: 1; min-width: 0; padding: 0; overflow: hidden; display: flex; }
+.main.assistant-full .main-view { flex: 1; min-width: 0; padding: 0; overflow: hidden; scrollbar-gutter: auto; display: flex; }
 .assistant-pane.full { flex: 1; width: auto; min-width: 0; border-left: 0; container: asst / inline-size; --asst-side: 232px; }
 /* The chat keeps a readable measure in the middle of the page, and every row keeps the gutters it has in the side chat. */
 .assistant-pane.full .asst-main { padding-inline: max(0px, calc((100cqw - var(--asst-side) - 780px) / 2)); }
